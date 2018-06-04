@@ -104,7 +104,41 @@ class PostProcessingTest(unittest.TestCase):
     #         plt.draw()
     #         plt.pause(0.1)
 
-   def test_training_model(self):
+   # def test_random_batch(self):
+   #      path = "../annotations/hyang/video0/"
+   #      loader = Loader(path)
+   #      south = np.array([720, 1920])
+   #      north = np.array([720, 0])
+   #      route = Route(south, north)
+   #      loader.make_obj_dict_by_route(route, True, 'Biker')
+   #      postprocessor = PostProcessing(loader)
+   #      sequence_length = 30
+   #
+   #      for batch in range(10):
+   #          id = postprocessor.get_random_id()
+   #          d_input_sequence, d_output_sequence, idx = postprocessor.get_random_batch_standardized(id, sequence_length)
+   #
+   #          plt.subplot(1, 2, 1)
+   #          plt.cla()
+   #          plt.imshow(loader.map)
+   #          plt.plot(postprocessor.filtered_dict[id][:, 0], postprocessor.filtered_dict[id][:, 1], color='blue')
+   #          plt.plot(loader.route_poses[:, 0], loader.route_poses[:, 1], color='black')
+   #          plt.plot(postprocessor.filtered_dict[id][idx:idx+sequence_length, 0], postprocessor.filtered_dict[id][idx:idx+sequence_length, 1], color='red')
+   #
+   #          plt.subplot(1, 2, 2)
+   #          plt.cla()
+   #          plt.grid('On')
+   #          plt.plot(np.arange(0, sequence_length), d_input_sequence, color='blue', marker='+', label='input')
+   #          plt.plot(np.arange(sequence_length, sequence_length*2), d_output_sequence, color='green', marker='+', label='output')
+   #          d_pred_sequence = np.polyfit(np.arange(0, sequence_length), d_input_sequence, 6)
+   #          p = np.poly1d(d_pred_sequence)
+   #          plt.plot(np.arange(0, sequence_length + 1), p(np.arange(0, sequence_length + 1)), color='red', marker='+', label='polyfit')
+   #
+   #          plt.legend()
+   #          plt.draw()
+   #          plt.pause(0.1)
+
+    def test_random_batch(self):
         path = "../annotations/hyang/video0/"
         loader = Loader(path)
         south = np.array([720, 1920])
@@ -113,26 +147,31 @@ class PostProcessingTest(unittest.TestCase):
         loader.make_obj_dict_by_route(route, True, 'Biker')
         postprocessor = PostProcessing(loader)
         sequence_length = 30
+        id = 32
+        n_batches = len(postprocessor.filtered_dict[32]) // sequence_length
 
-        for batch in range(10):
-            id = postprocessor.get_random_id()
-            d_input_sequence, d_output_sequence, idx = postprocessor.get_random_batch_standardized(id, sequence_length)
+        for batch in range(n_batches):
+            idx = batch*sequence_length
+            d_input_sequence, d_output_sequence = postprocessor.get_batch_standardized(id=id, length=sequence_length, start=idx)
 
             plt.subplot(1, 2, 1)
             plt.cla()
             plt.imshow(loader.map)
             plt.plot(postprocessor.filtered_dict[id][:, 0], postprocessor.filtered_dict[id][:, 1], color='blue')
             plt.plot(loader.route_poses[:, 0], loader.route_poses[:, 1], color='black')
-            plt.plot(postprocessor.filtered_dict[id][idx:idx+sequence_length, 0], postprocessor.filtered_dict[id][idx:idx+sequence_length, 1], color='red')
+            plt.plot(postprocessor.filtered_dict[id][idx:idx + sequence_length, 0],
+                     postprocessor.filtered_dict[id][idx:idx + sequence_length, 1], color='red')
 
             plt.subplot(1, 2, 2)
             plt.cla()
             plt.grid('On')
             plt.plot(np.arange(0, sequence_length), d_input_sequence, color='blue', marker='+', label='input')
-            plt.plot(np.arange(sequence_length, sequence_length*2), d_output_sequence, color='green', marker='+', label='output')
+            plt.plot(np.arange(sequence_length, sequence_length * 2), d_output_sequence, color='green', marker='+',
+                     label='output')
             d_pred_sequence = np.polyfit(np.arange(0, sequence_length), d_input_sequence, 6)
             p = np.poly1d(d_pred_sequence)
-            plt.plot(np.arange(0, sequence_length + 1), p(np.arange(0, sequence_length + 1)), color='red', marker='+', label='polyfit')
+            plt.plot(np.arange(0, sequence_length + 1), p(np.arange(0, sequence_length + 1)), color='red', marker='+',
+                     label='polyfit')
 
             plt.legend()
             plt.draw()

@@ -44,6 +44,11 @@ class PostProcessing(object):
         sequence = series[start:start+length]
         return sequence, start
 
+    def get_sequence(self, id, start, length):
+        series = self.filtered_dict[id]
+        sequence = series[start:start + length]
+        return sequence
+
     def gen_frenet_coordinates(self, sequence):
         coordinates = []
         [coordinates.append(ct.get_frenet_coord(self.route, s)) for s in sequence]
@@ -51,6 +56,9 @@ class PostProcessing(object):
 
     def standardize(self, sequence, series):
         return (sequence - np.mean(series)) / np.std(series)
+
+    def inv_standardize(self, sequence, series):
+        return sequence*np.std(series) - np.mean(series)
 
     def get_random_batch_standardized(self, id, length, frenet_cs=True):
         sequence, idx = self.get_random_sequence(id, length*2)
@@ -64,6 +72,16 @@ class PostProcessing(object):
         target = sequence_std[length:]
         return input, target, idx
 
+    def get_batch_standardized(self, id, length, start, frenet_cs=True):
+        sequence = self.get_sequence(id, start, length * 2)
+        if frenet_cs:
+            frenet_sequence = self.gen_frenet_coordinates(sequence)
+            frenet_series = self.gen_frenet_coordinates(self.filtered_dict[id])
+            sequence_std = self.standardize(frenet_sequence[:, 1], frenet_series[:, 1])
+
+        input = sequence_std[0:length]
+        target = sequence_std[length:]
+        return input, target
 
     def gen_features(self, frame_dict, obj_dict, THRESHOLD):
         frames = sorted(list(frame_dict.keys())[:])

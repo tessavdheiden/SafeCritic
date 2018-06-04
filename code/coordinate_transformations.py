@@ -53,6 +53,36 @@ def get_frenet_coord(route, position):
     return longitudinal_distance, lateral_distance
 
 
+def get_perpendicular_vector(a):
+    b = np.empty_like(a)
+    b[0] = -a[1]
+    b[1] = a[0]
+    return b
+
+
+def normalize(a):
+    a = np.array(a)
+    return a/np.linalg.norm(a)
+
+
+def get_cart_coord_from_frenet(route, longitudinal_distance, lateral_distance):
+    """
+    :param route: route composed of piecewise linear lines
+    :param longitudinal and lateral distance at route
+    :returns position: current ego position
+    """
+    # closest sample point on route
+    long_distance = np.append([0], np.cumsum(norm(np.diff(route, axis=0), axis=1)))
+    closest_index = np.argmin(np.abs(long_distance - longitudinal_distance))
+    if closest_index == len(route) - 1:  # if closest point is last point use point before
+        closest_index -= closest_index
+
+    closest_point = normalize(route[closest_index + 1, :] - route[closest_index, :]) * (longitudinal_distance - long_distance[closest_index]) + route[closest_index, :]
+    perpendicular_vector = get_perpendicular_vector(closest_point - route[closest_index, :])
+    position = normalize(perpendicular_vector) * -lateral_distance + closest_point
+    return position, closest_point
+
+
 def polar_coordinate_to_grid_cell(yaw, distance, distance_threshold, angle_threshold=np.pi, n_thetas=7, n_ds=3):
     # normalize, -pi/2 < yaw < pi/2 --> 0 < yaw < pi
     yaw += np.pi/2
