@@ -19,18 +19,21 @@ def get_lateral_distance(a, b, p):
     """
 
     # project point on line
-    projected_point_on_line = a + (np.dot((p - a), (b - a)) / norm(b - a) ** 2) * (b - a)
+    #projected_point_on_line = a + (np.dot((p - a), (b - a)) / norm(b - a) ** 2) * (b - a)
+    projected_point_on_line=a
     lateral_distance = norm(projected_point_on_line - p)
 
     # longitudinal distance
     partial_long_distance = norm(projected_point_on_line - a)
 
-    # determine sign
-    reference_sign = -1
-    normal_vector_magnitude = np.cross((b - a), (p - a))
-    sign = np.sign(reference_sign * normal_vector_magnitude)
+    sign = get_sign(a, b, p)
 
     return sign * lateral_distance, partial_long_distance
+
+def get_sign(a, b, p):
+    reference_sign = -1
+    normal_vector_magnitude = np.cross((b - a), (p - a))
+    return np.sign(reference_sign * normal_vector_magnitude)
 
 
 def get_frenet_coord(route, position):
@@ -77,10 +80,29 @@ def get_cart_coord_from_frenet(route, longitudinal_distance, lateral_distance):
     if closest_index == len(route) - 1:  # if closest point is last point use point before
         closest_index -= closest_index
 
+    if closest_index == 0:  # if closest point is first point use point after
+        closest_index += closest_index
+
     closest_point = normalize(route[closest_index + 1, :] - route[closest_index, :]) * (longitudinal_distance - long_distance[closest_index]) + route[closest_index, :]
-    perpendicular_vector = get_perpendicular_vector(closest_point - route[closest_index, :])
-    position = normalize(perpendicular_vector) * -lateral_distance + closest_point
+
+    # # check if closest point on route is in front or behind closest point
+    # distance_ab = np.linalg.norm(closest_point - route[closest_index - 1, :])
+    # distance_bc = np.linalg.norm(closest_point - route[closest_index + 1, :])
+    #
+    # if distance_ab < distance_bc:
+    #     perpendicular_vector = get_perpendicular_vector(closest_point - route[closest_index, :]) # closest point behind
+    # else:
+    #     perpendicular_vector = get_perpendicular_vector(- closest_point + route[closest_index, :])
+    # if all(closest_point == route[closest_index, :]):
+    #     perpendicular_vector = get_perpendicular_vector(- route[closest_index + 1, :] + closest_point)
+    perpendicular_vector = get_perpendicular_vector(closest_point - route[closest_index, :])  # closest point behind
+    if all(closest_point == route[closest_index, :]):
+        perpendicular_vector = get_perpendicular_vector(- route[closest_index + 1, :] + closest_point)
+    position = normalize(perpendicular_vector) * lateral_distance + closest_point
+
     return position, closest_point
+
+
 
 
 def polar_coordinate_to_grid_cell(yaw, distance, distance_threshold, angle_threshold=np.pi, n_thetas=7, n_ds=3):

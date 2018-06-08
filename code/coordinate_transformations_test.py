@@ -25,17 +25,29 @@ class ObjectTest(unittest.TestCase):
     #     self.assertEqual(lateral_distance, 0)
 
     def test_lateral_distance_point_down(self):
-        dummy_route = np.stack((np.linspace(0, 9, 10), np.linspace(0, 9, 10))).T
+        dummy_route = np.stack((np.linspace(0, 9, 100), np.linspace(0, 19, 100))).T
         idx = 5
-        position = np.array([6.5, 2])
+        position = np.array([6, 2])
 
         longitudinal_distance, lateral_distance = get_frenet_coord(dummy_route, position)
+        print(lateral_distance)
         plt.plot(dummy_route[:, 0], dummy_route[:, 1], marker='+')
-        plt.plot(position[0], position[1], marker='o')
+        plt.plot(position[0], position[1], marker='o', color='orange')
         projection, closest_point = get_cart_coord_from_frenet(dummy_route, longitudinal_distance, lateral_distance)
         plt.plot(projection[0], projection[1], marker='X', color='green')
         plt.plot(closest_point[0], closest_point[1], marker='s', color='purple')
+        print(projection)
+
+        position = np.array([6.5, 2])
+
+        longitudinal_distance, lateral_distance = get_frenet_coord(dummy_route, position)
+        plt.plot(position[0], position[1], marker='o', color='orange')
+        projection, closest_point = get_cart_coord_from_frenet(dummy_route, longitudinal_distance, lateral_distance)
+        plt.plot(projection[0], projection[1], marker='X', color='green')
+        plt.plot(closest_point[0], closest_point[1], marker='s', color='purple')
+        plt.grid('On')
         plt.axis('equal')
+
         plt.show()
 
         self.assertEqual(longitudinal_distance, np.sqrt(2))

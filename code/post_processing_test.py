@@ -6,6 +6,7 @@ from data.sets.urban.stanford_campus_dataset.scripts.relations import Loader
 from data.sets.urban.stanford_campus_dataset.scripts.post_processing import PostProcessing
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Route
 
+import data.sets.urban.stanford_campus_dataset.scripts.coordinate_transformations as ct
 
 class PostProcessingTest(unittest.TestCase):
     # def test_filter_outliers(self):
@@ -49,15 +50,41 @@ class PostProcessingTest(unittest.TestCase):
     #     [print('s= ', str(s)) for s in sequence]
     #     [print(series[np.where(series == s)]) for s in sequence]
 
-    # def test_frenet_coordiantes(self):
-    #     path = "../annotations/hyang/video0/"
-    #     loader = Loader(path)
-    #     south = np.array([720, 1920])
-    #     north = np.array([720, 0])
-    #     route = Route(south, north)
-    #     loader.make_obj_dict_by_route(route, True, 'Biker')
-    #     postprocessor = PostProcessing(loader)
-    #     series, sequence = postprocessor.get_random_sequence(postprocessor.get_random_id(), 90)
+    def test_frenet_coordinates(self):
+        path = "../annotations/hyang/video0/"
+        loader = Loader(path)
+        south = np.array([720, 1920])
+        north = np.array([720, 0])
+        route = Route(south, north)
+        loader.make_obj_dict_by_route(route, True, 'Biker')
+        postprocessor = PostProcessing(loader)
+
+        d_series = []
+        for trajectory in postprocessor.filtered_dict.values():
+            series = []
+            for p in trajectory:
+                s, d = ct.get_frenet_coord(postprocessor.route, p)
+                d_series.append(d)
+                position, _ = ct.get_cart_coord_from_frenet(postprocessor.route, s, d)
+                series.append(position)
+
+            series = np.asarray(series)
+            plt.subplot(1, 2, 1)
+            plt.cla()
+            plt.imshow(loader.map)
+            plt.plot(trajectory[:, 0], trajectory[:, 1], color='blue')
+            plt.plot(series[:, 0], series[:, 1], color='red')
+            plt.plot(postprocessor.route[:, 0], postprocessor.route[:, 1], color='black')
+            dist = np.linalg.norm(trajectory - series)
+            plt.xlabel('error= '+ str(dist))
+
+            plt.subplot(1, 2, 2)
+            plt.cla()
+            plt.plot(postprocessor.d, color='blue')
+            plt.plot(d_series, color='red')
+            plt.show()
+            plt.draw()
+
 
     # def test_standardized_targets_in_batch(self):
     #     path = "../annotations/hyang/video0/"
@@ -138,44 +165,44 @@ class PostProcessingTest(unittest.TestCase):
    #          plt.draw()
    #          plt.pause(0.1)
 
-    def test_random_batch(self):
-        path = "../annotations/hyang/video0/"
-        loader = Loader(path)
-        south = np.array([720, 1920])
-        north = np.array([720, 0])
-        route = Route(south, north)
-        loader.make_obj_dict_by_route(route, True, 'Biker')
-        postprocessor = PostProcessing(loader)
-        sequence_length = 30
-        id = 32
-        n_batches = len(postprocessor.filtered_dict[32]) // sequence_length
-
-        for batch in range(n_batches):
-            idx = batch*sequence_length
-            d_input_sequence, d_output_sequence = postprocessor.get_batch_standardized(id=id, length=sequence_length, start=idx)
-
-            plt.subplot(1, 2, 1)
-            plt.cla()
-            plt.imshow(loader.map)
-            plt.plot(postprocessor.filtered_dict[id][:, 0], postprocessor.filtered_dict[id][:, 1], color='blue')
-            plt.plot(loader.route_poses[:, 0], loader.route_poses[:, 1], color='black')
-            plt.plot(postprocessor.filtered_dict[id][idx:idx + sequence_length, 0],
-                     postprocessor.filtered_dict[id][idx:idx + sequence_length, 1], color='red')
-
-            plt.subplot(1, 2, 2)
-            plt.cla()
-            plt.grid('On')
-            plt.plot(np.arange(0, sequence_length), d_input_sequence, color='blue', marker='+', label='input')
-            plt.plot(np.arange(sequence_length, sequence_length * 2), d_output_sequence, color='green', marker='+',
-                     label='output')
-            d_pred_sequence = np.polyfit(np.arange(0, sequence_length), d_input_sequence, 6)
-            p = np.poly1d(d_pred_sequence)
-            plt.plot(np.arange(0, sequence_length + 1), p(np.arange(0, sequence_length + 1)), color='red', marker='+',
-                     label='polyfit')
-
-            plt.legend()
-            plt.draw()
-            plt.pause(0.1)
+    # def test_random_batch(self):
+    #     path = "../annotations/hyang/video0/"
+    #     loader = Loader(path)
+    #     south = np.array([720, 1920])
+    #     north = np.array([720, 0])
+    #     route = Route(south, north)
+    #     loader.make_obj_dict_by_route(route, True, 'Biker')
+    #     postprocessor = PostProcessing(loader)
+    #     sequence_length = 30
+    #     id = 32
+    #     n_batches = len(postprocessor.filtered_dict[32]) // sequence_length
+    #
+    #     for batch in range(n_batches):
+    #         idx = batch*sequence_length
+    #         d_input_sequence, d_output_sequence = postprocessor.get_batch_standardized(id=id, length=sequence_length, start=idx)
+    #
+    #         plt.subplot(1, 2, 1)
+    #         plt.cla()
+    #         plt.imshow(loader.map)
+    #         plt.plot(postprocessor.filtered_dict[id][:, 0], postprocessor.filtered_dict[id][:, 1], color='blue')
+    #         plt.plot(loader.route_poses[:, 0], loader.route_poses[:, 1], color='black')
+    #         plt.plot(postprocessor.filtered_dict[id][idx:idx + sequence_length, 0],
+    #                  postprocessor.filtered_dict[id][idx:idx + sequence_length, 1], color='red')
+    #
+    #         plt.subplot(1, 2, 2)
+    #         plt.cla()
+    #         plt.grid('On')
+    #         plt.plot(np.arange(0, sequence_length), d_input_sequence, color='blue', marker='+', label='input')
+    #         plt.plot(np.arange(sequence_length, sequence_length * 2), d_output_sequence, color='green', marker='+',
+    #                  label='output')
+    #         d_pred_sequence = np.polyfit(np.arange(0, sequence_length), d_input_sequence, 6)
+    #         p = np.poly1d(d_pred_sequence)
+    #         plt.plot(np.arange(0, sequence_length + 1), p(np.arange(0, sequence_length + 1)), color='red', marker='+',
+    #                  label='polyfit')
+    #
+    #         plt.legend()
+    #         plt.draw()
+    #         plt.pause(0.1)
 
 if __name__ == '__main__':
     unittest.main()

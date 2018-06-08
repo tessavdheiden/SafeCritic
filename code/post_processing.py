@@ -20,16 +20,23 @@ class PostProcessing(object):
     def filter_outliers(self):
         for id, trajectory in self.raw_dict.items():
             trajectory = self.reject_outliers_2d(trajectory)
+            trajectory = trajectory[100:-100]
             self.filtered_dict[id] = trajectory
 
     def compute_target(self):
-        self.x, self.y, self.d, self.s = np.array([]), np.array([]), np.array([]), np.array([])
-        for trajectory in self.filtered_dict.values():
+        self.x, self.y, self.dx, self.dy, self.d, self.s, self.id = np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
+        self.ddx, self.ddy = np.array([]), np.array([])
+        for id, trajectory in self.filtered_dict.items():
             self.x = np.append(self.x, trajectory[:, 0])
             self.y = np.append(self.y, trajectory[:, 1])
+            self.dx = np.append(self.dx, np.hstack((np.array([0]), np.diff(trajectory[:, 0]))))
+            self.dy = np.append(self.dy, np.hstack((np.array([0]), np.diff(trajectory[:, 1]))))
+            self.ddx = np.append(self.ddx, np.hstack((np.array([0, 0]), np.diff(trajectory[:, 0], 2))))
+            self.ddy = np.append(self.ddy, np.hstack((np.array([0, 0]), np.diff(trajectory[:, 1], 2))))
             frenet_coordinates = self.gen_frenet_coordinates(trajectory)
             self.d = np.append(self.d, frenet_coordinates[:, 1])
             self.s = np.append(self.s, frenet_coordinates[:, 0])
+            self.id = np.append(self.id, id + 0*trajectory[:, 0])
 
     def reject_outliers(self, data, m=2):
         return data[abs(data - np.mean(data)) < m * np.std(data)]
@@ -78,10 +85,10 @@ class PostProcessing(object):
             frenet_sequence = self.gen_frenet_coordinates(sequence)
             frenet_series = self.gen_frenet_coordinates(self.filtered_dict[id])
             sequence_std = self.standardize(frenet_sequence[:, 1], frenet_series[:, 1])
-
+        sequence_std = frenet_sequence[:, 1]
         input = sequence_std[0:length]
         target = sequence_std[length:]
-        return input, target
+        return input, target, sequence
 
     def gen_features(self, frame_dict, obj_dict, THRESHOLD):
         frames = sorted(list(frame_dict.keys())[:])
