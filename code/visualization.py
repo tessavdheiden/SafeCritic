@@ -409,45 +409,30 @@ def visualize_features_target(ide, occupied_grid_cells, X_train_standardized, Y_
     plt.show()
 
 
-def bearing_plot():
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], polar=True)
-
-    N = 15
-    theta = np.arange(-np.pi / 2 + 0.1, np.pi / 2, np.pi / N)
-    radii = 200 * np.ones(N)
-    radii[1] = 150
-    radii[12] = 100
-    radii[7] = 180
+def bearing_plot(radii, threshold, fig, ax):
+    N = radii.shape[0]
+    theta = np.arange(-np.pi / 2 + np.pi / N / 2, np.pi / 2, np.pi / N)
     width = np.pi / N * np.ones(N)
+    radii[radii > threshold] = threshold
+    plt.cla()
     bars = ax.bar(theta, radii, width=width, bottom=0.0)
     for r, bar in zip(radii, bars):
-        bar.set_facecolor(plt.cm.jet(r / 200))
+        bar.set_facecolor(plt.cm.jet(r / threshold))
         bar.set_alpha(0.5)
 
     plt.quiver(0, 0, 0, 2, color='red')  # heading
     ax.set_theta_zero_location('N')
     ax.set_theta_direction(-1)
     ax.set_xticklabels([])
-    ax.set_yticklabels([])
-    plt.show()
+    #ax.set_yticklabels([])
+    plt.draw()
+    plt.pause(0.001)
 
 
 if __name__ == "__main__":
-    points = np.array([[0, 0], [0, 1], [1, 1],[2, 2.5],[3.5, 3],[4, 4]])
-    points_line = np.array([[0.5, 1.5], [1.5, 2.5],[5.5, 1.5],[5.5, 3.5]])
-    for point in points_line:
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], polar=True)
+    cells = np.array([50, 60, 200, 260, 10])
+    bearing_plot(cells, 200, fig, ax)
+    plt.show()
 
-        plt.plot(points[:, 0], points[:, 1], linestyle='--', marker='o', color='blue')
-        plt.plot(point[0], point[1], linestyle='--', marker='o', color='red')
-        closest_point, lateral_distance, longitudinal_distance = ct.global_2_frenet_ct(point, points)
-        print(lateral_distance)
-
-        #plt.plot(p1[0], p1[1], linestyle='--', marker='X', color='purple')
-        #plt.plot(p2[0], p2[1], linestyle='--', marker='X', color='yellow')
-
-        plt.plot(closest_point[0], closest_point[1], marker='X', color='green')
-        plt.grid('On')
-
-
-        plt.show()

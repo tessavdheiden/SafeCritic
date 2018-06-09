@@ -138,6 +138,32 @@ class Loader(object):
             print('call load or make dicts')
             return False
 
+    def make_obj_grid_dict(self, id_list, filter_label=False, label=""):
+        self.obj_grid_dict = {}
+
+        for id in id_list:
+            grid_series = []
+            all_frames = list(self.obj_dict[id].heading.keys())
+            print(all_frames)
+            for frame in all_frames:
+                neigbors = self.obj_dict[id].neighbors[frame]#[:, 0:2]
+                neigbors_series_filtered_by_type = []
+                for neighbor in neigbors:
+                    if filter_label:
+                        id_neigbor = neighbor[2]
+                        if self.obj_dict[id_neigbor].type == label:
+                            neigbors_series_filtered_by_type.append(neighbor[0:2])
+                    else:
+                        neigbors_series_filtered_by_type.append(neighbor[0:2])
+                neigbors_series_filtered_by_type = np.asarray(neigbors_series_filtered_by_type)
+
+                heading = self.obj_dict[id].heading[frame]
+                if heading.all() != 0:
+                    grid = get_grid_cell(neigbors_series_filtered_by_type, heading)
+                    grid_series.append(grid)
+                else:
+                    grid_series.append(np.array([THRESHOLD, THRESHOLD, THRESHOLD]))
+            self.obj_grid_dict[id] = grid_series
 
 def filter_by_label(df, label):
     return df.loc[df['label'] == label]
@@ -191,21 +217,13 @@ def get_predecessing_neigbor(b, ac, angle_max):
 
 
 def get_grid_cell(neighbors_in_frame, heading):
-    n_cells = 3
+    n_cells = 7
     xs = np.ones(n_cells)*THRESHOLD
-    peds = []
-    for neighbor in neighbors_in_frame:
-        id_neigbor = neighbor[2]
-        if obj_dict[id_neigbor].type == 'Pedestrian':
-            peds.append(neighbor[0:2])
-    pedestians = np.asarray(peds)
 
-    for i in range(len(pedestians)):
-        theta1, d1 = ct.theta1_d1_from_location(pedestians[i], heading)
+    for n in neighbors_in_frame:
+        theta1, d1 = ct.theta1_d1_from_location(n, heading)
         if np.abs(theta1) < np.pi/2:
-            delta_x = pedestians[i][0] - heading[0][0]
-            angle_of_attack = np.sign(delta_x) * theta1
-            idx_grid = ct.polar_coordinate_to_grid_cell(angle_of_attack, d1, n_cells, 1)
+            idx_grid = ct.polar_coordinate_to_grid_cell(theta1, d1, THRESHOLD, np.pi, n_cells, 1)
             if d1 < xs[idx_grid]:
                 xs[idx_grid] = d1
 

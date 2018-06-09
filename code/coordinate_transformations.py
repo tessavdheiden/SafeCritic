@@ -102,32 +102,31 @@ def get_cart_coord_from_frenet(route, longitudinal_distance, lateral_distance):
 
     return position, closest_point
 
-
-
-
 def polar_coordinate_to_grid_cell(yaw, distance, distance_threshold, angle_threshold=np.pi, n_thetas=7, n_ds=3):
     # normalize, -pi/2 < yaw < pi/2 --> 0 < yaw < pi
     yaw += np.pi/2
 
     # set bounds, dont jump to next cell
     if np.abs(yaw) >= angle_threshold:
-        yaw = np.sign(yaw) * angle_threshold - 0.0001
+        yaw = np.sign(yaw) * angle_threshold - 0.0001 # max theta is n_thetas - 1
     elif yaw < 0:
         yaw = 0
 
     if distance > distance_threshold:
         distance = distance_threshold
 
-    theta,_ = divmod(yaw, angle_threshold/n_thetas)
+    theta,_ = divmod(np.float32(yaw), angle_threshold/n_thetas)
     d, _ = divmod(distance, distance_threshold/n_ds)
 
-    return int(n_thetas * d + theta)
+    return int(n_thetas * d) + int(theta)
 
 
 def theta1_d1_from_location(ab, ac):
     cos_theta1 = np.dot(ab, ac.T) / (np.linalg.norm(ac) * np.linalg.norm(ab))
     cos_theta1 = np.float64(cos_theta1)
     theta1 = np.arccos(cos_theta1)
+    sign = get_sign(np.asarray([0, 0]), ab, ac)
+    theta1 = sign*theta1
     d1 = np.linalg.norm(ab)
     return theta1, d1
 
