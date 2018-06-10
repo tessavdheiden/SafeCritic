@@ -22,6 +22,7 @@ class Object(object):
         self.type = label
         self.frame_counter = 0
         self.id = id
+        self.grid = {}
 
     def update(self, data, frame):
         agents = np.array([data[:, 0], (data[:, 3] + data[:, 1]) / 2, (data[:, 2] + data[:, 4]) / 2]).T
@@ -125,45 +126,37 @@ class Loader(object):
         self.route_poses = route.path
         if bool(self.obj_dict):
             for id, data in list(self.obj_dict.items()):
+                if filter_label and data.type != label:
+                    continue
+                # check on route
                 trajectory = np.squeeze(np.asarray(list(data.trajectory.values())))
-                exist = np.squeeze(np.asarray(list(data.exist.values())))
                 if np.linalg.norm(trajectory[0] - self.route_poses[0]) < THRESHOLD and np.linalg.norm(
                         trajectory[-1] - self.route_poses[-1]) < THRESHOLD:
-                    if not filter_label:
-                        self.obj_route_dict[id] = trajectory[exist==True]
-                    elif filter_label and data.type == label:
-                        self.obj_route_dict[id] = trajectory[exist==True]
+                    # if on route, only update points that are not occluded
+                    frames = sorted(list(self.obj_dict[id].heading.keys())) # there are trajectory.keys() - 1 heading.keys()
+                    self.obj_route_dict[id] = Object(id, self.obj_dict[id].type)
+                    for frame in frames:
+                        if data.exist[frame] and self.obj_dict[id].heading[frame].all() != 0:
+                            self.obj_route_dict[id].trajectory[frame] = self.obj_dict[id].trajectory[frame]
+                            self.obj_route_dict[id].heading[frame] = self.obj_dict[id].heading[frame]
+                            self.obj_route_dict[id].neighbors[frame] = self.obj_dict[id].neighbors[frame]
+                            self.obj_route_dict[id].grid[frame] = self.make_obj_grid(id, frame, True, 'Pedestrian')
             return True
         else:
             print('call load or make dicts')
             return False
 
-    def make_obj_grid_dict(self, id_list, filter_label=False, label=""):
-        self.obj_grid_dict = {}
+    def make_obj_grid(self, id, frame, filter_label=False, label=""):
+        neigbors = self.obj_dict[id].neighbors[frame]#[:, 0:2]
+        neighbors_in_frame = []
+        for neighbor in neigbors:
+            if filter_label and self.obj_dict[neighbor[2]].type != label:
+                continue
+            neighbors_in_frame.append(neighbor[0:2])
+        neighbors_in_frame = np.asarray(neighbors_in_frame)
+        heading = self.obj_dict[id].heading[frame]
+        return get_grid(neighbors_in_frame, heading)
 
-        for id in id_list:
-            grid_series = []
-            all_frames = list(self.obj_dict[id].heading.keys())
-            print(all_frames)
-            for frame in all_frames:
-                neigbors = self.obj_dict[id].neighbors[frame]#[:, 0:2]
-                neigbors_series_filtered_by_type = []
-                for neighbor in neigbors:
-                    if filter_label:
-                        id_neigbor = neighbor[2]
-                        if self.obj_dict[id_neigbor].type == label:
-                            neigbors_series_filtered_by_type.append(neighbor[0:2])
-                    else:
-                        neigbors_series_filtered_by_type.append(neighbor[0:2])
-                neigbors_series_filtered_by_type = np.asarray(neigbors_series_filtered_by_type)
-
-                heading = self.obj_dict[id].heading[frame]
-                if heading.all() != 0:
-                    grid = get_grid_cell(neigbors_series_filtered_by_type, heading)
-                    grid_series.append(grid)
-                else:
-                    grid_series.append(np.array([THRESHOLD, THRESHOLD, THRESHOLD]))
-            self.obj_grid_dict[id] = grid_series
 
 def filter_by_label(df, label):
     return df.loc[df['label'] == label]
@@ -216,18 +209,17 @@ def get_predecessing_neigbor(b, ac, angle_max):
     return predecessing_neigbor, min_distance
 
 
-def get_grid_cell(neighbors_in_frame, heading):
+def get_grid(neighbors_in_frame, heading):
     n_cells = 7
-    xs = np.ones(n_cells)*THRESHOLD
+    grid = np.ones(n_cells)*THRESHOLD
 
     for n in neighbors_in_frame:
         theta1, d1 = ct.theta1_d1_from_location(n, heading)
         if np.abs(theta1) < np.pi/2:
             idx_grid = ct.polar_coordinate_to_grid_cell(theta1, d1, THRESHOLD, np.pi, n_cells, 1)
-            if d1 < xs[idx_grid]:
-                xs[idx_grid] = d1
-
-    return xs
+            if d1 < grid[idx_grid]:
+                grid[idx_grid] = d1
+    return grid
 
 
 
