@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 import matplotlib.pyplot as plt
+from pandas import DataFrame
 
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Loader
 from data.sets.urban.stanford_campus_dataset.scripts.post_processing import PostProcessing
@@ -50,40 +51,40 @@ class PostProcessingTest(unittest.TestCase):
     #     [print('s= ', str(s)) for s in sequence]
     #     [print(series[np.where(series == s)]) for s in sequence]
 
-    def test_frenet_coordinates(self):
-        path = "../annotations/hyang/video0/"
-        loader = Loader(path)
-        south = np.array([720, 1920])
-        north = np.array([720, 0])
-        route = Route(south, north)
-        loader.make_obj_dict_by_route(route, True, 'Biker')
-        postprocessor = PostProcessing(loader)
-
-        d_series = []
-        for trajectory in postprocessor.filtered_dict.values():
-            series = []
-            for p in trajectory:
-                s, d = ct.get_frenet_coord(postprocessor.route, p)
-                d_series.append(d)
-                position, _ = ct.get_cart_coord_from_frenet(postprocessor.route, s, d)
-                series.append(position)
-
-            series = np.asarray(series)
-            plt.subplot(1, 2, 1)
-            plt.cla()
-            plt.imshow(loader.map)
-            plt.plot(trajectory[:, 0], trajectory[:, 1], color='blue')
-            plt.plot(series[:, 0], series[:, 1], color='red')
-            plt.plot(postprocessor.route[:, 0], postprocessor.route[:, 1], color='black')
-            dist = np.linalg.norm(trajectory - series)
-            plt.xlabel('error= '+ str(dist))
-
-            plt.subplot(1, 2, 2)
-            plt.cla()
-            plt.plot(postprocessor.d, color='blue')
-            plt.plot(d_series, color='red')
-            plt.show()
-            plt.draw()
+    # def test_frenet_coordinates(self):
+    #     path = "../annotations/hyang/video0/"
+    #     loader = Loader(path)
+    #     south = np.array([720, 1920])
+    #     north = np.array([720, 0])
+    #     route = Route(south, north)
+    #     loader.make_obj_dict_by_route(route, True, 'Biker')
+    #     postprocessor = PostProcessing(loader)
+    #
+    #     d_series = []
+    #     for trajectory in postprocessor.filtered_dict.values():
+    #         series = []
+    #         for p in trajectory:
+    #             s, d = ct.get_frenet_coord(postprocessor.route, p)
+    #             d_series.append(d)
+    #             position, _ = ct.get_cart_coord_from_frenet(postprocessor.route, s, d)
+    #             series.append(position)
+    #
+    #         series = np.asarray(series)
+    #         plt.subplot(1, 2, 1)
+    #         plt.cla()
+    #         plt.imshow(loader.map)
+    #         plt.plot(trajectory[:, 0], trajectory[:, 1], color='blue')
+    #         plt.plot(series[:, 0], series[:, 1], color='red')
+    #         plt.plot(postprocessor.route[:, 0], postprocessor.route[:, 1], color='black')
+    #         dist = np.linalg.norm(trajectory - series)
+    #         plt.xlabel('error= '+ str(dist))
+    #
+    #         plt.subplot(1, 2, 2)
+    #         plt.cla()
+    #         plt.plot(postprocessor.d, color='blue')
+    #         plt.plot(d_series, color='red')
+    #         plt.show()
+    #         plt.draw()
 
 
     # def test_standardized_targets_in_batch(self):
@@ -203,6 +204,52 @@ class PostProcessingTest(unittest.TestCase):
     #         plt.legend()
     #         plt.draw()
     #         plt.pause(0.1)
+    def test_input_output_filtered(self):
+        path = "../annotations/hyang/video0/"
+        loader = Loader(path)
+        south = np.array([720, 1920])
+        north = np.array([720, 0])
+        west = np.array([720 * 2, 1920 / 2])
+        route = Route(south, west)
+        loader.make_obj_dict_by_route(route, True, 'Biker')
+        postprocessor = PostProcessing(loader)
+
+        raw = DataFrame()
+        # raw['x'] = [x for x in postprocessor.x]
+        # raw['y'] = [x for x in postprocessor.y]
+        # raw['xdot'] = [x for x in postprocessor.dx]
+        # raw['ydot'] = [x for x in postprocessor.dy]
+        # raw['xddot'] = [x for x in postprocessor.ddx]
+        # raw['yddot'] = [x for x in postprocessor.ddy]
+
+        raw['x0'] = [x for x in postprocessor.x0]
+        raw['x1'] = [x for x in postprocessor.x1]
+        raw['x2'] = [x for x in postprocessor.x2]
+        raw['x3'] = [x for x in postprocessor.x3]
+        raw['x4'] = [x for x in postprocessor.x4]
+        raw['x5'] = [x for x in postprocessor.x5]
+        raw['x6'] = [x for x in postprocessor.x6]
+
+        # specify columns to plot
+        groups = [0, 1, 2, 3, 4, 5, 6]
+        i = 1
+        # plot each column
+        plt.figure()
+        for group in groups:
+            plt.subplot(len(groups), 1, i)
+            plt.plot(raw.values[:, group])
+            mean = np.mean(raw.values[:, group])
+            means = mean*np.ones(len(raw.values[:, group]))
+            std = np.std(raw.values[:, group])
+            plt.plot(means, linestyle='--', color='red')
+            plt.fill_between(np.arange(0,len(means)), means - std, means + std, alpha=0.5)
+            plt.grid('On')
+            plt.title(raw.columns[group], y=0.5, loc='right')
+            i += 1
+        plt.show()
+        plt.print('ready')
+
+
 
 if __name__ == '__main__':
     unittest.main()

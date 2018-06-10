@@ -14,6 +14,8 @@ from keras.layers import TimeDistributed
 
 from keras.models import model_from_json
 
+import data.sets.urban.stanford_campus_dataset.scripts.relations
+
 from datetime import datetime
 # load data
 # def parse(x):
@@ -70,7 +72,6 @@ north = np.array([720, 0])
 west = np.array([720*2, 1920/2])
 route = Route(south, west)
 loader.make_obj_dict_by_route(route, True, 'Biker')
-
 postprocessor = PostProcessing(loader)
 
 raw = DataFrame()
@@ -78,14 +79,8 @@ raw = DataFrame()
 #raw['y'] = [x for x in postprocessor.y]
 raw['xdot'] = [x for x in postprocessor.dx]
 raw['ydot'] = [x for x in postprocessor.dy]
-# raw['x0'] = [x for x in postprocessor.x0]
-# raw['x1'] = [x for x in postprocessor.x1]
-# raw['x2'] = [x for x in postprocessor.x2]
-# raw['x3'] = [x for x in postprocessor.x3]
-# raw['x4'] = [x for x in postprocessor.x4]
-# raw['x5'] = [x for x in postprocessor.x5]
-# raw['x6'] = [x for x in postprocessor.x6]
-
+raw['xddot'] = [x for x in postprocessor.ddx]
+raw['yddot'] = [x for x in postprocessor.ddy]
 values = raw.values
 #scaler = MinMaxScaler(feature_range=(0, 1))
 #scaled = scaler.fit_transform(values)
@@ -96,7 +91,7 @@ n_train_frames = int(len(data) * 0.67)
 train = values[:n_train_frames, :]
 test = values[n_train_frames:, :]
 n_hours = 30
-n_features = 2
+n_features = 4
 
 n_obs = n_hours * n_features
 train_X, train_y = train[:, :n_obs], train[:, n_obs:]#train[:, train.shape[1]-n_features: train.shape[1]]
@@ -123,8 +118,6 @@ def plot_input():
         i += 1
     pyplot.show()
 
-folder_name = 'log_xydot'
-
 def train_model():
     # design network
     model = Sequential()
@@ -137,10 +130,10 @@ def train_model():
 
     # serialize model to JSON
     model_json = model.to_json()
-    with open(folder_name + "/model.json", "w") as json_file:
+    with open("log_xy/model.json", "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    model.save_weights(folder_name + "/model.h5")
+    model.save_weights("log_xy/model.h5")
     print("Saved model to disk")
 
     # plot history
@@ -148,23 +141,23 @@ def train_model():
     pyplot.plot(history.history['val_loss'], label='test')
     pyplot.grid('On')
     pyplot.legend()
-    pyplot.savefig(folder_name + '/loss')
     pyplot.show()
+    pyplot.savefig('log_xy/loss')
 
     return model
 
 def evaluate_model():
     # load json and create model
-    json_file = open(folder_name + '/model.json', 'r')
+    json_file = open('log_xy/model.json', 'r')
     loaded_model_json = json_file.read()
     json_file.close()
     loaded_model = model_from_json(loaded_model_json)
     # load weights into new model
-    loaded_model.load_weights(folder_name + "/model.h5")
+    loaded_model.load_weights("log_xy/model.h5")
     print("Loaded model from disk")
     return loaded_model
 
-model = evaluate_model()
+model = train_model()
 test_X_in = test_X
 test_y_in = test_y
 
@@ -174,9 +167,6 @@ input_series = np.empty([test_X_in.shape[0], test_X_in.shape[1], test_X_in.shape
 output_series = np.empty([test_y_in.shape[0], test_y_in.shape[1], test_y_in.shape[2]])
 colors = pyplot.cm.gist_ncar(np.linspace(.1, .9, np.max(postprocessor.id+1)))
 
-tot_error = 0
-
-fig = pyplot.figure(figsize=(20, 20))
 for t in range(pred_series.shape[0]):
     pred_series[t] = yhat[t]#scaler.inverse_transform(yhat[t])
     input_series[t] = test_X_in[t]#scaler.inverse_transform(test_X_in[t])
@@ -196,31 +186,27 @@ for t in range(pred_series.shape[0]):
 
     pyplot.cla()
     pyplot.imshow(loader.map)
-    trajectory = np.squeeze(np.asarray(list(postprocessor.raw_dict[id].trajectory.values())))
-    pyplot.plot(trajectory[:, 0], trajectory[:, 1], color=colors[id], label=str(id))
+
+    pyplot.plot(postprocessor.filtered_dict[id][:, 0], postprocessor.filtered_dict[id][:, 1], color=colors[id])
+    #pyplot.scatter(postprocessor.x[n_train_frames + t], postprocessor.y[n_train_frames + t])
     x_start = postprocessor.x[n_train_frames + t + n_hours]
     y_start = postprocessor.y[n_train_frames + t + n_hours]
 
     x_start_input = postprocessor.x[n_train_frames + t - n_hours + n_hours]
     y_start_input = postprocessor.y[n_train_frames + t - n_hours + n_hours]
-    pyplot.quiver(x_start, y_start, np.cumsum(pred_series[t, :, 0])[-1], -np.cumsum(pred_series[t, :, 1])[-1], color='red')
+
+
+    pyplot.quiver(x_start, y_start, pred_series[t, 0, 0], -pred_series[t, 0, 1], color='red')
     pyplot.plot(np.cumsum(pred_series[t, :, 0]) + x_start, np.cumsum(pred_series[t, :, 1])+y_start, label='y_hat', color='orange')
     pyplot.plot(np.cumsum(input_series[t, :, 0]) + x_start_input, np.cumsum(input_series[t, :, 1])+y_start_input, label='x', color='red')
     pyplot.plot(np.cumsum(output_series[t, :, 0]) + x_start, np.cumsum(output_series[t, :, 1])+y_start, label='y', color='green')
     pyplot.legend()
-
-    rmse = sqrt(mean_squared_error(pred_series[t], output_series[t]))
-    pyplot.xlabel('Test RMSE: %.3f' % rmse)
-
-    tot_error+=rmse
-
-    pyplot.savefig('SW/t_' + str(t))
     pyplot.draw()
-    pyplot.pause(0.001)
-
+    pyplot.pause(0.01)
+    print('id= ' + str(id))
+    rmse = sqrt(mean_squared_error(pred_series[t], output_series[t]))
+    print('Test RMSE: %.3f' % rmse)
 
     #pyplot.show()
-
-print('Test total error: %.3f' % tot_error)
 
 # calculate RMSE

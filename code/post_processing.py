@@ -1,32 +1,45 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import data.sets.urban.stanford_campus_dataset.scripts.coordinate_transformations as ct
+from data.sets.urban.stanford_campus_dataset.scripts.coordinate_transformations import get_frenet_coord
+#from data.sets.urban.stanford_campus_dataset.scripts.arelations import Object
 
+THRESHOLD = 200
 
 class PostProcessing(object):
     def __init__(self, loader):
         self.route = loader.route_poses
         self.raw_dict = loader.obj_route_dict
-        self.filtered_dict = {}
-        self.filter_outliers()
         self.compute_target()
+        self.compute_input()
+        self.filter_outliers()
 
-    def reject_outliers_2d(self, data, m=1.5):
-        mask1 = abs(data[:, 0] - np.mean(data[:, 0])) < m * np.std(data[:, 0])
-        mask2 = abs(data[:, 1] - np.mean(data[:, 1])) < m * np.std(data[:, 1])
-        mask = np.logical_or(mask1, mask2)
-        return data[mask]
+    def reject_outliers(self, data, m=1):
+        return abs(data - np.mean(data)) < m * np.std(data)
 
     def filter_outliers(self):
-        for id, trajectory in self.raw_dict.items():
-            trajectory = self.reject_outliers_2d(trajectory)
-            trajectory = trajectory[100:-100]
-            self.filtered_dict[id] = trajectory
+        maskdx = self.reject_outliers(self.ddx)
+        maskdy = self.reject_outliers(self.ddy)
+        mask = np.logical_and(maskdx, maskdy)
+        self.x = self.x[mask]
+        self.y = self.y[mask]
+        self.dx = self.dx[mask]
+        self.dy = self.dy[mask]
+        self.ddx = self.ddx[mask]
+        self.ddy = self.ddy[mask]
+        self.x0 = self.x0[mask] / THRESHOLD
+        self.x1 = self.x1[mask] / THRESHOLD
+        self.x2 = self.x2[mask] / THRESHOLD
+        self.x3 = self.x3[mask] / THRESHOLD
+        self.x4 = self.x4[mask] / THRESHOLD
+        self.x5 = self.x5[mask] / THRESHOLD
+        self.x6 = self.x6[mask] / THRESHOLD
+        self.id = self.id[mask]
 
     def compute_target(self):
         self.x, self.y, self.dx, self.dy, self.d, self.s, self.id = np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
         self.ddx, self.ddy = np.array([]), np.array([])
-        for id, trajectory in self.filtered_dict.items():
+        for id, data in list(self.raw_dict.items()):
+            trajectory = np.squeeze(np.asarray(list(data.trajectory.values())))
             self.x = np.append(self.x, trajectory[:, 0])
             self.y = np.append(self.y, trajectory[:, 1])
             self.dx = np.append(self.dx, np.hstack((np.array([0]), np.diff(trajectory[:, 0]))))
@@ -38,34 +51,44 @@ class PostProcessing(object):
             self.s = np.append(self.s, frenet_coordinates[:, 0])
             self.id = np.append(self.id, id + 0*trajectory[:, 0])
 
-    def reject_outliers(self, data, m=2):
-        return data[abs(data - np.mean(data)) < m * np.std(data)]
+    def compute_input(self):
+        self.x0, self.x1, self.x2, self.x3, self.x4, self.x5, self.x6 = np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
+        for id, data in list(self.raw_dict.items()):
+            grids = np.squeeze(np.asarray(list(data.grid.values())))
+            self.x0 = np.append(self.x1, grids[:, 0])
+            self.x1 = np.append(self.x2, grids[:, 1])
+            self.x2 = np.append(self.x3, grids[:, 2])
+            self.x3 = np.append(self.x4, grids[:, 3])
+            self.x4 = np.append(self.x5, grids[:, 4])
+            self.x5 = np.append(self.x6, grids[:, 5])
+            self.x6 = np.append(self.x6, grids[:, 6])
+
 
     def get_random_id(self):
-        id_list = list(self.filtered_dict.keys())
+        id_list = list(self.raw_dict.keys())
         return id_list[np.random.randint(len(id_list))]
 
     def get_random_sequence(self, id, length):
-        series = self.filtered_dict[id]
+        series = self.raw_dict[id]
         start = np.random.randint(len(series) - length)
         sequence = series[start:start+length]
         return sequence, start
 
     def get_sequence(self, id, start, length):
-        series = self.filtered_dict[id]
+        series = self.raw_dict[id]
         sequence = series[start:start + length]
         return sequence
 
     def gen_frenet_coordinates(self, sequence):
         coordinates = []
-        [coordinates.append(ct.get_frenet_coord(self.route, s)) for s in sequence]
+        [coordinates.append(get_frenet_coord(self.route, s)) for s in sequence]
         return np.asarray(coordinates)
 
     def standardize(self, sequence, series):
         return (sequence - np.mean(series)) / np.std(series)
 
     def inv_standardize(self, sequence, series):
-        return sequence*np.std(series) - np.mean(series)
+        return sequence*np.std(series) + np.mean(series)
 
     def get_random_batch_standardized(self, id, length, frenet_cs=True):
         sequence, idx = self.get_random_sequence(id, length*2)
@@ -83,7 +106,7 @@ class PostProcessing(object):
         sequence = self.get_sequence(id, start, length * 2)
         if frenet_cs:
             frenet_sequence = self.gen_frenet_coordinates(sequence)
-            frenet_series = self.gen_frenet_coordinates(self.filtered_dict[id])
+            frenet_series = self.gen_frenet_coordinates(self.raw_dict[id])
             sequence_std = self.standardize(frenet_sequence[:, 1], frenet_series[:, 1])
         sequence_std = frenet_sequence[:, 1]
         input = sequence_std[0:length]
