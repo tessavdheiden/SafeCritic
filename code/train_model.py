@@ -9,11 +9,13 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import mean_squared_error
 from keras.models import Sequential, Model
-from keras.layers import Dense, Input
-from keras.layers import LSTM, Bidirectional
+from keras.layers import Dense, Input, Lambda
+from keras.layers import LSTM, Bidirectional, Conv1D, Conv2D, merge, concatenate
 from keras.layers import TimeDistributed
 from keras.models import model_from_json
 from keras.callbacks import TensorBoard
+import keras.backend as K
+import tensorflow as tf
 from keras import optimizers
 
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Loader
@@ -47,7 +49,7 @@ def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):
         agg.dropna(inplace=True)
     return agg
 
-path = "../annotations/hyang/video5/"
+path = "../annotations/hyang/video05/"
 loader = Loader(path)
 south = np.array([720, 1920])
 north = np.array([720, 0])
@@ -67,28 +69,29 @@ raw['ydot'] = [x for x in postprocessor.dy]
 # raw['xdot'] = [x for x in postprocessor.ddx]
 # raw['ydot'] = [x for x in postprocessor.ddy]
 
-# raw['x0'] = [x for x in postprocessor.x0]
-# raw['x1'] = [x for x in postprocessor.x1]
-# raw['x2'] = [x for x in postprocessor.x2]
-# raw['x3'] = [x for x in postprocessor.x3]
-# raw['x4'] = [x for x in postprocessor.x4]
-# raw['x5'] = [x for x in postprocessor.x5]
-# raw['x6'] = [x for x in postprocessor.x6]
-# raw['x7'] = [x for x in postprocessor.x7]
-# raw['x8'] = [x for x in postprocessor.x8]
-# raw['x9'] = [x for x in postprocessor.x9]
-# raw['x10'] = [x for x in postprocessor.x10]
-# raw['x11'] = [x for x in postprocessor.x11]
-# raw['x12'] = [x for x in postprocessor.x12]
-# raw['x13'] = [x for x in postprocessor.x13]
+raw['x0'] = [x for x in postprocessor.x0]
+raw['x1'] = [x for x in postprocessor.x1]
+raw['x2'] = [x for x in postprocessor.x2]
+raw['x3'] = [x for x in postprocessor.x3]
+raw['x4'] = [x for x in postprocessor.x4]
+raw['x5'] = [x for x in postprocessor.x5]
+raw['x6'] = [x for x in postprocessor.x6]
+raw['x7'] = [x for x in postprocessor.x7]
+raw['x8'] = [x for x in postprocessor.x8]
+raw['x9'] = [x for x in postprocessor.x9]
+raw['x10'] = [x for x in postprocessor.x10]
+raw['x11'] = [x for x in postprocessor.x11]
+raw['x12'] = [x for x in postprocessor.x12]
+raw['x13'] = [x for x in postprocessor.x13]
 
 N_SAMPLES = 30
-N_INPUT_FEATURES = 2 #+ 7 + 7
+N_INPUT_FEATURES = 2 + 7 + 7
 N_OUTPUT_FEATURES = 2
 N_OBS = N_SAMPLES * N_INPUT_FEATURES
 N_PRED = N_SAMPLES * N_OUTPUT_FEATURES
-folder_name = 'log_bidirectional_no_dynamic_no_static'
-mode = 'evaluate_train'
+folder_name = 'log_bidirectional_dynamic_static_grid'
+evaluation_data = 'test'
+mode = 'evaluate'
 
 values = raw.values
 scaler = MinMaxScaler(feature_range=(0, 1))
@@ -107,8 +110,8 @@ test_y = np.zeros((values.shape[0] - n_train_frames, N_PRED))
 for column in range(N_PRED // N_OUTPUT_FEATURES):
     start_column = N_OBS+column*N_INPUT_FEATURES
     start_column_in = column*N_OUTPUT_FEATURES
-    print('start_column=',start_column)
-    print('start_column_in=', start_column_in)
+    #print('start_column=',start_column)
+    #print('start_column_in=', start_column_in)
     train_y[:, start_column_in:start_column_in+2] = train[:, start_column:start_column+2]
     test_y[:, start_column_in:start_column_in+2] = test[:, start_column:start_column+2]
 
@@ -132,19 +135,43 @@ def plot_input():
         i += 1
     pyplot.show()
 
+def crop(dimension, start, end):
+    # Crops (or slices) a Tensor on a given dimension from start to end
+    # example : to crop tensor x[:, :, 5:10]
+    # call slice(2, 5, 10) as you want to crop on the second dimension
+    def func(x):
+        if dimension == 0:
+            return x[start: end]
+        if dimension == 1:
+            return x[:, start: end]
+        if dimension == 2:
+            return x[:, :, start: end]
+        if dimension == 3:
+            return x[:, :, :, start: end]
+        if dimension == 4:
+            return x[:, :, :, :, start: end]
+    return Lambda(func)
+
 def my_model():
 
     # design network
     #model = Sequential()
     input_sequences = Input(shape=(train_X.shape[1], train_X.shape[2]))
-    layer1 = Bidirectional(LSTM(50, return_sequences=True), merge_mode='concat')(input_sequences)
-    layer2 = Bidirectional(LSTM(50, return_sequences=True), merge_mode='concat')(layer1)
+    input_sequences_1 = crop(2, 0, 2)(input_sequences)
+    input_sequences_2 = crop(2, 2, 9)(input_sequences)
+    input_sequences_3 = crop(2, 9, 16)(input_sequences)
+
+    layer1 = LSTM(50, return_sequences=True)(input_sequences_1)
+    layer2 = LSTM(10, return_sequences=True)(input_sequences_2)
+    layer3 = LSTM(10, return_sequences=True)(input_sequences_3)
+    concatenated = concatenate([layer1, layer2, layer3])
+    layer2 = Bidirectional(LSTM(50, return_sequences=True), merge_mode='concat')(concatenated)
     output_sequence = TimeDistributed(Dense(N_OUTPUT_FEATURES, activation='relu'))(layer2)
     model = Model(inputs=input_sequences, outputs=output_sequence)
     model.compile(loss='mae', optimizer='adam')
     return model
 
-def train_model(reset=False, early_stopping=False, n_losses=10):
+def train_model(reset=False, early_stopping=True, n_losses=10):
     tensorboard = TensorBoard(log_dir='./logs', histogram_freq=2,
                               write_graph=True, write_images=False)
     model = my_model()
@@ -166,15 +193,16 @@ def train_model(reset=False, early_stopping=False, n_losses=10):
             model.reset_states()
     elif early_stopping:
         for e in range(50):
+            print('Epoch: ', str(e))
             history = model.fit(train_X, train_y, epochs=1, batch_size=72, validation_data=(test_X, test_y), verbose=2,
                             shuffle=False, callbacks=[tensorboard])
             loss = np.concatenate((loss, history.history['loss']))
             val_loss = np.concatenate((val_loss, history.history['val_loss']))
-            if ((np.abs(np.diff(val_loss[-n_losses:])) < 0.001).all() or ((np.diff(val_loss[-n_losses:])) > 0.01).all()) and e > n_losses: # no weight update or increasing loss
+            if ((np.abs(np.diff(val_loss[-n_losses:])) < 0.001).all() or ((np.diff(val_loss[-n_losses:])) > 0.001).all()) and e > n_losses: # no weight update or increasing loss
                 print(np.diff(val_loss[-n_losses:]))
                 break
     else:
-        history = model.fit(train_X, train_y, epochs=20, batch_size=72, validation_data=(test_X, test_y), verbose=2,
+        history = model.fit(train_X, train_y, epochs=15, batch_size=72, validation_data=(test_X, test_y), verbose=2,
                             shuffle=False, callbacks=[tensorboard])
 
         loss = history.history['loss']
@@ -214,7 +242,7 @@ if mode == 'train':
 else:
     model = evaluate_model()
 
-if mode == 'evaluate_train':
+if evaluation_data == 'train':
     test_X_in = train_X
     test_y_in = train_y
     n_train_frames = 0

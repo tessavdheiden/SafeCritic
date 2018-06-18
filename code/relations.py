@@ -117,7 +117,9 @@ class Loader(object):
         # self.obj_route_dict = {**np.load(self.path + 'obj_route_dict_NE.npy').item(), **np.load(self.path + 'obj_route_dict_SN.npy').item()}
         # self.obj_route_dict = {**self.obj_route_dict, **np.load(self.path + 'obj_route_dict_SE.npy').item()}
         # self.obj_route_dict = {**self.obj_route_dict, **np.load(self.path + 'obj_route_dict_NS.npy').item()}
-        self.obj_route_dict = np.load(self.path + 'obj_route_dict_SN5.npy').item()
+        # self.obj_route_dict = {**self.obj_route_dict, **np.load(self.path + 'obj_route_dict_SN5.npy').item()}
+        # np.save(self.path + 'obj_route_dict.npy', self.obj_route_dict)
+        self.obj_route_dict = np.load(self.path + 'obj_route_dict.npy').item()
         return True
 
     def load_data(self):
