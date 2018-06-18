@@ -71,7 +71,7 @@ south = np.array([720, 1920])
 north = np.array([720, 0])
 west = np.array([720*2, 1920/2])
 route = Route(south, west)
-loader.make_obj_dict_by_route(route, True, 'Biker')
+loader.make_obj_dict_by_route(route,route, True, 'Biker')
 postprocessor = PostProcessing(loader)
 
 raw = DataFrame()

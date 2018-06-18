@@ -122,6 +122,8 @@ def polar_coordinate_to_grid_cell(yaw, distance, distance_threshold, angle_thres
 
 
 def theta1_d1_from_location(ab, ac):
+    #if (np.linalg.norm(ac) * np.linalg.norm(ab)) <= 0:
+
     cos_theta1 = np.dot(ab, ac.T) / (np.linalg.norm(ac) * np.linalg.norm(ab))
     cos_theta1 = np.float64(cos_theta1)
     theta1 = np.arccos(cos_theta1)

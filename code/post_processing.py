@@ -1,13 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from data.sets.urban.stanford_campus_dataset.scripts.coordinate_transformations import get_frenet_coord
+from sklearn.preprocessing import MinMaxScaler
 #from data.sets.urban.stanford_campus_dataset.scripts.arelations import Object
 
 THRESHOLD = 200
 
 class PostProcessing(object):
     def __init__(self, loader):
-        self.route = loader.route_poses
+        # self.route = loader.route_poses1
         self.raw_dict = loader.obj_route_dict
         self.compute_target()
         self.compute_input()
@@ -16,9 +17,12 @@ class PostProcessing(object):
     def reject_outliers(self, data, m=1):
         return abs(data - np.mean(data)) < m * np.std(data)
 
+    def reject_outliers_minmax(self, data, bound=10):
+        return abs(data) < bound
+
     def filter_outliers(self):
-        maskdx = self.reject_outliers(self.ddx)
-        maskdy = self.reject_outliers(self.ddy)
+        maskdx = self.reject_outliers_minmax(self.dx)
+        maskdy = self.reject_outliers_minmax(self.dy)
         mask = np.logical_and(maskdx, maskdy)
         self.x = self.x[mask]
         self.y = self.y[mask]
@@ -33,6 +37,13 @@ class PostProcessing(object):
         self.x4 = self.x4[mask] / THRESHOLD
         self.x5 = self.x5[mask] / THRESHOLD
         self.x6 = self.x6[mask] / THRESHOLD
+        self.x7 = self.x7[mask] / THRESHOLD
+        self.x8 = self.x8[mask] / THRESHOLD
+        self.x9 = self.x9[mask] / THRESHOLD
+        self.x10 = self.x10[mask] / THRESHOLD
+        self.x11 = self.x11[mask] / THRESHOLD
+        self.x12 = self.x12[mask] / THRESHOLD
+        self.x13 = self.x13[mask] / THRESHOLD
         self.id = self.id[mask]
 
     def compute_target(self):
@@ -40,21 +51,29 @@ class PostProcessing(object):
         self.ddx, self.ddy = np.array([]), np.array([])
         for id, data in list(self.raw_dict.items()):
             trajectory = np.squeeze(np.asarray(list(data.trajectory.values())))
+            if trajectory.size == 0:
+                continue
             self.x = np.append(self.x, trajectory[:, 0])
             self.y = np.append(self.y, trajectory[:, 1])
             self.dx = np.append(self.dx, np.hstack((np.array([0]), np.diff(trajectory[:, 0]))))
             self.dy = np.append(self.dy, np.hstack((np.array([0]), np.diff(trajectory[:, 1]))))
             self.ddx = np.append(self.ddx, np.hstack((np.array([0, 0]), np.diff(trajectory[:, 0], 2))))
             self.ddy = np.append(self.ddy, np.hstack((np.array([0, 0]), np.diff(trajectory[:, 1], 2))))
-            frenet_coordinates = self.gen_frenet_coordinates(trajectory)
-            self.d = np.append(self.d, frenet_coordinates[:, 1])
-            self.s = np.append(self.s, frenet_coordinates[:, 0])
+            # frenet_coordinates = self.gen_frenet_coordinates(trajectory)
+            # self.d = np.append(self.d, frenet_coordinates[:, 1])
+            # self.s = np.append(self.s, frenet_coordinates[:, 0])
             self.id = np.append(self.id, id + 0*trajectory[:, 0])
 
     def compute_input(self):
         self.x0, self.x1, self.x2, self.x3, self.x4, self.x5, self.x6 = np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
+        self.x7, self.x8, self.x9, self.x10, self.x11, self.x12, self.x13 = np.array([]), np.array([]), np.array(
+            []), np.array([]), np.array([]), np.array([]), np.array([])
+
         for id, data in list(self.raw_dict.items()):
             grids = np.squeeze(np.asarray(list(data.grid.values())))
+            static_grid = np.squeeze(np.asarray(list(data.static_grid.values())))
+            if grids.size == 0:
+                continue
             self.x0 = np.append(self.x1, grids[:, 0])
             self.x1 = np.append(self.x2, grids[:, 1])
             self.x2 = np.append(self.x3, grids[:, 2])
@@ -63,6 +82,13 @@ class PostProcessing(object):
             self.x5 = np.append(self.x6, grids[:, 5])
             self.x6 = np.append(self.x6, grids[:, 6])
 
+            self.x7 = np.append(self.x7, static_grid[:, 0])
+            self.x8 = np.append(self.x8, static_grid[:, 1])
+            self.x9 = np.append(self.x9, static_grid[:, 2])
+            self.x10 = np.append(self.x10, static_grid[:, 3])
+            self.x11 = np.append(self.x11, static_grid[:, 4])
+            self.x12 = np.append(self.x12, static_grid[:, 5])
+            self.x13 = np.append(self.x13, static_grid[:, 6])
 
     def get_random_id(self):
         id_list = list(self.raw_dict.keys())
@@ -79,10 +105,10 @@ class PostProcessing(object):
         sequence = series[start:start + length]
         return sequence
 
-    def gen_frenet_coordinates(self, sequence):
-        coordinates = []
-        [coordinates.append(get_frenet_coord(self.route, s)) for s in sequence]
-        return np.asarray(coordinates)
+    # def gen_frenet_coordinates(self, sequence):
+    #     coordinates = []
+    #     [coordinates.append(get_frenet_coord(self.route, s)) for s in sequence]
+    #     return np.asarray(coordinates)
 
     def standardize(self, sequence, series):
         return (sequence - np.mean(series)) / np.std(series)
@@ -113,46 +139,7 @@ class PostProcessing(object):
         target = sequence_std[length:]
         return input, target, sequence
 
-    def gen_features(self, frame_dict, obj_dict, THRESHOLD):
-        frames = sorted(list(frame_dict.keys())[:])
 
-        route = rel.Route(np.array([720, 1920]), np.array([720, 0]))
-
-        min_trajectory_length = 100000
-
-        lateral_distances = []
-        front_proximities = []
-        occupied_grid_cells = np.array([0, 0, 0])
-
-        for ide in [31, 32, 125, 131, 171, 220, 237, 239, 244, 263, 300, 311, 316]:
-            print('object= ', ide)
-
-
-            frame_start = list(obj_dict[ide].trajectory)[0]
-            frame_end = list(obj_dict[ide].trajectory)[-1]
-
-            frame_counter = 0
-            for i in range(frame_start, frame_end):
-                frame = frames[i]
-                a = np.squeeze(obj_dict[ide].trajectory[frame])
-                c = obj_dict[ide].heading[frame]  # heading
-                neigbors = obj_dict[ide].neighbors[frame]
-                if c.all() != 0:
-                    closest_point, lateral_distance, longitudinal_distance = ct.global_2_frenet_ct(a, route.path)
-                    lateral_distances.append(np.array([np.sign(closest_point[0] - a[0]) * lateral_distance]))
-
-                    grid_cells = rel.get_grid_cell(neigbors, c)
-                    occupied_grid_cells = np.vstack((occupied_grid_cells, grid_cells))
-                    front_proximities.append(np.array([grid_cells[1]]))
-                    frame_counter += 1
-                if frame_counter == 311:
-                    break
-
-            if frame_counter < min_trajectory_length:
-                min_trajectory_length = frame_counter
-
-            self.X = front_proximities
-            self.Y = lateral_distances
 
 
 
