@@ -7,12 +7,16 @@ from sklearn.preprocessing import MinMaxScaler
 THRESHOLD = 200
 
 class PostProcessing(object):
-    def __init__(self, loader):
+    def __init__(self, loader, sequence_length):
         # self.route = loader.route_poses1
         self.raw_dict = loader.obj_route_dict
-        self.compute_target()
-        self.compute_input()
+        self.removed_ids_count = 0
+        self.compute_target(sequence_length)
+        self.compute_input(sequence_length)
         self.filter_outliers()
+
+        removed_ids = [i for i, item in enumerate(list(loader.obj_route_dict.keys())) if not item in list(np.unique(self.id).astype(int))]
+        print('Removed %i ids, removed ids: %s' % (self.removed_ids_count, str(removed_ids)))
 
     def reject_outliers(self, data, m=1):
         return abs(data - np.mean(data)) < m * np.std(data)
@@ -46,12 +50,13 @@ class PostProcessing(object):
         self.x13 = self.x13[mask] / THRESHOLD
         self.id = self.id[mask]
 
-    def compute_target(self):
+    def compute_target(self, sequence_length):
         self.x, self.y, self.dx, self.dy, self.d, self.s, self.id = np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
         self.ddx, self.ddy = np.array([]), np.array([])
         for id, data in list(self.raw_dict.items()):
             trajectory = np.squeeze(np.asarray(list(data.trajectory.values())))
-            if trajectory.size == 0:
+            if trajectory.size == 0 or trajectory.shape[0] <= 2*sequence_length:
+                self.removed_ids_count += 1
                 continue
             self.x = np.append(self.x, trajectory[:, 0])
             self.y = np.append(self.y, trajectory[:, 1])
@@ -64,15 +69,16 @@ class PostProcessing(object):
             # self.s = np.append(self.s, frenet_coordinates[:, 0])
             self.id = np.append(self.id, id + 0*trajectory[:, 0])
 
-    def compute_input(self):
+    def compute_input(self, sequence_length):
         self.x0, self.x1, self.x2, self.x3, self.x4, self.x5, self.x6 = np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
         self.x7, self.x8, self.x9, self.x10, self.x11, self.x12, self.x13 = np.array([]), np.array([]), np.array(
             []), np.array([]), np.array([]), np.array([]), np.array([])
 
         for id, data in list(self.raw_dict.items()):
+            trajectory = np.squeeze(np.asarray(list(data.trajectory.values())))
             grids = np.squeeze(np.asarray(list(data.grid.values())))
             static_grid = np.squeeze(np.asarray(list(data.static_grid.values())))
-            if grids.size == 0:
+            if grids.size == 0 or trajectory.shape[0] <= 2*sequence_length:
                 continue
             self.x0 = np.append(self.x1, grids[:, 0])
             self.x1 = np.append(self.x2, grids[:, 1])
