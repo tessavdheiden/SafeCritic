@@ -21,6 +21,7 @@ from keras import optimizers
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Loader
 from data.sets.urban.stanford_campus_dataset.scripts.post_processing import PostProcessing
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Route
+import random
 
 import numpy as np
 
@@ -163,7 +164,7 @@ N_PRED = N_SAMPLES * N_OUTPUT_FEATURES
 SPLIT = 0.98
 folder_name = 'log_reset'
 evaluation_data = 'test'
-mode = 'train'
+mode = 'test'
 reset=True
 
 path = "../annotations/hyang/video05/"
@@ -242,9 +243,12 @@ def train_model(early_stopping=False, n_losses=10):
     # fit network
     loss, val_loss = np.array([]), np.array([])
     if reset:
-        ids = np.random.choice(np.unique(postprocessor.id[:n_train_frames]), len(np.unique(postprocessor.id[:n_train_frames])))
-        ids_val = np.random.choice(np.unique(postprocessor.id[n_train_frames:]), len(np.unique(postprocessor.id[:n_train_frames])))
         for e in range(100):
+            random.seed(e)
+            ids = np.random.choice(np.unique(postprocessor.id[:n_train_frames]),
+                                   len(np.unique(postprocessor.id[:n_train_frames])))
+            ids_val = np.random.choice(np.unique(postprocessor.id[n_train_frames:]),
+                                       len(np.unique(postprocessor.id[:n_train_frames])))
             for i, id in enumerate(ids):
                 frames = postprocessor.id == id
                 frames_val = postprocessor.id == ids_val[i]
@@ -335,6 +339,8 @@ tot_error2 = 0
 counter=0
 if reset:
     for id in np.unique(postprocessor.id[n_train_frames:]):
+        if int(id) == 38:
+            continue
         frames = postprocessor.id == id
         raw = make_df_from_postprocessor_within_selection(postprocessor, frames)
         scaled = scaler.transform(raw.values)
@@ -345,51 +351,51 @@ if reset:
         pred_series = np.empty([trainY.shape[0], trainY.shape[1], trainY.shape[2]])
         input_series = np.empty([trainX.shape[0], trainX.shape[1], trainX.shape[2]])
         output_series = np.empty([trainY.shape[0], trainY.shape[1], trainY.shape[2]])
-        for t in range(0, yhat.shape[0]):
+        for t in range(0, yhat.shape[0], 10):
             pred_series[t] = scaler.inverse_transform(np.hstack((yhat[t], trainX[t][:, 2:])))[:, 0:2]
             input_series[t] = scaler.inverse_transform(trainX[t])
             output_series[t] = scaler.inverse_transform(np.hstack((trainY[t], trainX[t][:, 2:])))[:, 0:2]
-        idx = np.squeeze(np.where(postprocessor.id == id))
-        trajectory = np.vstack((postprocessor.x[idx], postprocessor.y[idx])).T
-        x_start = trajectory[t + N_SAMPLES, 0]
-        y_start = trajectory[t + N_SAMPLES, 1]
-        tx = np.arange(0, N_SAMPLES)
-        p3x = np.poly1d(np.polyfit(tx, input_series[t, :, 0], 3))
-        dx = p3x(tx)
+            idx = np.squeeze(np.where(postprocessor.id == id))
+            trajectory = np.vstack((postprocessor.x[idx], postprocessor.y[idx])).T
+            x_start = trajectory[t + N_SAMPLES, 0]
+            y_start = trajectory[t + N_SAMPLES, 1]
+            tx = np.arange(0, N_SAMPLES)
+            p3x = np.poly1d(np.polyfit(tx, input_series[t, :, 0], 3))
+            dx = p3x(tx)
 
-        p3y = np.poly1d(np.polyfit(tx, input_series[t, :, 1], 3))
-        dy = p3y(tx)
-        pred_series_baseline[t] = np.vstack((dx, dy)).T
+            p3y = np.poly1d(np.polyfit(tx, input_series[t, :, 1], 3))
+            dy = p3y(tx)
+            pred_series_baseline[t] = np.vstack((dx, dy)).T
 
-        pyplot.cla()
-        pyplot.imshow(loader.map)
-        pyplot.plot(trajectory[:, 0], trajectory[:, 1], color='black', label=str(id), linestyle='--', linewidth=1,
-                    alpha=0.5)
-        x_start_input = trajectory[t, 0]
-        y_start_input = trajectory[t, 1]
+            pyplot.cla()
+            pyplot.imshow(loader.map)
+            pyplot.plot(trajectory[:, 0], trajectory[:, 1], color='black', label=str(id), linestyle='--', linewidth=1,
+                        alpha=0.5)
+            x_start_input = trajectory[t, 0]
+            y_start_input = trajectory[t, 1]
 
-        pyplot.plot(np.cumsum(input_series[t, :, 0]) + x_start_input, np.cumsum(input_series[t, :, 1]) + y_start_input,
-                    label='x',
-                    color='red', linestyle='--', linewidth=1)
-        pyplot.plot(np.cumsum(output_series[t, :, 0]) + x_start, np.cumsum(output_series[t, :, 1]) + y_start,
-                    label='ground truth',
-                    color='green', linestyle='--', linewidth=1)
-        pyplot.plot(np.cumsum(pred_series_baseline[t, :, 0]) + x_start,
-                    np.cumsum(pred_series_baseline[t, :, 1]) + y_start, label='poly3',
-                    color='blue', linestyle='--', linewidth=1)
-        pyplot.plot(np.cumsum(pred_series[t, :, 0]) + x_start, np.cumsum(pred_series[t, :, 1]) + y_start, label='lstm',
-                    color='purple', linestyle='--', linewidth=1)
-        pyplot.legend()
-        rmse1 = sqrt(mean_squared_error(pred_series_baseline[t], output_series[t]))
-        rmse2 = sqrt(mean_squared_error(pred_series[t], output_series[t]))
-        tot_error1 += rmse1
-        tot_error2 += rmse2
-        pyplot.xlabel('Test RMSE poly3 = %.3f lstm = %.3f Test total RMSE poly3 = %.3f lstm = %.3f' % (rmse1, rmse2, tot_error1, tot_error2))
+            pyplot.plot(np.cumsum(input_series[t, :, 0]) + x_start_input, np.cumsum(input_series[t, :, 1]) + y_start_input,
+                        label='x',
+                        color='red', linestyle='--', linewidth=1)
+            pyplot.plot(np.cumsum(output_series[t, :, 0]) + x_start, np.cumsum(output_series[t, :, 1]) + y_start,
+                        label='ground truth',
+                        color='green', linestyle='--', linewidth=1)
+            pyplot.plot(np.cumsum(pred_series_baseline[t, :, 0]) + x_start,
+                        np.cumsum(pred_series_baseline[t, :, 1]) + y_start, label='poly3',
+                        color='blue', linestyle='--', linewidth=1)
+            pyplot.plot(np.cumsum(pred_series[t, :, 0]) + x_start, np.cumsum(pred_series[t, :, 1]) + y_start, label='lstm',
+                        color='purple', linestyle='--', linewidth=1)
+            pyplot.legend()
+            rmse1 = sqrt(mean_squared_error(pred_series_baseline[t], output_series[t]))
+            rmse2 = sqrt(mean_squared_error(pred_series[t], output_series[t]))
+            tot_error1 += rmse1
+            tot_error2 += rmse2
+            pyplot.xlabel('Test RMSE poly3 = %.3f lstm = %.3f Test total RMSE poly3 = %.3f lstm = %.3f' % (rmse1, rmse2, tot_error1, tot_error2))
 
-        pyplot.draw()
-        # pyplot.pause(0.001)
-        pyplot.savefig(folder_name + '/t_' + str(counter))
-        counter += 1
+            pyplot.draw()
+            # pyplot.pause(0.001)
+            pyplot.savefig(folder_name + '/t_' + str(counter))
+            counter += 1
 else:
     for t in range(0, yhat.shape[0], 10):
         if True:
