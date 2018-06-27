@@ -1,6 +1,7 @@
 import unittest
 import matplotlib.pyplot as plt
 import numpy as np
+import imageio
 
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Route
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Loader
@@ -78,11 +79,7 @@ class RelationsTest(unittest.TestCase):
 
     # def test_make_grid_cells(self):
     #     path = "../annotations/hyang/video0/"
-    #     loader = Loader(path)
-    #     south = np.array([720, 1920])
-    #     north = np.array([720, 0])
-    #     route = Route(south, north)
-    #     loader.make_obj_dict_by_route(route, True, 'Biker')
+    #     loader = Loader(path, True)
     #
     #     id_list = list(loader.obj_route_dict.keys())
     #     idx = 32
@@ -99,20 +96,16 @@ class RelationsTest(unittest.TestCase):
     #             plt.savefig('AB/'+str(idx)+'/input/frame_' + str(frame) + '_grid.png')
     #         else:
     #             print('frame')
-    def test_make_grid_cells(self):
-        path = "../annotations/hyang/video5/"
-        loader = Loader(path)
-        south = np.array([720, 1920])
-        north = np.array([720, 0])
-        east = np.array([720 * 2, 1920 / 2])
-        west = np.array([0, 1920 / 2])
-        route = Route(south, north)
+    def test_make_grids(self):
+        path = "../annotations/hyang/video2/"
+        loader = Loader(path, True)
+        #loader.make_grids(True, 'Biker')
 
-        loader.make_obj_dict_by_route(True, 'Biker', True, route.path)
-
-        id_list = list(loader.obj_route_dict.keys())
-        idx = 33
-        frames = sorted(list(loader.obj_route_dict[idx].trajectory.keys()))
+        video_path = "../videos/hyang/video0/video.mov"
+        vidcap = imageio.get_reader(video_path, 'ffmpeg')
+        id_list = list(loader.grid_dict.keys())
+        idx = id_list[1]
+        frames = sorted(list(loader.grid_dict[idx].trajectory.keys()))
 
         fig = plt.figure(frameon=False)
         ax = plt.Axes(fig, [0., 0., 1., 1.])
@@ -122,15 +115,17 @@ class RelationsTest(unittest.TestCase):
         images = []
 
         for frame in frames:
-            local_map = loader.obj_route_dict[idx].local_map[frame]
-            static_neighbors = loader.obj_route_dict[idx].static_neighbors[frame]
-            static_grid = loader.obj_route_dict[idx].static_grid[frame]
+            local_map = vidcap.get_data(loader.grid_dict[idx].frame[frame])
+            position = np.squeeze(loader.grid_dict[idx].trajectory[frame])
+            static_neighbor = loader.grid_dict[idx].static_neighbor[frame]
+            static_grid = loader.grid_dict[idx].static_grid[frame]
             counter += 1
 
-            plt.subplot(1, 2, 1)
+            plt.subplot(1, 3, 1)
             plt.cla()
             plt.imshow(local_map)
-            plt.scatter(static_neighbors[:, 0], static_neighbors[:, 1], color='red')
+            plt.scatter(position[0], position[1], color='red')
+            plt.scatter(static_neighbor[:, 0], static_neighbor[:, 1], color='orange')
 
             ax = plt.subplot(1, 2, 2, projection='polar')
             plt.cla()
@@ -155,7 +150,59 @@ class RelationsTest(unittest.TestCase):
         print(counter)
         images = np.asarray(images)
         #np.save('AB/32/input_static/' + 'images.npy', images)
-
+    # def test_make_grids(self):
+    #     path = "../annotations/hyang/video0/"
+    #     loader = Loader(path, True)
+    #
+    #     video_path = "../videos/hyang/video0/video.mov"
+    #     vidcap = imageio.get_reader(video_path, 'ffmpeg')
+    #     id_list = list(loader.grid_dict.keys())
+    #     idx = 33
+    #     frames = sorted(list(loader.grid_dict[idx].trajectory.keys()))
+    #
+    #     fig = plt.figure(frameon=False)
+    #     ax = plt.Axes(fig, [0., 0., 1., 1.])
+    #     ax.set_axis_off()
+    #     fig.add_axes(ax)
+    #     counter = 0
+    #     images = []
+    #
+    #     for frame in frames:
+    #         local_map = vidcap.get_data(loader.grid_dict[idx].frame[frame])
+    #         position = np.squeeze(loader.grid_dict[idx].trajectory[frame])
+    #         dynamic_grid = loader.grid_dict[idx].dynamic_grid[frame]
+    #         neighbors = loader.grid_dict[idx].neighbors[frame][:, 0:2]
+    #         counter += 1
+    #
+    #         plt.subplot(1, 3, 1)
+    #         plt.cla()
+    #         plt.imshow(local_map)
+    #         plt.scatter(position[0], position[1], color='red')
+    #         plt.scatter(neighbors[:, 0] + position[0], neighbors[:, 1] + position[1], color='orange')
+    #
+    #         ax = plt.subplot(1, 3, 2, projection='polar')
+    #         plt.cla()
+    #         N = dynamic_grid.shape[0]
+    #         theta = np.arange(-np.pi / 2 + np.pi / N / 2, np.pi / 2, np.pi / N)
+    #         width = np.pi / N * np.ones(N)
+    #         dynamic_grid[dynamic_grid > 200] = 200
+    #
+    #         bars = ax.bar(theta, dynamic_grid, width=width, bottom=0.0)
+    #         for r, bar in zip(dynamic_grid, bars):
+    #             bar.set_facecolor(plt.cm.jet(r / 200))
+    #             bar.set_alpha(0.5)
+    #
+    #         plt.quiver(0, 0, 0, 2, color='red')  # heading
+    #         ax.set_theta_zero_location('N')
+    #         ax.set_theta_direction(-1)
+    #         ax.set_xticklabels([])
+    #
+    #         plt.draw()
+    #         plt.pause(0.01)
+    #
+    #     print(counter)
+    #     images = np.asarray(images)
+    #     # np.save('AB/32/input_static/' + 'images.npy', images)
 
 
 if __name__ == '__main__':

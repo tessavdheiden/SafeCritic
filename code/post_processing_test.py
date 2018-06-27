@@ -2,11 +2,13 @@ import unittest
 import numpy as np
 from itertools import permutations
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as pyplot
 from pandas import DataFrame
 import matplotlib.mlab as mlab
 from sklearn.preprocessing import MinMaxScaler
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Loader
 from data.sets.urban.stanford_campus_dataset.scripts.post_processing import PostProcessing
+from data.sets.urban.stanford_campus_dataset.scripts.train_model import make_df_from_postprocessor, make_df_from_postprocessor_within_selection, series_to_supervised, split_to_test_train
 from data.sets.urban.stanford_campus_dataset.scripts.relations import Route
 import imageio
 import data.sets.urban.stanford_campus_dataset.scripts.coordinate_transformations as ct
@@ -206,54 +208,128 @@ class PostProcessingTest(unittest.TestCase):
     #         plt.legend()
     #         plt.draw()
     #         plt.pause(0.1)
-    def test_input_output_filtered(self):
-        path = "../annotations/hyang/video05/"
-        loader = Loader(path, True)
-        south = np.array([720, 1920])
-        north = np.array([720, 0])
-        west = np.array([720 * 2, 1920 / 2])
-        route = Route(south, west)
-        #loader.make_obj_dict_by_route(route, True, 'Biker')
-        postprocessor = PostProcessing(loader)
-
-        raw = DataFrame()
-        raw['x'] = [x for x in postprocessor.x]
-        raw['y'] = [x for x in postprocessor.y]
-        raw['xdot'] = [x for x in postprocessor.dx]
-        raw['ydot'] = [x for x in postprocessor.dy]
-        raw['xddot'] = [x for x in postprocessor.ddx]
-        raw['yddot'] = [x for x in postprocessor.ddy]
-
-        # raw['x0'] = [x for x in postprocessor.x0]
-        # raw['x1'] = [x for x in postprocessor.x1]
-        # raw['x2'] = [x for x in postprocessor.x2]
-        # raw['x3'] = [x for x in postprocessor.x3]
-        # raw['x4'] = [x for x in postprocessor.x4]
-        # raw['x5'] = [x for x in postprocessor.x5]
-        # raw['x6'] = [x for x in postprocessor.x6]
-
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_values = scaler.fit_transform(raw.values)
-
-        # specify columns to plot
-        groups = [0, 1, 2, 3, 4, 5]
-        i = 1
-        # plot each column
-        plt.figure()
-        for group in groups:
-            plt.subplot(len(groups), 1, i)
-            #plt.plot(raw.values[:, group])
-            plt.plot(scaled_values[:, group])
-            mean = np.mean(raw.values[:, group])
-            means = mean*np.ones(len(raw.values[:, group]))
-            std = np.std(raw.values[:, group])
-            plt.plot(means, linestyle='--', color='red')
-            plt.fill_between(np.arange(0,len(means)), means - std, means + std, alpha=0.5)
-            plt.grid('On')
-            plt.title(raw.columns[group], y=0.5, loc='right')
-            i += 1
-        plt.show()
-        print('ready')
+    # def test_input_output_filtered(self):
+    #     path = "../annotations/hyang/video0/"
+    #     loader = Loader(path)
+    #
+    #     N_GRID_CELLS = 15
+    #     N_SAMPLES = 30
+    #     N_INPUT_FEATURES = 2 + N_GRID_CELLS + N_GRID_CELLS# + 1
+    #     N_OUTPUT_FEATURES = 2
+    #     SPLIT = 0.98
+    #
+    #     postprocessor = PostProcessing(loader, N_SAMPLES)
+    #
+    #     raw = make_df_from_postprocessor(postprocessor, N_INPUT_FEATURES)
+    #     values = raw.values
+    #     scaler = MinMaxScaler(feature_range=(0, 1))
+    #     scaled = scaler.fit_transform(values[:, :N_INPUT_FEATURES])
+    #     id_idx_train = int(len(np.unique(postprocessor.id)) * SPLIT)
+    #     id_train = np.unique(postprocessor.id)[:id_idx_train]
+    #
+    #     n_train_frames = np.squeeze(np.where(postprocessor.id == id_train[-1]))[-1]
+    #     id_train = np.unique(postprocessor.id[n_train_frames:])
+    #     id_train = id_train[id_train.astype(int) != 38]
+    #
+    #     vidcap = imageio.get_reader("../videos/hyang/video0/video.mov", 'ffmpeg')
+    #
+    #     fig = plt.figure(frameon=False)
+    #     ax = plt.Axes(fig, [0., 0., 1., 1.])
+    #     ax.set_axis_off()
+    #     fig.add_axes(ax)
+    #
+    #     counter = 0
+    #
+    #     for id in id_train:
+    #         frames = postprocessor.id == id
+    #         raw = make_df_from_postprocessor_within_selection(postprocessor, frames, N_INPUT_FEATURES)
+    #         scaled = scaler.transform(raw.values[:, :N_INPUT_FEATURES])
+    #         data = series_to_supervised(scaled, N_SAMPLES, N_SAMPLES)
+    #         trainX, trainY, _, _ = split_to_test_train(data, data.shape[0], N_INPUT_FEATURES)
+    #
+    #
+    #         input_series = np.empty([trainX.shape[0], trainX.shape[1], trainX.shape[2]])
+    #         output_series = np.empty([trainY.shape[0], trainY.shape[1], trainY.shape[2]])
+    #         frames = raw['frame']
+    #
+    #
+    #         for t in range(0, input_series.shape[0], 30):
+    #             input_series[t] = scaler.inverse_transform(trainX[t])
+    #             for i in range(N_SAMPLES):
+    #
+    #                 frame = frames[t + i]
+    #                 image = vidcap.get_data(int(frame))
+    #
+    #                 idx = np.squeeze(np.where(postprocessor.id == id))
+    #                 trajectory = np.vstack((postprocessor.x[idx], postprocessor.y[idx])).T
+    #
+    #                 x_start = trajectory[t + i, 0]
+    #                 y_start = trajectory[t + i, 1]
+    #
+    #                 plt.subplot2grid((3, 2), (0, 0), rowspan=3)
+    #                 pyplot.cla()
+    #                 pyplot.imshow(image)
+    #                 pyplot.plot(trajectory[:, 0], trajectory[:, 1], color='black', label=str(id), linestyle='-',
+    #                             linewidth=1,
+    #                             alpha=0.5, marker='+')
+    #                 x_start_input = trajectory[t, 0]
+    #                 y_start_input = trajectory[t, 1]
+    #                 x_end_input = np.cumsum(input_series[t, :i, 0]) + x_start_input
+    #                 y_end_input = np.cumsum(input_series[t, :i, 1]) + y_start_input
+    #                 pyplot.plot(x_end_input,
+    #                             y_end_input,
+    #                             label='x',
+    #                             color='red', linestyle='-', linewidth=1, marker='+')
+    #                 if i > 1:
+    #                     plt.quiver(x_end_input[-2], y_end_input[-2], np.sum(np.diff(x_end_input)),
+    #                                -np.sum(np.diff(y_end_input)), color='red')  # heading
+    #
+    #                 ax = plt.subplot2grid((3, 2), (0, 1), projection='polar')
+    #
+    #                 plt.cla()
+    #                 static_grid = input_series[t][i][2:N_GRID_CELLS + 2]
+    #                 N = static_grid.shape[0]
+    #                 theta = np.arange(-np.pi / 2 + np.pi / N / 2, np.pi / 2, np.pi / N)
+    #                 width = np.pi / N * np.ones(N)
+    #                 static_grid[static_grid > 200] = 200
+    #
+    #                 bars = ax.bar(theta, static_grid, width=width, bottom=0.0)
+    #                 for r, bar in zip(static_grid, bars):
+    #                     bar.set_facecolor(plt.cm.jet(r / 200))
+    #                     bar.set_alpha(0.5)
+    #
+    #                 plt.quiver(0, 0, 0, 2, color='red')  # heading
+    #                 ax.set_theta_zero_location('N')
+    #                 ax.set_theta_direction(-1)
+    #                 ax.set_xticklabels([])
+    #                 ax.set_xlabel('Static grid')
+    #
+    #                 ax = plt.subplot2grid((3, 2), (2, 1), projection='polar')
+    #
+    #                 plt.cla()
+    #                 dynamic_grid = input_series[t][i][N_GRID_CELLS + 2:N_GRID_CELLS*2 + 2]
+    #                 N = dynamic_grid.shape[0]
+    #                 theta = np.arange(-np.pi / 2 + np.pi / N / 2, np.pi / 2, np.pi / N)
+    #                 width = np.pi / N * np.ones(N)
+    #                 dynamic_grid[dynamic_grid > 200] = 200
+    #
+    #                 bars = ax.bar(theta, dynamic_grid, width=width, bottom=0.0)
+    #                 for r, bar in zip(dynamic_grid, bars):
+    #                     bar.set_facecolor(plt.cm.jet(r / 200))
+    #                     bar.set_alpha(0.5)
+    #
+    #                 plt.quiver(0, 0, 0, 2, color='red')  # heading
+    #                 ax.set_theta_zero_location('N')
+    #                 ax.set_theta_direction(-1)
+    #                 ax.set_xticklabels([])
+    #                 ax.set_xlabel('Dynamic grid')
+    #
+    #                 pyplot.draw()
+    #                 pyplot.pause(0.001)
+    #
+    #             counter += 1
+    #         if counter > 100:
+    #             break
 
     # def test_output_normal(self):
     #     path = "../annotations/hyang/video0/"
@@ -481,7 +557,30 @@ class PostProcessingTest(unittest.TestCase):
     #         #plt.pause(0.0001)
     #         plt.savefig('NS/33/static_input/t_'+str(t))
     #         t += 1
+    def test_trajectories(self):
+        path = "../annotations/hyang/video0/"
+        loader = Loader(path)
 
+        N_GRID_CELLS = 15
+        N_SAMPLES = 30
+        N_INPUT_FEATURES = 2 + N_GRID_CELLS + N_GRID_CELLS# + 1
+        N_OUTPUT_FEATURES = 2
+        SPLIT = 0.98
+
+        postprocessor = PostProcessing(loader, N_SAMPLES)
+
+        id_ist = np.unique(postprocessor.id)
+        for id in id_ist:
+            mask = postprocessor.id == id
+            x = postprocessor.x[mask]
+            y = postprocessor.y[mask]
+            plt.plot(x, y, label=str(id))
+            plt.legend()
+            plt.draw()
+            plt.pause(0.001)
+
+
+        counter = 0
 
 
 

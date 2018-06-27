@@ -430,9 +430,7 @@ def bearing_plot(radii, threshold, fig, ax):
 
 
 if __name__ == "__main__":
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], polar=True)
-    cells = np.array([50, 60, 200, 260, 10])
-    bearing_plot(cells, 200, fig, ax)
-    plt.show()
+    path1 = 'log/'
+    path2 = 'log_static_grid/'
+    path3 = 'log_dynamic_grid/'
 
