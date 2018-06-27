@@ -160,10 +160,10 @@ def attention_3d_block(inputs):
     a = Reshape((input_dim, N_SAMPLES))(a)  # this line is not useful. It's just to know which dimension is what.
     a = Dense(N_SAMPLES, activation='sigmoid')(a)
     if SINGLE_ATTENTION_VECTOR:
-        a = Lambda(lambda x: K.mean(x, axis=1), name='dim_reduction')(a)
+        a = Lambda(lambda x: K.mean(x, axis=1))(a)
         a = RepeatVector(input_dim)(a)
-    a_probs = Permute((2, 1), name='attention_vec')(a)
-    output_attention_mul = merge([inputs, a_probs], name='attention_mul', mode='mul')
+    a_probs = Permute((2, 1))(a)
+    output_attention_mul = merge([inputs, a_probs], mode='mul')
     return output_attention_mul
 
 
@@ -330,14 +330,14 @@ if __name__ == "__main__":
     #plot_results(['log', 'log_static_grid', 'log_dynamic_grid'], ['vanilla', 'static_grid', 'dynamic_grid'])
     #plot_results(['log', 'log_attention_applied_before_lstm'], ['vanilla', 'attention'])
 
-    folder_name = 'log_attention_applied_before_lstm_static_grid_video2'
+    folder_name = 'log_attention_applied_before_lstm_static_grid_version2'
     evaluation_data = 'test'
-    mode = 'test'
+    mode = 'train'
     reset = True
     epochs = 20
 
-    path = "../annotations/hyang/video2/"
-    video_path = "../videos/hyang/video2/video.mov"
+    path = "../annotations/hyang/video0/"
+    video_path = "../videos/hyang/video0/video.mov"
     loader = Loader(path)
     postprocessor = PostProcessing(loader, N_SAMPLES)
 
