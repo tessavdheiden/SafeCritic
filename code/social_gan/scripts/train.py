@@ -34,7 +34,7 @@ parser.add_argument('--dataset_name', default='eth', type=str)
 parser.add_argument('--delim', default='space')
 parser.add_argument('--loader_num_workers', default=4, type=int)
 parser.add_argument('--obs_len', default=8, type=int)
-parser.add_argument('--pred_len', default=12, type=int)
+parser.add_argument('--pred_len', default=8, type=int)
 parser.add_argument('--skip', default=1, type=int)
 
 # Optimization
@@ -52,7 +52,7 @@ parser.add_argument('--mlp_dim', default=64, type=int)
 
 # Generator Options
 parser.add_argument('--encoder_h_dim_g', default=64, type=int)
-parser.add_argument('--decoder_h_dim_g', default=128, type=int)
+parser.add_argument('--decoder_h_dim_g', default=64, type=int)
 parser.add_argument('--noise_dim', default=(0,), type=int_tuple)
 parser.add_argument('--noise_type', default='gaussian')
 parser.add_argument('--noise_mix_type', default='ped')
@@ -63,7 +63,7 @@ parser.add_argument('--g_steps', default=1, type=int)
 # Pooling Options
 parser.add_argument('--pooling_type', default='pool_net')
 parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
-parser.add_argument('--pool_static', default=0, type=bool_flag)
+parser.add_argument('--pool_static', default=1, type=bool_flag)
 
 # Pool Net Option
 # parser.add_argument('--bottleneck_dim', default=1024, type=int)
@@ -123,9 +123,9 @@ def main(args, WGAN=False, WGAN_GP=False):
     long_dtype, float_dtype = get_dtypes(args)
 
     logger.info("Initializing train dataset")
-    train_dset, train_loader = data_loader(args, train_path)
+    train_dset, train_loader = data_loader(args, train_path, shuffle=True)
     logger.info("Initializing val dataset")
-    _, val_loader = data_loader(args, val_path)
+    _, val_loader = data_loader(args, val_path, shuffle=True)
 
     iterations_per_epoch = len(train_dset) / args.batch_size / args.d_steps
     if args.num_epochs:
@@ -236,6 +236,8 @@ def main(args, WGAN=False, WGAN_GP=False):
         }
     t0 = None
     while t < args.num_iterations:
+        if epoch >= 200:
+            break
         gc.collect()
         d_steps_left = args.d_steps
         g_steps_left = args.g_steps
@@ -377,12 +379,12 @@ def discriminator_step(
         args, batch, generator, discriminator, d_loss_fn, optimizer_d, WGAN=False, WGAN_GP=False
 ):
     batch = [tensor.cuda() for tensor in batch]
-    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, _, non_linear_ped,
+    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel, non_linear_ped,
      loss_mask, _, seq_start_end) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
 
-    generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
+    generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
 
     pred_traj_fake_rel = generator_out
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
@@ -420,7 +422,7 @@ def generator_step(
         args, batch, generator, discriminator, g_loss_fn, optimizer_g
 ):
     batch = [tensor.cuda() for tensor in batch]
-    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, _, non_linear_ped,
+    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel, non_linear_ped,
      loss_mask, _, seq_start_end) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
@@ -429,7 +431,7 @@ def generator_step(
     loss_mask = loss_mask[:, args.obs_len:]
 
     for _ in range(args.best_k):
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
 
         pred_traj_fake_rel = generator_out
         pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
@@ -488,13 +490,13 @@ def check_accuracy(
     with torch.no_grad():
         for batch in loader:
             batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, _,
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel,
              non_linear_ped, loss_mask, _, seq_start_end) = batch
             linear_ped = 1 - non_linear_ped
             loss_mask = loss_mask[:, args.obs_len:]
 
             pred_traj_fake_rel = generator(
-                obs_traj, obs_traj_rel, seq_start_end
+                obs_traj, obs_traj_rel, seq_start_end, obs_static_rel
             )
             pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 

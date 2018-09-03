@@ -40,6 +40,7 @@ def get_generator(checkpoint):
         noise_mix_type=args.noise_mix_type,
         pooling_type=args.pooling_type,
         pool_every_timestep=args.pool_every_timestep,
+        pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
         neighborhood_size=args.neighborhood_size,
@@ -77,7 +78,7 @@ def cal_col(pred_traj_gt, pred_traj_fake):
     return cols
 
 
-def cal_occ(pred_traj_gt, pred_traj_fake, h, map):
+def cal_occ(pred_traj_gt, pred_traj_fake, h, map, dset):
     occs = 0
 
     for t in range(pred_traj_gt.shape[0]):
@@ -95,10 +96,11 @@ def cal_occ(pred_traj_gt, pred_traj_fake, h, map):
 
 
 def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True, save_dir='../results/'):
-    _, loader = data_loader(args, data_dir)
+    _, loader = data_loader(args, data_dir, shuffle=False)
 
     ade_outer, fde_outer = [], []
     cols, occs = 0, 0
+    collisions_gt, collisions_pred, occupancy_count_gt, occupancy_count_pred = 0,0,0,0
     total_traj = 0
     with torch.no_grad():
         for b, batch in enumerate(loader):
@@ -110,7 +112,7 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
 
             for samp in range(num_samples):
                 pred_traj_fake_rel = generator(
-                    obs_traj, obs_traj_rel, seq_start_end
+                    obs_traj, obs_traj_rel, seq_start_end, obs_static_rel
                 )
                 pred_traj_fake = relative_to_abs(
                     pred_traj_fake_rel, obs_traj[-1]
@@ -133,13 +135,12 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
 
                 static_map = load_bin_map(scene_info_path)
                 # cols += cal_col(pred_traj_gt, pred_traj_fake)
-                occs += cal_occ(pred_traj_gt, pred_traj_fake, h, static_map)
+                # occs += cal_occ(pred_traj_gt, pred_traj_fake, h, static_map)
 
                 if visualize:
                     # load frame
 
-                    vidcap = imageio.get_reader(scene_info_path + "/seq.avi", 'ffmpeg')  #
-                    n_frames = vidcap._meta['nframes']
+                    vidcap = imageio.get_reader(scene_info_path + "/seq.avi", 'ffmpeg')  #  n_frames = vidcap._meta['nframes']
 
                     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15,10), num=1)
                     fig = move_figure(fig, 2000, 100)
@@ -149,12 +150,12 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
 
                     def init():
 
-                        global collisions_gt, collisions_pred, occupancy_count
+                        global collisions_gt, collisions_pred, occupancy_count_gt, occupancy_count_pred
                         collisions_gt, collisions_pred = 0, 0
-                        occupancy_count = 0
+                        occupancy_count_gt, occupancy_count_pred = 0, 0
 
                     def update(time_ped):
-                        global collisions_gt, collisions_pred, occupancy_count
+                        global collisions_gt, collisions_pred, occupancy_count_gt, occupancy_count_pred
                         time = time_ped % (args.obs_len + args.pred_len)
                         pedestrian = time_ped // (args.obs_len + args.pred_len)
 
@@ -173,8 +174,8 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
                         ax4.cla()
                         ax1.imshow(image)
                         ax2.imshow(image)
-                        ax1.set_title(' frame {} pedestrian gt'.format(int(current_frame), pedestrian))
-                        ax2.set_title(' frame {} pedestrian pred'.format(int(current_frame), pedestrian))
+                        ax1.set_title(' frame {} pedestrian {} gt'.format(int(current_frame), pedestrian))
+                        ax2.set_title(' frame {} pedestrian {} pred'.format(int(current_frame), pedestrian))
 
                         if time < args.obs_len:
                             t = time
@@ -194,11 +195,15 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
                             ax2.scatter(pixels[t, 1], pixels[t, 0], color=color[pedestrian, :], marker='o')
                             ax3.scatter(coordinates[t, 0], coordinates[t, 1], color=color[pedestrian, :], marker='o')
                             ax3.scatter(others[:, 0], others[:, 1], color='blue', marker='+')
-                            ax3.scatter(positions_beams[t, 1::2], -positions_beams[t, 0::2], color='red', marker='+')
-
+                            if dset == "zara1" or dset == "zara2":
+                                ax3.scatter(positions_beams[t, 1::2], positions_beams[t, 0::2], color='red',marker='+')
+                                ax4.scatter(positions_beams[t, 1::2], positions_beams[t, 0::2], color='red',marker='+')
+                            else:
+                                ax3.scatter(positions_beams[t, 1::2], -positions_beams[t, 0::2], color='red', marker='+')
+                                ax4.scatter(positions_beams[t, 1::2], -positions_beams[t, 0::2], color='red', marker='+')
                             ax4.scatter(coordinates[t, 0], coordinates[t, 1], color=color[pedestrian, :], marker='o')
                             ax4.scatter(others[:, 0], others[:, 1], color='blue', marker='+')
-                            ax4.scatter(positions_beams[t, 1::2], -positions_beams[t, 0::2], color='red', marker='+')
+
                         else:
                             t = time - args.obs_len
                             coordinates = pred_traj_gt_seq[pedestrian][0:args.pred_len]
@@ -216,21 +221,34 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
 
                             pixels = convert_to_pixels(dset, h, coordinates)
                             pixels_pred = convert_to_pixels(dset, h, coordinates_pred)
-                            ax1.scatter(pixels[t, 1], pixels[t, 0], color=color[pedestrian, :], marker='x')
-                            ax2.scatter(pixels_pred[t, 1], pixels_pred[t, 0], color=color[pedestrian, :], marker='x')
+
                             for pose in others:
-                                if in_collision(pose, coordinates[t], 1.0):
+                                marker_gt, marker_gt_map = 'x', 'x'
+                                if in_collision(pose, coordinates[t], 0.8):
                                     marker_gt = '*'
                                     collisions_gt += 1
                                     break
-                                marker_gt = 'x'
+
+                                if on_occupied(pixels[t], static_map):
+                                    marker_gt_map = '*'
+                                    occupancy_count_gt += 1
+                                    break
+
                             for pose in others:
-                                if in_collision(pose, coordinates_pred[t], 1.0):
+                                marker_pred, marker_pred_map = 'x', 'x'
+                                if in_collision(pose, coordinates_pred[t], 0.8):
                                     marker_pred = '*'
                                     collisions_pred += 1
                                     break
-                                marker_pred = 'x'
 
+                                if on_occupied(pixels_pred[t], static_map):
+                                    marker_pred_map = '*'
+                                    occupancy_count_pred += 1
+                                    break
+
+
+                            ax1.scatter(pixels[t, 1], pixels[t, 0], color=color[pedestrian, :], marker=marker_gt_map)
+                            ax2.scatter(pixels_pred[t, 1], pixels_pred[t, 0], color=color[pedestrian, :],marker=marker_pred_map)
                             ax3.scatter(coordinates[t, 0], coordinates[t, 1], color=color[pedestrian, :], marker=marker_gt)
                             ax3.scatter(others[:, 0], others[:, 1], color='blue', marker='+')
                             ax4.scatter(coordinates_pred[t, 0], coordinates_pred[t, 1], color=color[pedestrian, :], marker=marker_pred)
@@ -239,57 +257,28 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
                         ax1.scatter(pixels_others[:, 1], pixels_others[:, 0], color='blue', marker='+')
                         ax2.scatter(pixels_others[:, 1], pixels_others[:, 0], color='blue', marker='+')
 
-                        ax3.set_title(' collisions gt {}'.format(collisions_gt))
+                        ax3.set_title(' collisions gt {} occupancies {}'.format(collisions_gt, occupancy_count_gt))
                         ax3.axis([-15, 15, -15, 15])
                         ax3.set(adjustable='box-forced', aspect='equal')
                         ax3.set_ylabel('y-coordinate')
                         ax3.set_xlabel('x-coordinate')
 
-                        ax4.set_title(' collisions pred {}'.format(collisions_pred))
+                        ax4.set_title(' collisions pred {} occupancies {}'.format(collisions_pred, occupancy_count_pred))
                         ax4.axis([-15, 15, -15, 15])
                         ax4.set(adjustable='box-forced', aspect='equal')
                         ax4.set_ylabel('y-coordinate')
                         ax4.set_xlabel('x-coordinate')
-                        plt.draw()
-                        plt.pause(0.001)
-
-
-
-                        #
-                        #     future_ped = np.expand_dims(pred_traj_gt.cpu().numpy()[time - args.obs_len][pedestrian], axis=0)
-                        #     future_ped_pred = np.expand_dims(pred_traj_fake.cpu().numpy()[time - args.obs_len][pedestrian],axis=0)
-                        #     labels = get_pixels_from_world(future_ped, h, True)
-                        #     predictions = get_pixels_from_world(future_ped_pred, h, True)
-                        #     labels_others = get_pixels_from_world(others, h, True)
-                        #
-                        #     ax1.scatter(labels_others[1], labels_others[0], marker='+', s=1, color="white")
-                        #     ax1.scatter(labels[:, 1], labels[:, 0], marker='X', s=30, color=color[pedestrian, :])
-                        #     ax1.set_xlabel('Ground truth' + label)
-                        #
-                        #     ax2.scatter(labels_others[1], labels_others[0], marker='+', s=1, color="white")
-                        #     for other in others:
-                        #         bool_collision = in_collision(future_ped_pred, other, 1.0)
-                        #         if bool_collision:
-                        #             whom = other
-                        #             break
-                        #     if on_occupied(predictions, static_map):
-                        #         ax2.scatter(predictions[1], predictions[0], marker='*', s=50, color="red")
-                        #         occupancy_count += 1
-                        #     elif bool_collision:
-                        #         # whom = get_pixel_from_coordinate(data_path, whom)
-                        #         ax2.scatter(predictions[1], predictions[0], marker='X', s=30,color=color[pedestrian, :])
-                        #         # ax2.scatter(whom[1], whom[0], marker='*', s=50, color="red")
-                        #         collisions += 1
-                        #     else:
-                        #         ax2.scatter(predictions[1], predictions[0], marker='X', s=30,color=color[pedestrian, :])
-                        #     ax2.set_xlabel('Prediction' + label + extra_info)
+                        # plt.draw()
+                        # plt.pause(0.001)
 
                         return line, ax1
 
+                    cols += collisions_pred - collisions_gt
+                    occs += occupancy_count_pred - occupancy_count_gt
+
                     anim = FuncAnimation(fig, update, frames=(args.obs_len + args.pred_len)*10, interval=100, repeat=False, init_func=init)
                     anim.save(save_dir + 'iteration_{}_batch_{}_sample_{}.gif'.format(iteration, b, samp), dpi=80, writer='imagemagick')
-                    ax1.cla()
-                    ax2.cla()
+                    plt.close()
 
             ade_sum = evaluate_helper(ade, seq_start_end)
             fde_sum = evaluate_helper(fde, seq_start_end)
@@ -338,8 +327,8 @@ def main(args):
     checkpoint = torch.load(model_path)
 
     _args = AttrDict(checkpoint['args'])
-    _args.dataset_name = 'eth'
-    data_dir = get_dset_path('eth', args.dset_type, True)
+    _args.dataset_name = 'hotel'
+    data_dir = get_dset_path('hotel', args.dset_type, True)
 
     generator = get_generator(checkpoint)
 
