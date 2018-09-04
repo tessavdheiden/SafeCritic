@@ -425,8 +425,9 @@ class PhysicalPooling(nn.Module):
             curr_hidden = h_states.view(-1, self.h_dim)[start:end]
             curr_end_pos = end_pos[start:end]
             curr_static_pos = static_pos[start:end]
-            # Repeat -> H1, H2, H1, H2
-            curr_hidden_1 = curr_hidden.repeat(self.num_cells, 1)
+            # Repeat -> H1, H1, H2, H2
+            # curr_hidden_1 = curr_hidden.repeat(self.num_cells, 1)
+            curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
             # Repeat position -> P1, P2, P1, P2
             curr_end_pos_1 = torch.stack((curr_static_pos[:, 0::2], curr_static_pos[:, 1::2]), 2).view(-1, 2)
             # Repeat position -> P1, P1, P2, P2
