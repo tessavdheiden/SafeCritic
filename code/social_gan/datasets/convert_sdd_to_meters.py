@@ -18,7 +18,7 @@ def generate_homography_matrix(file_world, file_image, num_points_homography, te
 
     if num_points_homography > len(world_points):
         num_points_homography = len(world_points)
-    h, status = cv2.findHomography(world_points[:num_points_homography], image_points[:num_points_homography])
+    h, status = cv2.findHomography(image_points[:num_points_homography], world_points[:num_points_homography])
 
     if test:
         pts_img_back = get_pixels_from_world(world_points[:num_points_homography], h, True)
@@ -40,7 +40,7 @@ def generate_homographies_sdd_data(args):
 
             out_path_name = args.out_dir_homographies + os.path.splitext(scene_name)[0] + '_homography.txt'
             print('Saving...{}'.format(out_path_name))
-            np.savetxt(out_path_name, h, delimiter=' ', fmt='%1.2f')
+            np.savetxt(out_path_name, h, delimiter=' ', fmt='%1.4f')
 
 
 def main(args):
