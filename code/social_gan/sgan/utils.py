@@ -77,7 +77,7 @@ def get_dset_path(dset_name, dset_type, training=True):
     _dir = _dir.split("/")[:-1]
     _dir = "/".join(_dir)
     if training:
-        return os.path.join(_dir, 'datasets/corrected', dset_name, dset_type)
+        return os.path.join(_dir, 'datasets/{}_static_polar'.format(dset_name), dset_type)
     else:
         return os.path.join(_dir, 'datasets', dset_name, dset_type)
 
@@ -96,3 +96,4 @@ def relative_to_abs(rel_traj, start_pos):
     start_pos = torch.unsqueeze(start_pos, dim=1)
     abs_traj = displacement + start_pos
     return abs_traj.permute(1, 0, 2)
+

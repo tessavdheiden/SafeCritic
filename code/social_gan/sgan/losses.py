@@ -22,7 +22,7 @@ def bce_loss(input, target):
     return loss.mean()
 
 
-def gan_g_loss(scores_fake, WGAN=False, WGAN_GP=False):
+def gan_g_loss(scores_fake):
     """
     Input:
     - scores_fake: Tensor of shape (N,) containing scores for fake samples
@@ -31,34 +31,10 @@ def gan_g_loss(scores_fake, WGAN=False, WGAN_GP=False):
     - loss: Tensor of shape (,) giving GAN generator loss
     """
     y_fake = torch.ones_like(scores_fake) * random.uniform(0.7, 1.2)
-    if WGAN or WGAN_GP:
-        return -torch.mean(scores_fake)
-    else:
-        return bce_loss(scores_fake, y_fake)
-
-def gradient_penalty(batch_size, netD, real_data, fake_data, real_rel, fake_rel, use_cuda=True, LAMBDA=0.1):
-    # alpha = torch.rand(batch_size, 1)
-    alpha = torch.rand(real_rel.size())
-    alpha = alpha.cuda() if use_cuda else alpha
-
-    interpolates = alpha * real_rel + ((1 - alpha) * fake_rel)
-
-    if use_cuda:
-        interpolates = interpolates.cuda()
-    interpolates = autograd.Variable(interpolates, requires_grad=True)
-
-    disc_interpolates = netD(real_data, interpolates)
-
-    gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates,
-                              grad_outputs=torch.ones(disc_interpolates.size()).cuda() if use_cuda else torch.ones(
-                                  disc_interpolates.size()),
-                              create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
-    return gradient_penalty
+    return bce_loss(scores_fake, y_fake)
 
 
-def gan_d_loss(scores_real, scores_fake, WGAN=False, WGAN_GP=False):
+def gan_d_loss(scores_real, scores_fake):
     """
     Input:
     - scores_real: Tensor of shape (N,) giving scores for real samples
@@ -71,10 +47,51 @@ def gan_d_loss(scores_real, scores_fake, WGAN=False, WGAN_GP=False):
     y_fake = torch.zeros_like(scores_fake) * random.uniform(0, 0.3)
     loss_real = bce_loss(scores_real, y_real)
     loss_fake = bce_loss(scores_fake, y_fake)
-    if WGAN or WGAN_GP:
-        return -(torch.mean(scores_real) - torch.mean(scores_fake))
-    else:
-        return loss_real + loss_fake
+    return loss_real + loss_fake
+
+
+def critic_loss(scores_real, scores_fake, y_real, y_fake):
+    """
+    Input:
+    - scores_real: Tensor of shape (N,) giving scores for real samples
+    - scores_fake: Tensor of shape (N,) giving scores for fake samples
+
+    Output:
+    - loss: Tensor of shape (,) giving GAN discriminator loss
+    """
+    # loss_real = bce_loss(scores_real, y_real)
+    # loss_fake = bce_loss(scores_fake, y_fake)
+    loss_real = (scores_real - y_real) ** 2
+    loss_fake = (scores_fake - y_fake) ** 2
+
+    return loss_real.mean() + loss_fake.mean()
+
+
+def calc_gradient_penalty(netD, traj_real_rel, traj_real, traj_fake_rel, LAMBDA=10, device="cuda"):
+    real_data = traj_real_rel.permute(1, 0, 2)
+    fake_data = traj_fake_rel.permute(1, 0, 2)
+    BATCH_SIZE = real_data.size(0)
+    seq_len = real_data.size(1)
+    DIM = real_data.size(2)
+    alpha = torch.rand(BATCH_SIZE, 1)
+    alpha = alpha.expand(BATCH_SIZE, int(real_data.nelement() / BATCH_SIZE)).contiguous()
+    alpha = alpha.view(BATCH_SIZE, seq_len, DIM).cuda()
+
+    fake_data = fake_data.view(BATCH_SIZE, seq_len, DIM)
+    interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
+
+    interpolates = interpolates.to(device)
+    interpolates.requires_grad_(True)
+
+    disc_interpolates = netD(traj_real, interpolates)
+
+    gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates,
+                              grad_outputs=torch.ones(disc_interpolates.size()).to(device),
+                              create_graph=True, retain_graph=True, only_inputs=True)[0]
+
+    gradients = gradients.view(gradients.size(0), gradients.size(1), -1)
+    gradient_penalty = ((gradients.norm(2, dim=2) - 1) ** 2).mean() * LAMBDA
+    return gradient_penalty
 
 
 def l2_loss(pred_traj, pred_traj_gt, loss_mask, random=0, mode='average'):
@@ -96,7 +113,7 @@ def l2_loss(pred_traj, pred_traj_gt, loss_mask, random=0, mode='average'):
     elif mode == 'average':
         return torch.sum(loss) / torch.numel(loss_mask.data)
     elif mode == 'raw':
-        return loss.sum(dim=2).sum(dim=1)
+        return loss.sum(dim=2).sum(dim=1) # dim_2 = 2, dim_1 = seq
 
 
 def displacement_error(pred_traj, pred_traj_gt, consider_ped=None, mode='sum'):

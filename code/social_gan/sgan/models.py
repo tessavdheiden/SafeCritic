@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
     for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
@@ -42,7 +45,7 @@ class Encoder(nn.Module):
         self.encoder = nn.LSTM(
             embedding_dim, h_dim, num_layers, dropout=dropout
         )
-
+        # self.linear_out = nn.Linear(2*h_dim, embedding_dim)
         self.spatial_embedding = nn.Linear(2, embedding_dim)
 
     def init_hidden(self, batch):
@@ -51,7 +54,7 @@ class Encoder(nn.Module):
             torch.zeros(self.num_layers, batch, self.h_dim).cuda()
         )
 
-    def forward(self, obs_traj):
+    def forward(self, obs_traj, full_seq=False):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -60,14 +63,17 @@ class Encoder(nn.Module):
         """
         # Encode observed Trajectory
         batch = obs_traj.size(1)
-        obs_traj_embedding = self.spatial_embedding(obs_traj.view(-1, 2)) # torch.Size([8, 655, 2]) --> (obs_length * batch, 2)
+        obs_traj_embedding = self.spatial_embedding(obs_traj.view(-1, 2))
         obs_traj_embedding = obs_traj_embedding.view(
             -1, batch, self.embedding_dim
         )
         state_tuple = self.init_hidden(batch)
         output, state = self.encoder(obs_traj_embedding, state_tuple)
         final_h = state[0]
-        return final_h
+        if full_seq:
+            return output
+        else:
+            return final_h
 
 
 class Decoder(nn.Module):
@@ -76,7 +82,7 @@ class Decoder(nn.Module):
         self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1,
         pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, pooling_type='pool_net',
-        neighborhood_size=2.0, grid_size=8, pool_static=True
+        neighborhood_size=2.0, grid_size=8, pool_static=True, pooling_dim=2
     ):
         super(Decoder, self).__init__()
 
@@ -86,14 +92,18 @@ class Decoder(nn.Module):
         self.embedding_dim = embedding_dim
         self.pool_every_timestep = pool_every_timestep
         self.pool_static = pool_static
+        self.pooling_type = pooling_type
 
         self.decoder = nn.LSTM(
             embedding_dim, h_dim, num_layers, dropout=dropout
         )
 
         if pool_every_timestep:
-            if pool_static:
+            if (pooling_type == 'pool_net' or pooling_type == 'spool') and pool_static:
                 bottleneck_dim = bottleneck_dim // 2
+                mlp_dims = [h_dim + bottleneck_dim * 2, mlp_dim, h_dim]
+            else:
+                mlp_dims = [h_dim + bottleneck_dim, mlp_dim, h_dim]
 
             if pooling_type == 'pool_net':
                 self.pool_net = PoolHiddenNet(
@@ -103,7 +113,8 @@ class Decoder(nn.Module):
                     bottleneck_dim=bottleneck_dim,
                     activation=activation,
                     batch_norm=batch_norm,
-                    dropout=dropout
+                    dropout=dropout,
+                    pooling_dim=pooling_dim
                 )
             elif pooling_type == 'spool':
                 self.pool_net = SocialPooling(
@@ -126,10 +137,6 @@ class Decoder(nn.Module):
                     dropout=dropout
                 )
 
-            if pool_static:
-                mlp_dims = [h_dim + bottleneck_dim * 2, mlp_dim, h_dim]
-            else:
-                mlp_dims = [h_dim + bottleneck_dim, mlp_dim, h_dim]
             self.mlp = make_mlp(
                 mlp_dims,
                 activation=activation,
@@ -137,6 +144,12 @@ class Decoder(nn.Module):
                 dropout=dropout
             )
         self.spatial_embedding = nn.Linear(2, embedding_dim)
+        # self.temporal_embedding = make_mlp(
+        #     [seq_len, mlp_dim, seq_len],
+        #     activation=activation,
+        #     batch_norm=batch_norm,
+        #     dropout=dropout
+        # )
         self.hidden2pos = nn.Linear(h_dim, 2)
         self.hidden2beam = nn.Linear(h_dim, 15)
 
@@ -151,9 +164,9 @@ class Decoder(nn.Module):
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
         batch = last_pos.size(0)
-        pred_traj_fake_rel = []
+        pred_traj_fake_rel, indxs = [], []
         decoder_input = self.spatial_embedding(last_pos_rel)
-        decoder_input = decoder_input.view(1, batch, self.embedding_dim)
+        decoder_input = decoder_input.view(1, batch, self.embedding_dim) # [1, ped, h_dim]
 
         for _ in range(self.seq_len):
             output, state_tuple = self.decoder(decoder_input, state_tuple)
@@ -162,12 +175,18 @@ class Decoder(nn.Module):
 
             if self.pool_every_timestep:
                 decoder_h = state_tuple[0]
-                pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos)
-                if self.pool_static:
+                if (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and not self.pool_static:
+                    pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
+                    decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
+                elif (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
+                    pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
+                    # obs_static_rel = calc_polar_grid()
                     static_h = self.static_net(decoder_h, seq_start_end, curr_pos, obs_static_rel)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h, static_h], dim=1)
-                else:
-                    decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
+                elif not (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, obs_static_rel)
+                    decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), static_h], dim=1)
+
                 decoder_h = self.mlp(decoder_h)
                 decoder_h = torch.unsqueeze(decoder_h, 0)
                 state_tuple = (decoder_h, state_tuple[1])
@@ -187,7 +206,7 @@ class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
         self, embedding_dim=64, h_dim=64, mlp_dim=1024, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, dropout=0.0
+        activation='relu', batch_norm=True, dropout=0.0, pooling_dim=4
     ):
         super(PoolHiddenNet, self).__init__()
 
@@ -195,11 +214,11 @@ class PoolHiddenNet(nn.Module):
         self.h_dim = h_dim
         self.bottleneck_dim = bottleneck_dim
         self.embedding_dim = embedding_dim
+        self.pooling_dim = pooling_dim
 
         mlp_pre_dim = embedding_dim + h_dim
         mlp_pre_pool_dims = [mlp_pre_dim, 512, bottleneck_dim]
-
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.spatial_embedding = nn.Linear(pooling_dim, embedding_dim)
         self.mlp_pre_pool = make_mlp(
             mlp_pre_pool_dims,
             activation=activation,
@@ -219,7 +238,7 @@ class PoolHiddenNet(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def forward(self, h_states, seq_start_end, end_pos):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)
@@ -235,18 +254,28 @@ class PoolHiddenNet(nn.Module):
             num_ped = end - start
             curr_hidden = h_states.view(-1, self.h_dim)[start:end] # view [1, 540, 64] --> [540, 64] take start:end ped
             curr_end_pos = end_pos[start:end]
-            # Repeat -> H1, H2, H1, H2
-            curr_hidden_1 = curr_hidden.repeat(num_ped, 1) # make a tensor [15, 64] --> [15x15, 64]
+
             # Repeat position -> P1, P2, P1, P2
             curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1)
             # Repeat position -> P1, P1, P2, P2
             curr_end_pos_2 = self.repeat(curr_end_pos, num_ped)
-            curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
+            curr_rel_pos = curr_end_pos_1 - curr_end_pos_2 # [num_ped**2, 2]
 
-            curr_rel_embedding = self.spatial_embedding(curr_rel_pos) # curr_rel_pos = [225, 2], curr_rel_embedding=[225, 64]
+            if self.pooling_dim == 4:
+                curr_disp = rel_pos[start:end]
+                curr_disp_1 = curr_disp.repeat(num_ped, 1)
+                # Repeat position -> P1, P1, P2, P2
+                curr_disp_2 = self.repeat(curr_disp, num_ped)
+                curr_rel_disp = curr_disp_1 - curr_disp_2
+                curr_rel_pos = torch.cat([curr_rel_pos, curr_rel_disp], dim=1)
+
+            curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
+            # Repeat -> H1, H2, H1, H2
+            curr_hidden_1 = curr_hidden.repeat(num_ped, 1)
             mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
             curr_pool_h = self.mlp_pre_pool(mlp_h_input) # curr_pool_h = [num_ped*num_ped, 64]
-            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0] # [num_ped, 64] take max over all ped
+            curr_pool_h = curr_pool_h.view(num_ped, num_ped, -1).max(1)[0]  # [num_ped, 64] take max over all ped
+
             pool_h.append(curr_pool_h) # append for all sequences the hiddens (num_ped_per_seq, 64)
         pool_h = torch.cat(pool_h, dim=0)
         return pool_h
@@ -426,13 +455,13 @@ class PhysicalPooling(nn.Module):
             curr_end_pos = end_pos[start:end]
             curr_static_pos = static_pos[start:end]
             # Repeat -> H1, H1, H2, H2
-            # curr_hidden_1 = curr_hidden.repeat(self.num_cells, 1)
             curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
             # Repeat position -> P1, P2, P1, P2
-            curr_end_pos_1 = torch.stack((curr_static_pos[:, 0::2], curr_static_pos[:, 1::2]), 2).view(-1, 2)
+            curr_end_pos_1 = torch.stack((curr_static_pos[:, 0::2], curr_static_pos[:, 1::2]), 2).view(-1, 2) # x every 2nd element start=0, y also 2nd (::2), start=1
             # Repeat position -> P1, P1, P2, P2
             curr_end_pos_2 = self.repeat(curr_end_pos, self.num_cells)
             curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
+
             curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
             mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
             curr_pool_h = self.mlp_pre_pool(mlp_h_input)
@@ -448,7 +477,7 @@ class TrajectoryGenerator(nn.Module):
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
         noise_type='gaussian', noise_mix_type='ped', pooling_type=None,
         pool_every_timestep=True, pool_static=True, dropout=0.0, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8
+        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2
     ):
         super(TrajectoryGenerator, self).__init__()
 
@@ -476,7 +505,7 @@ class TrajectoryGenerator(nn.Module):
             h_dim=encoder_h_dim,
             mlp_dim=mlp_dim,
             num_layers=num_layers,
-            dropout=dropout
+            dropout=dropout,
         )
 
         self.decoder = Decoder(
@@ -493,10 +522,16 @@ class TrajectoryGenerator(nn.Module):
             pooling_type=pooling_type,
             grid_size=grid_size,
             neighborhood_size=neighborhood_size,
-            pool_static=pool_static
+            pool_static=pool_static,
+            pooling_dim=pooling_dim
         )
-        if pool_static:
+        if (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and pool_static:
             bottleneck_dim = bottleneck_dim // 2
+            input_dim = encoder_h_dim + bottleneck_dim * 2
+        elif (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') or pool_static:
+            input_dim = encoder_h_dim + bottleneck_dim
+        else:
+            input_dim = encoder_h_dim
 
         if pooling_type == 'pool_net':
             self.pool_net = PoolHiddenNet(
@@ -505,7 +540,8 @@ class TrajectoryGenerator(nn.Module):
                 mlp_dim=mlp_dim,
                 bottleneck_dim=bottleneck_dim,
                 activation=activation,
-                batch_norm=batch_norm
+                batch_norm=batch_norm,
+                pooling_dim=pooling_dim
             )
         elif pooling_type == 'spool':
             self.pool_net = SocialPooling(
@@ -532,14 +568,6 @@ class TrajectoryGenerator(nn.Module):
         else:
             self.noise_first_dim = noise_dim[0]
 
-        # Decoder Hidden
-        if pooling_type:
-            if pool_static:
-                input_dim = encoder_h_dim + bottleneck_dim * 2
-            else:
-                input_dim = encoder_h_dim + bottleneck_dim
-        else:
-            input_dim = encoder_h_dim
 
         if self.mlp_decoder_needed():
             mlp_decoder_context_dims = [
@@ -593,7 +621,7 @@ class TrajectoryGenerator(nn.Module):
 
     def mlp_decoder_needed(self):
         if (
-            self.noise_dim or self.pooling_type or
+            self.noise_dim or self.pooling_type or self.pool_static or
             self.encoder_h_dim != self.decoder_h_dim
         ):
             return True
@@ -616,17 +644,24 @@ class TrajectoryGenerator(nn.Module):
         # Encode seq
         final_encoder_h = self.encoder(obs_traj_rel)
         # Pool States
-        if self.pooling_type:
+        if (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and not self.pool_static:
+            end_pos = obs_traj[-1, :, :]
+            rel_pos = obs_traj_rel[-1, :, :]
+            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
+            mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h], dim=1)
+        elif (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
+            end_pos = obs_traj[-1, :, :]
+            rel_pos = obs_traj_rel[-1, :, :]
+            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
+            # obs_static_rel = calc_polar_grid()
+            static_pos = obs_static_rel[-1, :, :]
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, static_pos)
+            mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h, static_h], dim=1)
+        elif not (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
             end_pos = obs_traj[-1, :, :]
             static_pos = obs_static_rel[-1, :, :]
-            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos)
-
-            # Construct input hidden states for decoder
-            if self.pool_static:
-                static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, static_pos)
-                mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h, static_h], dim=1)
-            else:
-                mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h], dim=1)
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, static_pos)
+            mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), static_h], dim=1)
         else:
             mlp_decoder_context_input = final_encoder_h.view(-1, self.encoder_h_dim)
 
@@ -723,3 +758,101 @@ class TrajectoryDiscriminator(nn.Module):
             )
         scores = self.real_classifier(classifier_input)
         return scores
+
+
+class TrajectoryCritic(nn.Module):
+    def __init__(
+        self, obs_len, pred_len, embedding_dim=64, h_dim=64, mlp_dim=1024,
+        num_layers=1, activation='relu', batch_norm=True, dropout=0.0,
+        d_type='local'
+    ):
+        super(TrajectoryCritic, self).__init__()
+
+        self.obs_len = obs_len
+        self.pred_len = pred_len
+        self.seq_len = obs_len + pred_len
+        self.mlp_dim = mlp_dim
+        self.h_dim = h_dim
+        self.d_type = d_type
+
+        self.encoder = Encoder(
+            embedding_dim=embedding_dim,
+            h_dim=h_dim,
+            mlp_dim=mlp_dim,
+            num_layers=num_layers,
+            dropout=dropout
+        )
+        attention_dims = [self.seq_len, mlp_dim, 1]
+        self.attention = make_mlp(
+            attention_dims,
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout
+        )
+
+
+        real_classifier_dims = [h_dim, mlp_dim, 1]
+        self.real_classifier = make_mlp(
+            real_classifier_dims,
+            activation=activation,
+            batch_norm=batch_norm,
+            dropout=dropout
+        )
+        if d_type == 'global':
+            mlp_pool_dims = [h_dim + embedding_dim, mlp_dim, h_dim]
+            self.pool_net = PoolHiddenNet(
+                embedding_dim=embedding_dim,
+                h_dim=h_dim,
+                mlp_dim=mlp_pool_dims,
+                bottleneck_dim=h_dim,
+                activation=activation,
+                batch_norm=batch_norm
+            )
+
+    def forward(self, traj, traj_rel, seq_start_end=None):
+        """
+        Inputs:discriminator
+        - traj: Tensor of shape (obs_len + pred_len, batch, 2)
+        - traj_rel: Tensor of shape (obs_len + pred_len, batch, 2)
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        Output:
+        - scores: Tensor of shape (batch,) with real/fake scores
+        """
+        # output = self.encoder(traj, full_seq=True)
+        # output = output.permute(1, 0, 2)
+        # # Note: Whole seq should be evaluated.
+        # scores = []
+        # for (start, end) in seq_start_end:
+        #     start = start.item()
+        #     end = end.item()
+        #     num_ped = end - start
+        #     classifier_input = output[start:end]
+        #     classifier_input = self.attention(classifier_input.permute(0, 2, 1)).squeeze(2)
+        #     scores.append(self.real_classifier(classifier_input))
+        #
+        # scores = torch.cat(scores, dim=0)
+        final_h = self.encoder(traj_rel)
+        classifier_input = final_h.squeeze()
+        scores = self.real_classifier(classifier_input)
+        return scores
+
+
+    if __name__ == '__main__':
+        p1 = torch.ones((4, 2))
+        p2 = torch.ones((4, 2)) * 2
+        p3 = torch.ones((4, 2)) * 3
+        P = torch.stack((p1, p2, p3))
+        P1 = P.repeat(1, 3, 1)
+        P2 = P.repeat(3, 1, 1)
+        P3 = P1.view(-1, 2) - P2.view(-1, 2)
+        indices = torch.arange(0, 3).type(torch.LongTensor)
+        zero_m = torch.zeros_like(P3).view(3, 3, 4, 2)
+        zero_m[indices, indices, :, :] = 1.234
+        zero_m = zero_m.view(3 * 3 * 4, 2)
+        P4 = P3 + zero_m
+        P5 = torch.norm(P4.view(3, 3, 4, 2), p=1, dim=3)
+        P6 = P5 < 2.1
+        print(torch.sum(P6, 0))
+        print(torch.sum(torch.sum(P6, 0), 1))
+
+
