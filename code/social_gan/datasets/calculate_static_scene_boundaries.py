@@ -10,7 +10,7 @@ import sys
 sys.path.append("../")
 
 from sgan.utils import get_dset_path
-from scripts_t.collision_checking import within_bounds, load_bin_map
+from scripts.collision_checking import within_bounds, load_bin_map
 from sgan.data.trajectories import read_file
 
 parser = argparse.ArgumentParser()

@@ -10,7 +10,7 @@ import sys
 sys.path.append("../")
 
 from sgan.utils import get_dset_path
-from scripts_t.collision_checking import within_bounds, load_bin_map
+from scripts.collision_checking import within_bounds, load_bin_map
 from sgan.data.trajectories import read_file
 
 
@@ -197,7 +197,7 @@ def main(args):
     delim = "space"
     annotated_image = '/annotated.jpg'
     video_file = "/video.mov"
-    datasets = ['SDD/nexus_0']
+    datasets = ['SDD/bookstore_0']
     calculate_static_scene(args, datasets, data_folder, delim, annotated_image, video_file)
     return True
 

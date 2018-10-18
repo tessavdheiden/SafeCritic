@@ -53,8 +53,8 @@ def grey2bin(grey):
     return grey
 
 
-def load_bin_map(path):
-    static_map = plt.imread(path + '/annotated.png')
+def load_bin_map(path, file='/annotated.png'):
+    static_map = plt.imread(path + file)
     static_map = rgb2gray(static_map)
     static_map = grey2bin(static_map)
     return static_map
