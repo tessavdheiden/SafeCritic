@@ -1,10 +1,12 @@
+# This script will allow the user to adjust the image and world coordinates by flipping, shifting, etc, in order to compute the homographies
+
 import argparse
 import os
 import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
-from scripts_t.collision_checking import load_bin_map
+from scripts.collision_checking import load_bin_map
 from tkinter import messagebox, Tk, Label, Button, Radiobutton, IntVar
 
 parser = argparse.ArgumentParser()
@@ -13,18 +15,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dir_world', type=str, help="directory with files with world coordinates")
 parser.add_argument('--dir_image', type=str, help="directory with files with image coordinates")
 
-# Specify the delimiter inside the annotation files
-parser.add_argument('--delimiter', default=' ', type=str, help="delimiter used in the annotations data file")
-
 # dir_dataset is used to take the annotated images and videos corresponding to the scenes of which homographies will be computed
-# Example for dir_dataset: "/FLORA/code/social_gan/datasets/stanford_drone_dataset/SDD/" where
+# Example for dir_dataset: "/home/userID/Desktop/FLORA/code/social_gan/datasets/dataset/SDD/" where
 # - SDD
 #   - bookstore_0
 #       -bookstore_0.txt
-#       -scene_information
-#           -annotated.jpg
-#           -bookstore_0_homography.txt
-#           -video.mov
+#       -annotated.jpg
+#       -bookstore_0_homography.txt
+#       -video.mov
 #   - coupa_0
 #   - coupa_1
 #   ...
@@ -35,7 +33,6 @@ parser.add_argument('--annotated_image_name', type=str, help="How the annotated 
 parser.add_argument('--video_name', type=str, help="How the videos are called (ex: 'video.mov')")
 
 # Output homography matrices will be put in a flat directory
-parser.add_argument('--out_dir_homographies', type=str, help="directory where to save homography matrices")
 parser.add_argument('--num_points_homography', default='4', type=str, help="number of points to use to compute homography matrices (at least 4)")
 
 
@@ -172,22 +169,22 @@ def adjust_image_coordinates(image_data, annotated_image, video):
                     return frame, image_data
 
 
-def generate_homographies(dir_world, dir_image, delimiter, dir_dataset, annotated_image_name, video_name, out_dir_homographies, num_points_homography):
+def generate_homographies(dir_world, dir_image, dir_dataset, annotated_image_name, video_name, num_points_homography):
     for root, dirs, files in os.walk(dir_world):
 
         for scene_file in files:
 
-            #if scene_file != "bookstore_2.txt":
-            #    continue
+            if scene_file != "students_3.txt":
+                continue
             print("\n*****scene_file: ", scene_file)
 
             # Load the world and image data file in format: [frame_id, pedestrian_id, x, y]
-            world_data = np.loadtxt(dir_world + scene_file, delimiter=delimiter)
-            image_data = np.loadtxt(dir_image + scene_file, delimiter=delimiter)
+            world_data = np.loadtxt(dir_world + scene_file, delimiter=' ')
+            image_data = np.loadtxt(dir_image + scene_file, delimiter=' ')
 
             # Load the video and annotated image of the scene
-            video = imageio.get_reader(dir_dataset + scene_file.split(".")[0] + "/scene_information/" + video_name, 'ffmpeg')  # video reader for extracting frames
-            annotated_image = load_bin_map(dir_dataset + scene_file.split(".")[0] + "/scene_information/", annotated_image_name)  # annotated images for the static obstacles
+            video = imageio.get_reader(dir_dataset + scene_file.split(".")[0] + "/" + video_name, 'ffmpeg')  # video reader for extracting frames
+            annotated_image = load_bin_map(dir_dataset + scene_file.split(".")[0] + "/", annotated_image_name)  # annotated images for the static obstacles
 
             #Loop until the user has confirmed both the world and the image coordinates systems (He/She can try more times the adjustments)
             corrected_world_data = None
@@ -204,15 +201,11 @@ def generate_homographies(dir_world, dir_image, delimiter, dir_dataset, annotate
                 num_points_homography_int = len(corrected_world_data)
             else:
                 num_points_homography_int = int(num_points_homography)
+
             h, status = cv2.findHomography(corrected_image_data[:num_points_homography_int, 2:4], corrected_world_data[:num_points_homography_int, 2:4])
-            out_path_name = out_dir_homographies + os.path.splitext(scene_file)[0] + '_homography.txt'
+            out_path_name = dir_dataset + scene_file.split(".")[0] + "/" + os.path.splitext(scene_file)[0] + '_homography.txt'
             print('Saving...{}'.format(out_path_name))
             np.savetxt(out_path_name, h, delimiter=' ', fmt='%1.4f')
-
-
-def main(args):
-    generate_homographies(args.dir_world, args.dir_image, args.delimiter, args.dir_dataset, args.annotated_image_name, args.video_name, args.out_dir_homographies, args.num_points_homography)
-    return True
 
 
 
@@ -247,6 +240,10 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
     return pts_img_back
 
 
+
+def main(args):
+    generate_homographies(args.dir_world, args.dir_image, args.dir_dataset, args.annotated_image_name, args.video_name, args.num_points_homography)
+    return True
 
 
 if __name__ == '__main__':

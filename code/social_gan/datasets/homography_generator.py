@@ -43,12 +43,6 @@ def generate_homographies_sdd_data(args):
             np.savetxt(out_path_name, h, delimiter=' ', fmt='%1.4f')
 
 
-def main(args):
-    generate_homographies_sdd_data(args)
-    return True
-
-
-
 def get_world_from_pixels(pts_img, h, multiply_depth=False):
     ones_vec = np.ones(pts_img.shape[0])
 
@@ -80,6 +74,10 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
     return pts_img_back
 
 
+
+def main(args):
+    generate_homographies_sdd_data(args)
+    return True
 
 
 if __name__ == '__main__':
