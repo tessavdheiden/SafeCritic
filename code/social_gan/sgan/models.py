@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from sgan.models_static_scene import calc_polar_grid, get_homography_and_map
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -151,9 +152,9 @@ class Decoder(nn.Module):
         #     dropout=dropout
         # )
         self.hidden2pos = nn.Linear(h_dim, 2)
-        self.hidden2beam = nn.Linear(h_dim, 15)
+        # self.hidden2beam = nn.Linear(h_dim, 15)
 
-    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, obs_static_rel):
+    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, maps=None, homographies=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -180,11 +181,10 @@ class Decoder(nn.Module):
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
                 elif (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
                     pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
-                    # obs_static_rel = calc_polar_grid()
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, obs_static_rel)
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, maps, homographies)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h, static_h], dim=1)
                 elif not (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, obs_static_rel)
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), static_h], dim=1)
 
                 decoder_h = self.mlp(decoder_h)
@@ -206,7 +206,7 @@ class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
         self, embedding_dim=64, h_dim=64, mlp_dim=1024, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, dropout=0.0, pooling_dim=4
+        activation='relu', batch_norm=True, dropout=0.0, pooling_dim=2
     ):
         super(PoolHiddenNet, self).__init__()
 
@@ -437,7 +437,7 @@ class PhysicalPooling(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def forward(self, h_states, seq_start_end, end_pos, static_pos):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos, maps, homographies):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)
@@ -446,19 +446,30 @@ class PhysicalPooling(nn.Module):
         Output:
         - pool_h: Tensor of shape (batch, bottleneck_dim)
         """
+        # annotated_image, h_matrix = get_homography_and_map('zara1', '../datasets/raw/all_data/UCY')
         pool_h = []
-        for _, (start, end) in enumerate(seq_start_end):
+        for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
             end = end.item()
             num_ped = end - start
             curr_hidden = h_states.view(-1, self.h_dim)[start:end]
             curr_end_pos = end_pos[start:end]
-            curr_static_pos = static_pos[start:end]
+            curr_rel_pos = rel_pos[start:end]
+            curr_static_pos = torch.zeros((num_ped, self.num_cells*2)).cuda()
+            annotated_image = maps[i]
+            h_matrix = homographies[i]
+            for i in range(num_ped):
+                end_p = curr_end_pos[i].data.cpu().numpy()
+                rel_p = curr_rel_pos[i].data.cpu().numpy()
+
+                angular_polar_grid = calc_polar_grid(end_p, rel_p, h_matrix, annotated_image)
+                curr_static_pos[i] = torch.from_numpy(angular_polar_grid).view(-1)
+
             # Repeat -> H1, H1, H2, H2
             curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
             # Repeat position -> P1, P2, P1, P2
             curr_end_pos_1 = torch.stack((curr_static_pos[:, 0::2], curr_static_pos[:, 1::2]), 2).view(-1, 2) # x every 2nd element start=0, y also 2nd (::2), start=1
-            # Repeat position -> P1, P1, P2, P2
+            # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
             curr_end_pos_2 = self.repeat(curr_end_pos, self.num_cells)
             curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
 
@@ -476,7 +487,7 @@ class TrajectoryGenerator(nn.Module):
         self, obs_len, pred_len, embedding_dim=64, encoder_h_dim=64,
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
         noise_type='gaussian', noise_mix_type='ped', pooling_type=None,
-        pool_every_timestep=True, pool_static=True, dropout=0.0, bottleneck_dim=1024,
+        pool_every_timestep=True, pool_static=False, dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2
     ):
         super(TrajectoryGenerator, self).__init__()
@@ -628,7 +639,7 @@ class TrajectoryGenerator(nn.Module):
         else:
             return False
 
-    def forward(self, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, user_noise=None):
+    def forward(self, obs_traj, obs_traj_rel, seq_start_end, maps=None, homographies=None, user_noise=None):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -653,14 +664,12 @@ class TrajectoryGenerator(nn.Module):
             end_pos = obs_traj[-1, :, :]
             rel_pos = obs_traj_rel[-1, :, :]
             pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
-            # obs_static_rel = calc_polar_grid()
-            static_pos = obs_static_rel[-1, :, :]
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, static_pos)
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, maps, homographies)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h, static_h], dim=1)
         elif not (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
             end_pos = obs_traj[-1, :, :]
-            static_pos = obs_static_rel[-1, :, :]
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, static_pos)
+            rel_pos = obs_traj_rel[-1, :, :]
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, maps, homographies)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), static_h], dim=1)
         else:
             mlp_decoder_context_input = final_encoder_h.view(-1, self.encoder_h_dim)
@@ -680,16 +689,24 @@ class TrajectoryGenerator(nn.Module):
         state_tuple = (decoder_h, decoder_c)
         last_pos = obs_traj[-1]
         last_pos_rel = obs_traj_rel[-1]
-        last_static_rel = obs_static_rel[-1]
         # Predict Trajectory
 
-        decoder_out = self.decoder(
-            last_pos,
-            last_pos_rel,
-            state_tuple,
-            seq_start_end,
-            last_static_rel
-        )
+        if self.pool_static:
+            decoder_out = self.decoder(
+                last_pos,
+                last_pos_rel,
+                state_tuple,
+                seq_start_end,
+                maps, homographies
+            )
+        else:
+            decoder_out = self.decoder(
+                last_pos,
+                last_pos_rel,
+                state_tuple,
+                seq_start_end
+            )
+
         pred_traj_fake_rel, final_decoder_h = decoder_out
 
         return pred_traj_fake_rel
@@ -754,7 +771,7 @@ class TrajectoryDiscriminator(nn.Module):
             classifier_input = final_h.squeeze()
         else:
             classifier_input = self.pool_net(
-                final_h.squeeze(), seq_start_end, traj[0]
+                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
             )
         scores = self.real_classifier(classifier_input)
         return scores
@@ -832,7 +849,7 @@ class TrajectoryCritic(nn.Module):
         #
         # scores = torch.cat(scores, dim=0)
         final_h = self.encoder(traj_rel)
-        classifier_input = final_h.squeeze()
+        classifier_input = self.pool_net(final_h.squeeze(), seq_start_end, traj[0], traj_rel[0])
         scores = self.real_classifier(classifier_input)
         return scores
 

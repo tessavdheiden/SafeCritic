@@ -72,14 +72,46 @@ def get_gpu_memory():
     return consumed_mem
 
 
-def get_dset_path(dset_name, dset_type, training=True):
+def get_dset_path(dset_name, dset_type):
     _dir = os.path.dirname(__file__)
     _dir = _dir.split("/")[:-1]
     _dir = "/".join(_dir)
-    if training:
-        return os.path.join(_dir, 'datasets/{}_static_polar'.format(dset_name), dset_type)
-    else:
-        return os.path.join(_dir, 'datasets', dset_name, dset_type)
+    return os.path.join(_dir, 'datasets', dset_name, dset_type)
+
+
+def get_dset_name(name):
+    if name =='biwi_eth_val.txt' or name =='biwi_eth_train.txt' or name =='biwi_eth.txt' or name =='eth.txt' or name =='eth_val.txt'  or name =='eth_train.txt':
+        return 'eth'
+    elif name == 'biwi_hotel_val.txt' or name == 'biwi_hotel_train.txt' or name =='biwi_hotel.txt'or name =='hotel.txt' or name =='hotel_val.txt'  or name =='hotel_train.txt':
+        return 'hotel'
+    elif name == 'crowds_zara02_val.txt' or name == 'crowds_zara02_train.txt' or name =='crowds_zara02.txt' or name == 'zara_2_val.txt' or name == 'zara_2_train.txt' or name =='zara_2.txt':
+        return 'zara_2'
+    elif name == 'crowds_zara01_val.txt' or name == 'crowds_zara01_train.txt' or name =='crowds_zara01.txt' or name == 'zara_1_val.txt' or name == 'zara_1_train.txt' or name =='zara_1.txt':
+        return 'zara_1'
+    elif name == 'crowds_zara03_val.txt' or name == 'crowds_zara03_train.txt' or name =='crowds_zara03.txt' or name == 'zara_3_val.txt' or name == 'zara_3_train.txt' or name =='zara_3.txt':
+        return 'zara_2'
+    elif name == 'students001_val.txt' or name == 'students001_train.txt' or name =='students001.txt' or name == 'students_1_val.txt' or name == 'students_1_train.txt' or name =='students_1.txt':
+        return 'students_3'
+    elif name == 'students003_val.txt' or name == 'students003_train.txt' or name =='students003.txt' or name == 'students_3_val.txt' or name == 'students_3_train.txt' or name =='students_3.txt':
+        return 'students_3'
+    elif name == 'uni_examples_val.txt' or name == 'uni_examples_train.txt' or name =='uni_examples.txt':
+        return 'students_3'
+
+
+def get_dset_group_name(name):
+    if name =='eth' or name =='hotel':
+        return 'ETH'
+    elif name == 'zara_1' or name == 'zara_2' or name =='students_3':
+        return 'UCY'
+
+
+def get_datasetname_and_path(seq_list, data_dir):
+    seq_data_sets = os.listdir(data_dir)
+    all_files = [os.path.join(data_dir, _path) for _path in seq_data_sets]
+    all_files = sorted(all_files)
+    seq_files = [all_files[num] for num in seq_list]
+    seq_data_names = [get_dset_name(name.split("/")[-1]) for name in seq_files]
+    return seq_data_names, seq_files
 
 
 def relative_to_abs(rel_traj, start_pos):
