@@ -25,7 +25,7 @@ from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator, Trajectory
 from sgan.models_static_scene import get_homography_and_map
 
 from sgan.utils import int_tuple, bool_flag, get_total_norm
-from sgan.utils import relative_to_abs, get_dset_path, get_datasetname_and_path
+from sgan.utils import relative_to_abs, get_dset_path, get_seq_dataset_and_path_names
 
 
 torch.backends.cudnn.benchmark = True
@@ -39,15 +39,16 @@ def get_argument_parser():
     parser = argparse.ArgumentParser()
 
     # Dataset options
+    parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
     parser.add_argument('--dataset_name', default='zara_1', type=str)
-    parser.add_argument('--delim', default='tab')
+    parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
 
     # Optimization
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--batch_size', default=10, type=int)
     parser.add_argument('--num_iterations', default=6318, type=int)
     parser.add_argument('--num_epochs', default=200, type=int)
 
@@ -71,7 +72,7 @@ def get_argument_parser():
     # Pooling Options
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
     parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
-    parser.add_argument('--pool_static', default=0, type=bool_flag)
+    parser.add_argument('--pool_static', default=1, type=bool_flag)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -97,7 +98,7 @@ def get_argument_parser():
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-    parser.add_argument('--best_k', default=12, type=int)
+    parser.add_argument('--best_k', default=20, type=int)
     parser.add_argument('--wgan', default=0, type=bool_flag)
 
     # Output
@@ -119,8 +120,7 @@ def get_argument_parser():
 
 
 parser = get_argument_parser()
-global h_matrixes
-global annotated_images
+
 
 def init_weights(m):
     classname = m.__class__.__name__
@@ -141,8 +141,8 @@ def main(args):
 
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
-    train_path = get_dset_path(args.dataset_name, 'train')
-    val_path = get_dset_path(args.dataset_name, 'val')
+    train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
+    val_path = get_dset_path(args.dataset_path, args.dataset_name, 'val')
 
     long_dtype, float_dtype = get_dtypes(args)
 
@@ -290,18 +290,6 @@ def main(args):
                 torch.cuda.synchronize()
                 t1 = time.time()
 
-            global annotated_images
-            annotated_images = []
-            global h_matrixes
-            h_matrixes = []
-
-            if args.pool_static:
-                names, dirs = get_datasetname_and_path(batch[-1], train_path)
-                for name, dir in zip(names, dirs):
-                    annotated_image, h_matrix = get_homography_and_map(name)
-                    annotated_images.append(annotated_image)
-                    h_matrixes.append(h_matrix)
-
             # Decide whether to use the batch for stepping on discriminator or
             # generator; an iteration consists of args.d_steps steps on the
             # discriminator followed by args.g_steps steps on the generator.
@@ -309,7 +297,7 @@ def main(args):
                 step_type = 'd'
                 losses_d = discriminator_step(args, batch, generator,
                                               discriminator, d_loss_fn,
-                                              optimizer_d)
+                                              optimizer_d, train_path)
                 checkpoint['norm_d'].append(
                     get_total_norm(discriminator.parameters()))
                 d_steps_left -= 1
@@ -317,7 +305,7 @@ def main(args):
                 step_type = 'c'
                 losses_c = critic_step(args, batch, generator,
                                               critic, c_loss_fn,
-                                              optimizer_c)
+                                              optimizer_c, train_path)
                 checkpoint['norm_c'].append(
                     get_total_norm(critic.parameters()))
                 c_steps_left -= 1
@@ -326,7 +314,7 @@ def main(args):
                 step_type = 'g'
                 losses_g = generator_step(args, batch, generator,
                                               discriminator, critic, g_loss_fn,
-                                              optimizer_g)
+                                              optimizer_g, train_path)
 
                 checkpoint['norm_g'].append(
                     get_total_norm(generator.parameters())
@@ -372,11 +360,11 @@ def main(args):
                 # Check stats on the validation set
                 logger.info('Checking stats on val ...')
                 metrics_val = check_accuracy(
-                    args, val_loader, generator, discriminator, d_loss_fn
+                    args, val_loader, generator, val_path, discriminator, d_loss_fn
                 )
                 logger.info('Checking stats on train ...')
                 metrics_train = check_accuracy(
-                    args, train_loader, generator, discriminator,
+                    args, train_loader, generator, train_path, discriminator,
                     d_loss_fn, limit=True
                 )
 
@@ -442,15 +430,16 @@ def main(args):
 
 
 def discriminator_step(
-        args, batch, generator, discriminator, d_loss_fn, optimizer_d
+        args, batch, generator, discriminator, d_loss_fn, optimizer_d, path
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
-     loss_mask, _, seq_start_end, _) = batch
+     loss_mask, _, seq_start_end, seq_scene_ids) = batch
+
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
     if args.pool_static:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
     else:
         generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
@@ -490,16 +479,16 @@ def discriminator_step(
 
 
 def critic_step(
-        args, batch, generator, critic, c_loss_fn, optimizer_c
+        args, batch, generator, critic, c_loss_fn, optimizer_c, path
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
-     loss_mask, _, seq_start_end, _) = batch
+     loss_mask, _, seq_start_end, seq_scene_ids) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
 
     if args.pool_static:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
     else:
         generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
@@ -539,11 +528,11 @@ def critic_step(
     return losses
 
 def generator_step(
-        args, batch, generator, discriminator, critic, g_loss_fn, optimizer_g
+        args, batch, generator, discriminator, critic, g_loss_fn, optimizer_g, path
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
-     loss_mask, _, seq_start_end, _) = batch
+     loss_mask, _, seq_start_end, seq_scene_ids) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
     g_l2_loss_rel = []
@@ -552,7 +541,7 @@ def generator_step(
 
     for _ in range(args.best_k):
         if args.pool_static:
-            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
         else:
             generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
@@ -604,7 +593,7 @@ def generator_step(
 
 
 def check_accuracy(
-        args, loader, generator, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
+        args, loader, generator, path, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
 ):
     d_losses = []
     metrics = {}
@@ -619,12 +608,12 @@ def check_accuracy(
         for batch in loader:
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, _, seq_start_end, path_ids) = batch
+             non_linear_ped, loss_mask, _, seq_start_end, seq_scene_ids) = batch
             linear_ped = 1 - non_linear_ped
             loss_mask = loss_mask[:, args.obs_len:]
 
             if args.pool_static:
-                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
             else:
                 pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
             # pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
@@ -743,7 +732,7 @@ def cal_cols(pred_traj_gt, seq_start_end):
 def cal_occs(pred_traj_gt, seq_start_end, path_ids, path): #get_dset_path(args.dataset_name, 'test')
     # get scene info (homography and map)
     annotated_images, h_matrixes = [], []
-    names, dirs = get_datasetname_and_path(path_ids, path)
+    names, dirs = get_seq_dataset_and_path_names(path_ids, path)
     for name, dir in zip(names, dirs):
             annotated_image, h_matrix = get_homography_and_map(name)
             annotated_images.append(annotated_image)

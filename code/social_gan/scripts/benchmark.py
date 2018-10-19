@@ -4,7 +4,7 @@ import os
 import torch
 
 from sgan.data.loader import data_loader
-from sgan.utils import get_dset_group_name
+from sgan.utils import get_dset_group_name, get_dataset_path
 from sgan.models import TrajectoryGenerator
 from sgan.losses import displacement_error, final_displacement_error, collision_error, occupancy_error
 from scripts.evaluate_model import get_generator, relative_to_abs, evaluate_helper
@@ -53,15 +53,6 @@ def get_model_path(model, num):
     return all_files
 
 
-def get_dataset_path(dset):
-    path_prefix = '../datasets/sgan_datasets/'
-    group_name = get_dset_group_name(dset)
-    complete_path = path_prefix + group_name + "/" + dset + '/test'
-    if os.path.isdir(complete_path):
-        file_name = os.path.join(complete_path, '{}.txt'.format(dset))
-    return file_name
-
-
 def evaluate(args, loader, generator, num_samples, data_dir):
     ade_outer, fde_outer, cols_outer, occs_outer = [], [], [], []
     total_traj = 0
@@ -100,20 +91,24 @@ def evaluate(args, loader, generator, num_samples, data_dir):
             occs_outer.append(occs_sum)
         ade = sum(ade_outer) / (total_traj * args.pred_len)
         fde = sum(fde_outer) / (total_traj)
-        cols = sum(cols_outer) / (total_traj * args.pred_len)
-        occs = sum(cols_outer) / (total_traj * args.pred_len)
+        cols = sum(cols_outer) / (total_traj)
+        occs = sum(occs_outer) / (total_traj)
         return ade, fde, cols, occs
 
-
+parser = get_argument_parser()
+args = parser.parse_args()
 table = Table(table_column_names, table_row_names, metrics)
 
 for model_idx, model_name in enumerate(table_column_names):
     model_parameter_file_path = get_model_path(model_name, '12')
     for dataset, model_name in zip(table_row_names, model_parameter_file_path):
         model = torch.load(model_name)
-        dataset_path = get_dataset_path(dataset)
+        if model_name == 'socialGAN':
+            dataset_path = get_dataset_path(dataset, 'test', 'sgan_datasets')
+        else:
+            dataset_path = get_dataset_path(dataset)
         dataset_path = "/".join(dataset_path.split('/')[:-1])
-        generator, args = get_generator(model)
+        generator, _ = get_generator(model)
         _, loader = data_loader(args, dataset_path, shuffle=False)
 
         ADE_value, FDE_value, COLS_value, OCCS_value = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path)
