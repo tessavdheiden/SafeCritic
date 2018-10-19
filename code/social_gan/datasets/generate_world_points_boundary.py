@@ -49,7 +49,7 @@ def generate_boundary_points(data_folder, annotated_image_name, test=False):
         if root != data_folder:
             break;
         for scene_folder in dirs:
-            if scene_folder != "students_3":
+            if scene_folder != "hotel":
                 continue
             annotated_image = load_bin_map(root + scene_folder + annotated_image_name)
             h_matrix = pd.read_csv(root + scene_folder + "/" + scene_folder + "_homography.txt", delim_whitespace=True, header=None).values
@@ -75,7 +75,7 @@ def generate_boundary_points(data_folder, annotated_image_name, test=False):
 
 
 def main():
-    data_folder = '/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/UCY/'
+    data_folder = '/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/ETH/'
     annotated_image_name = '/annotated_boundaries.jpg'
     generate_boundary_points(data_folder, annotated_image_name)
     return True

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import cv2
 
 
-dir_dataset = "/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/SDD/"
+dir_dataset = "/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/ETH/"
 
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
@@ -37,8 +37,8 @@ for root, dirs, files in os.walk(dir_dataset):
         break;
     for scene_folder in dirs:
 
-        #if scene_folder != 'bookstore_0':
-        #    continue
+        if scene_folder != 'eth':
+            continue
 
         print("\n*****scene_folder:\n", scene_folder)
         annotated_image_path = root + scene_folder + "/annotated.jpg"

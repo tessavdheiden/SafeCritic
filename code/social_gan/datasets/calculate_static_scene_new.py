@@ -57,6 +57,9 @@ def get_coordinates(dataset_name, scene, data, h_matrix):
     elif dataset_name == 'SDD':
         world = np.stack((data[:, 2], -data[:, 3])).T
 
+    elif dataset_name == 'ETH':
+        world = np.stack((data[:, 2], -data[:, 3])).T
+
     pixels = get_pixels_from_world(world, h_matrix, True)
 
     return pixels, world
@@ -184,8 +187,8 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
 
 def main():
     directory = "dataset"
-    dataset = 'SDD'
-    scenes = ['bookstore_0']
+    dataset = 'ETH'
+    scenes = ['hotel']
     annotated_image_file_name = '/annotated.jpg'
     calculate_static_scene(directory, dataset, scenes, annotated_image_file_name)
     return True

@@ -88,7 +88,13 @@ def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_p
 
         if len(selected_points_indices) == 0:
             # if there are no points in the split of the polar grid chose the point at the extreme part of the current split of the polar grid
-            image_beams[image_beams_index] = [radius_image*np.cos(starting_angle + split_theta/2), radius_image*np.sin(starting_angle + split_theta/2)]
+            x = (radius_image+current_ped_pos[0])*np.cos(starting_angle + split_theta/2)
+            y = (radius_image+current_ped_pos[1])*np.sin(starting_angle + split_theta/2)
+            #if x > annotated_image.shape[1]:
+            #    x = annotated_image.shape[1]
+            #if y > annotated_image.shape[0]:
+            #    y = annotated_image.shape[0]
+            image_beams[image_beams_index] = [x, y]
         else:
             selected_points = boundary_points[selected_points_indices.transpose()[0]]
             selected_polar_coordinates = polar_coordinates[selected_points_indices.transpose()[0]]
@@ -144,9 +150,8 @@ def calculate_static_scene(directory, dataset, scene, annotated_image_file_name)
             for i, frame in enumerate(frames[0: -1]):
 
                 # get coordinates of points on boundaries of static obstacles
-                radius_image = np.linalg.norm(get_pixels_from_world(20 * np.ones((1, 2)), h_matrix, True))
-                image_beams, world_beams = get_static_obstacles_boundaries(n_buckets, vectors_image[i], h_matrix,
-                                                                           image_current_ped[i], image, radius_image)
+                radius_image = np.linalg.norm(get_pixels_from_world(2 * np.ones((1, 2)), h_matrix, True))
+                image_beams, world_beams = get_static_obstacles_boundaries(n_buckets, vectors_image[i], h_matrix, image_current_ped[i], image, radius_image)
 
                 # get positions of other pedestrian that are in the same frame of the current pedestrian, in image and world coordinates
                 world_other_ped = world_coordinates[(data[:, 0] == frame) & (data[:, 1] != ped)]
@@ -200,8 +205,8 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
 
 def main():
     directory = "dataset"
-    dataset = 'SDD'
-    scenes = ['bookstore_0']
+    dataset = 'UCY'
+    scenes = ['students_3']
     annotated_image_file_name = "/annotated_boundaries.jpg"
     calculate_static_scene(directory, dataset, scenes, annotated_image_file_name)
     return True
