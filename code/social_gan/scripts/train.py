@@ -8,106 +8,119 @@ import numpy as np
 
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
+
+current_path = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(current_path, os.path.pardir))
+
+
 from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, calc_gradient_penalty
-from sgan.losses import displacement_error, final_displacement_error
+from sgan.losses import displacement_error, final_displacement_error, collision_error, occupancy_error
 
 from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator, TrajectoryCritic
+from sgan.models_static_scene import get_homography_and_map
+
 from sgan.utils import int_tuple, bool_flag, get_total_norm
-from sgan.utils import relative_to_abs, get_dset_path
+from sgan.utils import relative_to_abs, get_dset_path, get_datasetname_and_path
+
 
 torch.backends.cudnn.benchmark = True
 
-parser = argparse.ArgumentParser()
 FORMAT = '[%(levelname)s: %(filename)s: %(lineno)4d]: %(message)s'
 logging.basicConfig(level=logging.INFO, format=FORMAT, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
-# Dataset options
-parser.add_argument('--dataset_name', default='zara1', type=str)
-parser.add_argument('--delim', default='space')
-parser.add_argument('--loader_num_workers', default=4, type=int)
-parser.add_argument('--obs_len', default=8, type=int)
-parser.add_argument('--pred_len', default=12, type=int)
-parser.add_argument('--skip', default=1, type=int)
 
-# Optimization
-parser.add_argument('--batch_size', default=64, type=int)
-parser.add_argument('--num_iterations', default=10000, type=int)
-parser.add_argument('--num_epochs', default=200, type=int)
+def get_argument_parser():
+    parser = argparse.ArgumentParser()
 
-# Model Options
-parser.add_argument('--embedding_dim', default=64, type=int)
-parser.add_argument('--num_layers', default=1, type=int)
-parser.add_argument('--dropout', default=0, type=float)
-parser.add_argument('--batch_norm', default=0, type=bool_flag)
-# parser.add_argument('--mlp_dim', default=1024, type=int)
-parser.add_argument('--mlp_dim', default=64, type=int)
+    # Dataset options
+    parser.add_argument('--dataset_name', default='zara_1', type=str)
+    parser.add_argument('--delim', default='tab')
+    parser.add_argument('--loader_num_workers', default=4, type=int)
+    parser.add_argument('--obs_len', default=8, type=int)
+    parser.add_argument('--pred_len', default=12, type=int)
+    parser.add_argument('--skip', default=1, type=int)
 
-# Generator Options
-parser.add_argument('--encoder_h_dim_g', default=64, type=int)
-parser.add_argument('--decoder_h_dim_g', default=64, type=int)
-parser.add_argument('--noise_dim', default=(8,), type=int_tuple)
-parser.add_argument('--noise_type', default='gaussian')
-parser.add_argument('--noise_mix_type', default='ped')
-parser.add_argument('--clipping_threshold_g', default=2.0, type=float)
-parser.add_argument('--g_learning_rate', default=5e-4, type=float)
-parser.add_argument('--g_steps', default=1, type=int)
+    # Optimization
+    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--num_iterations', default=6318, type=int)
+    parser.add_argument('--num_epochs', default=200, type=int)
 
-# Pooling Options
-parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
-parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
-parser.add_argument('--pool_static', default=1, type=bool_flag)
+    # Model Options
+    parser.add_argument('--embedding_dim', default=16, type=int)
+    parser.add_argument('--num_layers', default=1, type=int)
+    parser.add_argument('--dropout', default=0, type=float)
+    parser.add_argument('--batch_norm', default=0, type=bool_flag)
+    parser.add_argument('--mlp_dim', default=64, type=int)
 
-# Pool Net Option
-# parser.add_argument('--bottleneck_dim', default=1024, type=int)
-parser.add_argument('--bottleneck_dim', default=64, type=int)
-parser.add_argument('--pooling_dim', default=2, type=int)
+    # Generator Options
+    parser.add_argument('--encoder_h_dim_g', default=32, type=int)
+    parser.add_argument('--decoder_h_dim_g', default=32, type=int)
+    parser.add_argument('--noise_dim', default=(8,), type=int_tuple)
+    parser.add_argument('--noise_type', default='gaussian')
+    parser.add_argument('--noise_mix_type', default='global')
+    parser.add_argument('--clipping_threshold_g', default=2.0, type=float)
+    parser.add_argument('--g_learning_rate', default=0.0001, type=float)
+    parser.add_argument('--g_steps', default=1, type=int)
 
-# Social Pooling Options
-parser.add_argument('--neighborhood_size', default=2.0, type=float)
-parser.add_argument('--grid_size', default=8, type=int)
+    # Pooling Options
+    parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
+    parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
+    parser.add_argument('--pool_static', default=0, type=bool_flag)
 
-# Discriminator Options
-parser.add_argument('--d_type', default='local', type=str)
-parser.add_argument('--encoder_h_dim_d', default=64, type=int)
-parser.add_argument('--d_learning_rate', default=5e-3, type=float)
-parser.add_argument('--d_steps', default=5, type=int)
-parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
+    # Pool Net Option
+    parser.add_argument('--bottleneck_dim', default=8, type=int)
+    parser.add_argument('--pooling_dim', default=2, type=int)
 
-# Critic Options
-parser.add_argument('--c_type', default='global', type=str)
-parser.add_argument('--encoder_h_dim_c', default=64, type=int)
-parser.add_argument('--c_learning_rate', default=5e-3, type=float)
-parser.add_argument('--c_steps', default=5, type=int)
-parser.add_argument('--clipping_threshold_c', default=0, type=float)
+    # Social Pooling Options
+    parser.add_argument('--neighborhood_size', default=2.0, type=float)
+    parser.add_argument('--grid_size', default=8, type=int)
 
-# Loss Options
-parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-parser.add_argument('--best_k', default=3, type=int)
-parser.add_argument('--wgan', default=0, type=bool_flag)
+    # Discriminator Options
+    parser.add_argument('--d_type', default='global', type=str)
+    parser.add_argument('--encoder_h_dim_d', default=64, type=int)
+    parser.add_argument('--d_learning_rate', default=5e-3, type=float)
+    parser.add_argument('--d_steps', default=1, type=int)
+    parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
-# Output
-parser.add_argument('--output_dir', default=os.getcwd())
-parser.add_argument('--print_every', default=10, type=int)
-parser.add_argument('--checkpoint_every', default=10, type=int)
-parser.add_argument('--checkpoint_name', default='checkpoint')
-parser.add_argument('--checkpoint_start_from', default=None)
-parser.add_argument('--restore_from_checkpoint', default=0, type=int)
-parser.add_argument('--num_samples_check', default=5000, type=int)
-parser.add_argument('--evaluation_dir', default='../results')
-parser.add_argument('--lamb', default=1.0, type=float) # mle, critic, discriminator
+    # Critic Options
+    parser.add_argument('--c_type', default='global', type=str)
+    parser.add_argument('--encoder_h_dim_c', default=64, type=int)
+    parser.add_argument('--c_learning_rate', default=0.001, type=float)
+    parser.add_argument('--c_steps', default=1, type=int)
+    parser.add_argument('--clipping_threshold_c', default=0, type=float)
 
-# Misc
-parser.add_argument('--use_gpu', default=1, type=int)
-parser.add_argument('--timing', default=0, type=int)
-parser.add_argument('--gpu_num', default="0", type=str)
+    # Loss Options
+    parser.add_argument('--l2_loss_weight', default=1.0, type=float)
+    parser.add_argument('--best_k', default=12, type=int)
+    parser.add_argument('--wgan', default=0, type=bool_flag)
+
+    # Output
+    parser.add_argument('--output_dir', default=os.getcwd())
+    parser.add_argument('--print_every', default=50, type=int)
+    parser.add_argument('--checkpoint_every', default=50, type=int)
+    parser.add_argument('--checkpoint_name', default='checkpoint')
+    parser.add_argument('--checkpoint_start_from', default=None)
+    parser.add_argument('--restore_from_checkpoint', default=0, type=int)
+    parser.add_argument('--num_samples_check', default=5000, type=int)
+    parser.add_argument('--evaluation_dir', default='../results')
+    parser.add_argument('--lamb', default=0.0, type=float) # discriminator only
+
+    # Misc
+    parser.add_argument('--use_gpu', default=1, type=int)
+    parser.add_argument('--timing', default=0, type=int)
+    parser.add_argument('--gpu_num', default="0", type=str)
+    return parser
+
+
+parser = get_argument_parser()
+global h_matrixes
+global annotated_images
 
 def init_weights(m):
     classname = m.__class__.__name__
@@ -125,6 +138,8 @@ def get_dtypes(args):
 
 
 def main(args):
+
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_name, 'train')
     val_path = get_dset_path(args.dataset_name, 'val')
@@ -275,6 +290,18 @@ def main(args):
                 torch.cuda.synchronize()
                 t1 = time.time()
 
+            global annotated_images
+            annotated_images = []
+            global h_matrixes
+            h_matrixes = []
+
+            if args.pool_static:
+                names, dirs = get_datasetname_and_path(batch[-1], train_path)
+                for name, dir in zip(names, dirs):
+                    annotated_image, h_matrix = get_homography_and_map(name)
+                    annotated_images.append(annotated_image)
+                    h_matrixes.append(h_matrix)
+
             # Decide whether to use the batch for stepping on discriminator or
             # generator; an iteration consists of args.d_steps steps on the
             # discriminator followed by args.g_steps steps on the generator.
@@ -347,18 +374,18 @@ def main(args):
                 metrics_val = check_accuracy(
                     args, val_loader, generator, discriminator, d_loss_fn
                 )
-                # logger.info('Checking stats on train ...')
-                # metrics_train = check_accuracy(
-                #     args, train_loader, generator, discriminator,
-                #     d_loss_fn, limit=True
-                # )
+                logger.info('Checking stats on train ...')
+                metrics_train = check_accuracy(
+                    args, train_loader, generator, discriminator,
+                    d_loss_fn, limit=True
+                )
 
                 for k, v in sorted(metrics_val.items()):
                     logger.info('  [val] {}: {:.3f}'.format(k, v))
                     checkpoint['metrics_val'][k].append(v)
-                # for k, v in sorted(metrics_train.items()):
-                #     logger.info('  [train] {}: {:.3f}'.format(k, v))
-                #     checkpoint['metrics_train'][k].append(v)
+                for k, v in sorted(metrics_train.items()):
+                    logger.info('  [train] {}: {:.3f}'.format(k, v))
+                    checkpoint['metrics_train'][k].append(v)
 
                 min_ade = min(checkpoint['metrics_val']['ade'])
                 min_ade_nl = min(checkpoint['metrics_val']['ade_nl'])
@@ -404,7 +431,7 @@ def main(args):
                         small_checkpoint[k] = v
                 torch.save(small_checkpoint, checkpoint_path)
 
-                plot_training_losses(checkpoint['D_losses']['D_data_loss'], checkpoint['C_losses']['C_data_loss'], checkpoint['G_losses']['G_discriminator_loss'], checkpoint['metrics_val']['cols'], checkpoint['metrics_val']['ade'], checkpoint['metrics_val']['fde'], iteration=t, save_dir='../results/')
+                # plot_training_losses(checkpoint['D_losses']['D_data_loss'], checkpoint['C_losses']['C_data_loss'], checkpoint['G_losses']['G_discriminator_loss'], checkpoint['metrics_val']['cols'], checkpoint['metrics_val']['ade'], checkpoint['metrics_val']['fde'], iteration=t, save_dir='../results/')
                 logger.info('Done.')
 
             t += 1
@@ -418,12 +445,14 @@ def discriminator_step(
         args, batch, generator, discriminator, d_loss_fn, optimizer_d
 ):
     batch = [tensor.cuda() for tensor in batch]
-    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel, non_linear_ped,
-     loss_mask, _, seq_start_end) = batch
+    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
+     loss_mask, _, seq_start_end, _) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
-
-    generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
+    if args.pool_static:
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+    else:
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
     pred_traj_fake_rel = generator_out
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
@@ -464,12 +493,16 @@ def critic_step(
         args, batch, generator, critic, c_loss_fn, optimizer_c
 ):
     batch = [tensor.cuda() for tensor in batch]
-    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel, non_linear_ped,
-     loss_mask, _, seq_start_end) = batch
+    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
+     loss_mask, _, seq_start_end, _) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
 
-    generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
+    if args.pool_static:
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+    else:
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
+
 
     pred_traj_fake_rel = generator_out
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
@@ -509,8 +542,8 @@ def generator_step(
         args, batch, generator, discriminator, critic, g_loss_fn, optimizer_g
 ):
     batch = [tensor.cuda() for tensor in batch]
-    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel, non_linear_ped,
-     loss_mask, _, seq_start_end) = batch
+    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
+     loss_mask, _, seq_start_end, _) = batch
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
     g_l2_loss_rel = []
@@ -518,7 +551,10 @@ def generator_step(
     loss_mask = loss_mask[:, args.obs_len:]
 
     for _ in range(args.best_k):
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
+        if args.pool_static:
+            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+        else:
+            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
         pred_traj_fake_rel = generator_out
         pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
@@ -550,7 +586,7 @@ def generator_step(
     if args.wgan:
         discriminator_loss = - args.lamb * torch.mean(scores_fake) - (1.0 - args.lamb) * torch.mean(values_fake)
     else:
-        discriminator_loss = args.lamb * g_loss_fn(scores_fake) - (1.0 - args.lamb) * torch.mean(values_fake)
+        discriminator_loss = g_loss_fn(scores_fake) - args.lamb * torch.mean(values_fake)
     loss += discriminator_loss
 
     losses['G_discriminator_loss'] = discriminator_loss.item()
@@ -568,7 +604,7 @@ def generator_step(
 
 
 def check_accuracy(
-        args, loader, generator, discriminator, d_loss_fn, limit=False
+        args, loader, generator, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
 ):
     d_losses = []
     metrics = {}
@@ -582,14 +618,16 @@ def check_accuracy(
     with torch.no_grad():
         for batch in loader:
             batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel,
-             non_linear_ped, loss_mask, _, seq_start_end) = batch
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+             non_linear_ped, loss_mask, _, seq_start_end, path_ids) = batch
             linear_ped = 1 - non_linear_ped
             loss_mask = loss_mask[:, args.obs_len:]
 
-            pred_traj_fake_rel = generator(
-                obs_traj, obs_traj_rel, seq_start_end, obs_static_rel
-            )
+            if args.pool_static:
+                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, annotated_images, h_matrixes)
+            else:
+                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
+            # pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
             pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 
             g_l2_loss_abs, g_l2_loss_rel = cal_l2_losses(
@@ -606,16 +644,19 @@ def check_accuracy(
             cols_pred = cal_cols(pred_traj_fake, seq_start_end).sum()
             cols_gt = cal_cols(pred_traj_gt, seq_start_end).sum()
 
+            # occs_pred = cal_occs(pred_traj_fake, seq_start_end, path_ids).sum()
+
             traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
             traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
             traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
             traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
-            scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
-            scores_real = discriminator(traj_real, traj_real_rel, seq_start_end)
+            if eval_discriminator:
+                scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
+                scores_real = discriminator(traj_real, traj_real_rel, seq_start_end)
 
-            d_loss = d_loss_fn(scores_real, scores_fake)
-            d_losses.append(d_loss.item())
+                d_loss = d_loss_fn(scores_real, scores_fake)
+                d_losses.append(d_loss.item())
 
             g_l2_losses_abs.append(g_l2_loss_abs.item())
             g_l2_losses_rel.append(g_l2_loss_rel.item())
@@ -636,7 +677,6 @@ def check_accuracy(
             if limit and total_traj >= args.num_samples_check:
                 break
 
-    metrics['d_loss'] = sum(d_losses) / len(d_losses)
     metrics['g_l2_loss_abs'] = sum(g_l2_losses_abs) / loss_mask_sum
     metrics['g_l2_loss_rel'] = sum(g_l2_losses_rel) / loss_mask_sum
 
@@ -660,6 +700,10 @@ def check_accuracy(
         metrics['fde_nl'] = 0
 
     generator.train()
+
+    if eval_discriminator:
+        metrics['d_loss'] = sum(d_losses) / len(d_losses)
+
     return metrics
 
 
@@ -687,67 +731,24 @@ def cal_fde(
         pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
 ):
     fde = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1])
-    fde_l = final_displacement_error(
-        pred_traj_fake[-1], pred_traj_gt[-1], linear_ped
-    )
-    fde_nl = final_displacement_error(
-        pred_traj_fake[-1], pred_traj_gt[-1], non_linear_ped
-    )
+    fde_l = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], linear_ped)
+    fde_nl = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], non_linear_ped)
     return fde, fde_l, fde_nl
 
 
-def cal_cols(traj, seq_start_end, threshold=0.8
-
-):
-    traj_perm = traj.permute(1, 0, 2)  # batch, seq, 2
-    collisions = []
-    for i, (start, end) in enumerate(seq_start_end):
-        start = start.item()
-        end = end.item()
-        num_ped = end - start
-        curr_seqs = traj_perm[start:end]
-
-        curr_seqs_1 = curr_seqs.repeat(1, num_ped, 1)
-        curr_seqs_2 = curr_seqs.repeat(num_ped, 1, 1)
-        curr_seqs_rel = curr_seqs_1.view(-1, 2) - curr_seqs_2.view(-1, 2)
-        curr_seqs_norm = torch.norm(curr_seqs_rel.view(num_ped * num_ped, -1, 2), p=1, dim=2).view(num_ped, num_ped, -1)
-
-        indices = torch.arange(0, num_ped).type(torch.LongTensor)
-        curr_seqs_norm[indices, indices, :] = threshold
-        overlap = curr_seqs_norm < threshold
-        curr_cols = torch.sum(torch.sum(overlap, dim=0), dim=1)
-        collisions.append(curr_cols.float())
-
-    collisions = torch.cat(collisions, dim=0).cuda()
-    return collisions
+def cal_cols(pred_traj_gt, seq_start_end):
+    return collision_error(pred_traj_gt, seq_start_end, minimum_distance=0.8)
 
 
-def plot_training_losses(d_losses, c_losses, g_losses, cols, g_ades, g_fdes, iteration, save_dir='../results/'):
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10), num=iteration)
-    ax1.scatter(np.linspace(0, iteration, len(d_losses)) * iteration, np.asarray(d_losses), label='discriminator')
-    ax1.scatter(np.linspace(0, iteration, len(c_losses)) * iteration, np.asarray(c_losses), label='critic')
-    ax1.grid(True)
-    ax1.legend()
-    ax1.set_xlabel("D/C loss")
-    ax2.scatter(np.linspace(0, iteration, len(g_losses)) * iteration, np.asarray(g_losses))
-    ax2.grid(True)
-    ax2.set_xlabel("Generator loss")
-    ax3.scatter(np.linspace(0, iteration, len(g_ades)) * iteration, np.asarray(g_ades), label='ade')
-    ax3.scatter(np.linspace(0, iteration, len(g_fdes)) * iteration, np.asarray(g_fdes), label='fde')
-    ax3.grid(True)
-    ax3.set_xlabel("Accuracy ade/fde")
-    ax3.legend()
-    ax4.scatter(np.linspace(0, iteration, len(cols)) * iteration, np.asarray(cols))
-    ax4.grid(True)
-    ax4.set_xlabel("Collisions")
-
-    plt.savefig(save_dir + 'iteration_{}.png'.format(iteration))
-    ax1.cla()
-    ax2.cla()
-    ax3.cla()
-    ax4.cla()
-
-
+def cal_occs(pred_traj_gt, seq_start_end, path_ids, path): #get_dset_path(args.dataset_name, 'test')
+    # get scene info (homography and map)
+    annotated_images, h_matrixes = [], []
+    names, dirs = get_datasetname_and_path(path_ids, path)
+    for name, dir in zip(names, dirs):
+            annotated_image, h_matrix = get_homography_and_map(name)
+            annotated_images.append(annotated_image)
+            h_matrixes.append(h_matrix)
+    return occupancy_error(pred_traj_gt, seq_start_end, annotated_images, h_matrixes)
 
 if __name__ == '__main__':
     args = parser.parse_args()

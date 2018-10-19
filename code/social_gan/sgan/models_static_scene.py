@@ -1,4 +1,36 @@
 import torch
+import numpy as np
+import pandas as pd
+import os
+import matplotlib.pyplot as plt
+from sgan.utils import get_dset_group_name
+
+def rgb2gray(rgb):
+    return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
+
+
+def grey2bin(grey):
+    grey[grey > 0.5] = 1
+    grey[grey <= 0.5] = 0
+    return grey
+
+
+def load_bin_map(path_name):
+    static_map = plt.imread(path_name)
+    static_map = rgb2gray(static_map)
+    static_map = grey2bin(static_map)
+    return static_map
+
+
+def get_homography_and_map(dset):
+    directory = '../datasets/safegan_dataset/'
+    path_group = os.path.join(directory, get_dset_group_name(dset))
+    path = os.path.join(path_group, dset)
+    h_matrix = pd.read_csv(path + '/{}_homography.txt'.format(dset), delim_whitespace=True, header=None).values
+    image = load_bin_map(path + '/annotated_boundaries.jpg')
+
+    return image, h_matrix
+
 
 
 def within_bounds(row, col, map):
@@ -7,6 +39,12 @@ def within_bounds(row, col, map):
         return True
     else:
         False
+
+def on_occupied(pixel, map):
+    if within_bounds(int(pixel[1]), int(pixel[0]), map) and map[int(pixel[1])][int(pixel[0])] == 0:
+        return 1.0
+    else:
+        return 0.0
 
 
 def walk_to_boundary(position, vector, img, radius=400, steps=20, stepsize=10):
@@ -37,16 +75,17 @@ def get_pixels_from_world(pts_wrd, h):
     return pts_img_back
 
 
-def calc_polar_grid(n_buckets=15):
+def calc_polar_grid(current_ped_pos, vectors_image, h_matrix, annotated_image, n_buckets=15):
+    image_beams = np.zeros((n_buckets, 2))
     for j in range(0, n_buckets):
-        vector_image = rotate2D(vector=vectors_image, angle=torch.pi * ((n_buckets - 2 * j - 1) / (2 * n_buckets)) - torch.pi)
-        image_beam = get_pixels_from_world(4*np.ones((1, 2)), h_matrix, True)
-        radius_image = torch.linalg.norm(image_beam[0, :])
+        vector_image = rotate2D(vector=vectors_image, angle=np.pi * ((n_buckets - 2 * j - 1) / (2 * n_buckets)) - np.pi)
+        image_beam = get_pixels_from_world(4*np.ones((1, 2)), h_matrix)
+        radius_image = np.linalg.norm(image_beam[0, :])
         _, projection_image = walk_to_boundary(position=current_ped_pos, vector=vector_image, img=annotated_image, radius=radius_image, steps=80, stepsize=radius_image/160)
         image_beams[j] = projection_image
-    return 0
+    return image_beams
 
 def rotate2D(vector, angle):
-    R = torch.array([[torch.cos(angle), -torch.sin(angle)],
-                  [torch.sin(angle), torch.cos(angle)]])
-    return torch.dot(R, vector.T)
+    R = np.array([[np.cos(angle), -np.sin(angle)],
+                  [np.sin(angle), np.cos(angle)]])
+    return np.dot(R, vector.T)

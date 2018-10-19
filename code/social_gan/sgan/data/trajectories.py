@@ -12,8 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 def seq_collate(data):
-    (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list, obs_seq_static_rel_list,
-     non_linear_ped_list, loss_mask_list, traj_frames) = zip(*data)
+    # (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list, obs_seq_static_rel_list,
+    #  non_linear_ped_list, loss_mask_list, traj_frames) = zip(*data)
+    (obs_seq_list, pred_seq_list, obs_seq_rel_list, pred_seq_rel_list,
+     non_linear_ped_list, loss_mask_list, traj_frames, seq_pointer) = zip(*data)
 
     _len = [len(seq) for seq in obs_seq_list]
     cum_start_idx = [0] + np.cumsum(_len).tolist()
@@ -26,16 +28,20 @@ def seq_collate(data):
     pred_traj = torch.cat(pred_seq_list, dim=0).permute(2, 0, 1)
     obs_traj_rel = torch.cat(obs_seq_rel_list, dim=0).permute(2, 0, 1)
     pred_traj_rel = torch.cat(pred_seq_rel_list, dim=0).permute(2, 0, 1)
-    obs_static_rel = torch.cat(obs_seq_static_rel_list, dim=0).permute(2, 0, 1)
+    # obs_static_rel = torch.cat(obs_seq_static_rel_list, dim=0).permute(2, 0, 1)
     non_linear_ped = torch.cat(non_linear_ped_list)
     loss_mask = torch.cat(loss_mask_list, dim=0)
     traj_frames = torch.cat(traj_frames, dim=0).permute(2, 0, 1)
     seq_start_end = torch.LongTensor(seq_start_end)
+    seq_pointer = torch.LongTensor(seq_pointer)
+    # out = [
+    #     obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, obs_static_rel, non_linear_ped,
+    #     loss_mask, traj_frames, seq_start_end
+    # ]
     out = [
-        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, obs_static_rel, non_linear_ped,
-        loss_mask, traj_frames, seq_start_end
+        obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, non_linear_ped,
+        loss_mask, traj_frames, seq_start_end, seq_pointer
     ]
-
     return tuple(out)
 
 
@@ -100,17 +106,19 @@ class TrajectoryDataset(Dataset):
         self.num_beams = num_beams
 
         all_files = os.listdir(self.data_dir)
+        all_files = sorted(all_files) # this is required to get the path_ids not arbitrary
         all_files = [os.path.join(self.data_dir, _path) for _path in all_files]
-        self.seq_pointer = {}
+        # self.seq_pointer = {}
 
         num_peds_in_seq = []
+        dataset_of_seq = []
         seq_list = []
         seq_list_rel = []
-        seq_list_static = []
+        # seq_list_static = []
         loss_mask_list = []
         non_linear_ped = []
         frame_list = []
-        for path in all_files:
+        for path_id, path in enumerate(all_files):
             data = read_file(path, delim)
             frames = np.unique(data[:, 0]).tolist()
             frame_data = []
@@ -124,7 +132,7 @@ class TrajectoryDataset(Dataset):
                 peds_in_curr_seq = np.unique(curr_seq_data[:, 1])
                 curr_frames = np.zeros((len(peds_in_curr_seq), 1, self.seq_len))
                 curr_seq_rel = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
-                curr_seq_static = np.zeros((len(peds_in_curr_seq), self.num_beams * 2, self.seq_len))
+                # curr_seq_static = np.zeros((len(peds_in_curr_seq), self.num_beams * 2, self.seq_len))
                 curr_seq = np.zeros((len(peds_in_curr_seq), 2, self.seq_len))
                 curr_loss_mask = np.zeros((len(peds_in_curr_seq), self.seq_len))
                 num_peds_considered = 0
@@ -148,7 +156,7 @@ class TrajectoryDataset(Dataset):
                     curr_frames[_idx, :, pad_front:pad_end] = curr_ped_frames
                     curr_seq[_idx, :, pad_front:pad_end] = curr_ped_seq[0:2]
                     curr_seq_rel[_idx, :, pad_front:pad_end] = rel_curr_ped_seq[0:2]
-                    curr_seq_static[_idx, :, pad_front:pad_end] = curr_ped_seq[2:]
+                    # curr_seq_static[_idx, :, pad_front:pad_end] = curr_ped_seq[2:]
                     # Linear vs Non-Linear Trajectory
                     _non_linear_ped.append(
                         poly_fit(curr_ped_seq, pred_len, threshold))
@@ -158,18 +166,19 @@ class TrajectoryDataset(Dataset):
                 if num_peds_considered > min_ped:
                     non_linear_ped += _non_linear_ped
                     num_peds_in_seq.append(num_peds_considered)
+                    dataset_of_seq.append(path_id)
                     loss_mask_list.append(curr_loss_mask[:num_peds_considered])
                     seq_list.append(curr_seq[:num_peds_considered])
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
-                    seq_list_static.append(curr_seq_static[:num_peds_considered])
+                    # seq_list_static.append(curr_seq_static[:num_peds_considered])
                     frame_list.append(curr_frames[:num_peds_considered])
 
-            self.seq_pointer[len(seq_list)] = path
+            # self.seq_pointer[len(seq_list)] = path
 
         self.num_seq = len(seq_list) # [(ped/seq) x (num_seq/file) x num_files, 2, seq_len]
         seq_list = np.concatenate(seq_list, axis=0) # len(seq_list) = 2692 --> 32686, aprox 12 ped/seq
         seq_list_rel = np.concatenate(seq_list_rel, axis=0)
-        seq_list_static = np.concatenate(seq_list_static, axis=0)
+        # seq_list_static = np.concatenate(seq_list_static, axis=0)
         loss_mask_list = np.concatenate(loss_mask_list, axis=0)
         non_linear_ped = np.asarray(non_linear_ped)
         frame_list = np.concatenate(frame_list, axis=0)
@@ -180,7 +189,7 @@ class TrajectoryDataset(Dataset):
         self.pred_traj = torch.from_numpy(seq_list[:, :, self.obs_len:]).type(torch.float)
         self.obs_traj_rel = torch.from_numpy(seq_list_rel[:, :, :self.obs_len]).type(torch.float)
         self.pred_traj_rel = torch.from_numpy(seq_list_rel[:, :, self.obs_len:]).type(torch.float)
-        self.obs_static_rel = torch.from_numpy(seq_list_static[:, :, :self.obs_len]).type(torch.float)
+        # self.obs_static_rel = torch.from_numpy(seq_list_static[:, :, :self.obs_len]).type(torch.float)
         self.loss_mask = torch.from_numpy(loss_mask_list).type(torch.float)
         self.non_linear_ped = torch.from_numpy(non_linear_ped).type(torch.float)
         cum_start_idx = [0] + np.cumsum(num_peds_in_seq).tolist()
@@ -188,6 +197,7 @@ class TrajectoryDataset(Dataset):
             (start, end)
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ]
+        self.seq_dataset = dataset_of_seq
 
     def __len__(self):
         return self.num_seq
@@ -196,8 +206,9 @@ class TrajectoryDataset(Dataset):
         start, end = self.seq_start_end[index]
         out = [
             self.obs_traj[start:end, :], self.pred_traj[start:end, :],
-            self.obs_traj_rel[start:end, :], self.pred_traj_rel[start:end, :], self.obs_static_rel[start:end, :],
+            # self.obs_traj_rel[start:end, :], self.pred_traj_rel[start:end, :], self.obs_static_rel[start:end, :],
+            self.obs_traj_rel[start:end, :], self.pred_traj_rel[start:end, :],
             self.non_linear_ped[start:end], self.loss_mask[start:end, :],
-            self.traj_frames[start:end, :]
+            self.traj_frames[start:end, :], self.seq_dataset[index]
         ]
         return out

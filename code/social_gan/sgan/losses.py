@@ -2,6 +2,9 @@ import torch
 from torch import autograd
 import random
 
+from sgan.models_static_scene import get_pixels_from_world, on_occupied, get_homography_and_map
+from sgan.utils import get_datasetname_and_path
+
 
 def bce_loss(input, target):
     """
@@ -162,3 +165,66 @@ def final_displacement_error(
         return loss
     else:
         return torch.sum(loss)
+
+
+def collision_error(pred_pos, seq_start_end, minimum_distance=0.8):
+    """
+    Input:
+    - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - minimum_distance: Minimum between people
+    last pos
+    Output:
+    - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
+    """
+    pred_pos = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+
+    collisions = []
+    for i, (start, end) in enumerate(seq_start_end):
+        start = start.item()
+        end = end.item()
+        num_ped = end - start
+
+        curr_seqs = pred_pos[start:end]
+
+        curr_seqs_1 = curr_seqs.repeat(1, num_ped, 1)
+        curr_seqs_2 = curr_seqs.repeat(num_ped, 1, 1)
+        curr_seqs_rel = curr_seqs_1.view(-1, 2) - curr_seqs_2.view(-1, 2)
+        curr_seqs_norm = torch.norm(curr_seqs_rel.view(num_ped * num_ped, -1, 2), p=1, dim=2).view(num_ped, num_ped, -1)
+
+        indices = torch.arange(0, num_ped).type(torch.LongTensor)
+        curr_seqs_norm[indices, indices, :] = minimum_distance
+        overlap = curr_seqs_norm < minimum_distance
+        curr_cols = torch.sum(torch.sum(overlap, dim=0), dim=1)
+        collisions.append(curr_cols.float())
+
+    return torch.cat(collisions, dim=0).cuda()
+
+
+def occupancy_error(pred_pos, seq_start_end, path_ids, data_dir):
+    """
+    Input:
+    - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - minimum_distance: Minimum between people
+    last pos
+    Output:
+    - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
+    """
+    pred_pos = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+    collisions = []
+    seq_data_names, seq_files = get_datasetname_and_path(path_ids, data_dir)
+
+    for i, (start, end) in enumerate(seq_start_end):
+        start = start.item()
+        end = end.item()
+        num_ped = end - start
+
+        curr_seqs = pred_pos[start:end]
+        curr_seqs = curr_seqs.view(-1, 2)
+
+        image, homography = get_homography_and_map(seq_data_names[i])
+        pixels = get_pixels_from_world(curr_seqs, homography)
+        for ii in range(num_ped):
+            occupancy = on_occupied(pixels[ii], image)
+            collisions.append(occupancy)
+
+    return torch.LongTensor(collisions).cuda()
