@@ -14,7 +14,7 @@ import cv2
 from attrdict import AttrDict
 
 from sgan.data.loader import data_loader
-from sgan.models import TrajectoryGenerator
+from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator
 from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs, get_dset_path
 from scripts.collision_checking import load_bin_map, on_occupied, in_collision
@@ -22,7 +22,7 @@ from datasets.calculate_static_scene import get_pixels_from_world, get_pixel_fro
 from datasets.calculate_static_scene_new import get_coordinates_traj
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../models/sgan-12/collisions', type=str)
+parser.add_argument('--model_path', default='../models/sgan_models_pretrained/evaluate', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
@@ -44,17 +44,18 @@ def get_generator(checkpoint_in):
         noise_mix_type=args.noise_mix_type,
         pooling_type=args.pooling_type,
         pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
+        # pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        batch_norm=args.batch_norm,
-        pooling_dim=args.pooling_dim)
+        # pooling_dim=args.pooling_dim,
+        batch_norm=args.batch_norm)
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
     generator.train()
-    return generator
+    return generator, args
+
 
 
 def evaluate_helper(error, seq_start_end):
@@ -64,8 +65,8 @@ def evaluate_helper(error, seq_start_end):
     for (start, end) in seq_start_end:
         start = start.item()
         end = end.item()
-        _error = error[start:end]
-        _error = torch.sum(_error, dim=0)
+        _error = error[start:end] # size = [numPeds, pred_len]
+        _error = torch.sum(_error, dim=0)  # size = [pred_len]
         _error = torch.min(_error)
         sum_ += _error
     return sum_
@@ -454,7 +455,7 @@ def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, obs_stati
 
     (seq_len, batch_size, _) = pred_traj_gt.size()
 
-    pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
+    pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
     ade.append(displacement_error(pred_traj_fake, pred_traj_gt) / (seq_len * batch_size))
     fde.append(final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1]) / batch_size)
@@ -513,21 +514,22 @@ def plot_occs(static_map, h, dset, ax1, ax2, ax3, traj_gt, traj1, traj2):
 
 
 def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
+    args.delim = 'tab'
     _, loader = data_loader(args, data_dir, shuffle=False)
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 10), num=1)
     cols1, cols2, cols_gt = 0, 0, 0
     ade1, ade2, fde1, fde2 = [], [], [], []
     writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
-    reader = imageio.get_reader('../datasets/raw/all_data/UCY/{}/scene_information'.format(args.dataset_name) + "/seq.avi", 'ffmpeg')  #  n_frames = vidcap._meta['nframes']
-    h = pd.read_csv('../datasets/raw/all_data/UCY/{}/scene_information/homography.txt'.format(args.dataset_name), delim_whitespace=True, header=None).as_matrix()
+    reader = imageio.get_reader("../datasets/safegan_dataset/UCY/zara_1/seq.avi", 'ffmpeg')  #  n_frames = vidcap._meta['nframes']
+    h = pd.read_csv("../datasets/safegan_dataset/UCY/zara_1/zara_1_homography.txt", delim_whitespace=True, header=None).as_matrix()
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end) = batch
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+             non_linear_ped, loss_mask, traj_frames, seq_start_end, _) = batch
 
-            ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde1, ade1)
-            ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde2, ade2)
+            ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde1, ade1)
+            ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde2, ade2)
             pred_traj_fake_gt = pred_traj_gt.permute(1, 0, 2)  # batch, seq, 2
             obs_traj = obs_traj.permute(1, 0, 2)
 
@@ -543,7 +545,7 @@ def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
                 traj_gt = pred_traj_fake_gt[start:end]
                 traj_obs = obs_traj[start:end]
 
-                plot_trajectories_pixels(args.dataset_name, traj_gt, traj_obs, traj1, traj2, name1, name2, 'cols', ax1, ax2, ax3, ax4,photo, b, i, cols_gt, cols1, cols2, ma1, mf1, ma2, mf2, h)
+                plot_trajectories_meters(args.dataset_name, traj_gt, traj_obs, traj1, traj2, name1, name2, 'cols', ax1, ax2, ax3, ax4,photo, b, i, cols_gt, cols1, cols2, ma1, mf1, ma2, mf2, h)
                 plot_cols(ax1, ax2, ax3, traj_gt, traj1, traj2, cols_gt, cols1, cols2)
 
                 plt.savefig(save_dir + 'tmp.png')
@@ -571,8 +573,8 @@ def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end) = batch
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+             non_linear_ped, loss_mask, traj_frames, seq_start_end, _) = batch
 
             ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde1, ade1)
             ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde2, ade2)
@@ -644,33 +646,42 @@ def compare_fde_ade_pred_gt_train(path):
     return True
 
 
-def compare_fde_ade_pred_gt_test(args, generator, data_dir):
+def compare_fde_ade_pred_gt_test(args, generator1, generator2, name1, name2, data_dir):
+    args.delim = 'tab'
+    args.best_k = 12
     _, loader = data_loader(args, data_dir, shuffle=False)
 
-    ade_outer, fde_outer = [], []
+    ade_outer1, fde_outer1, ade_outer2, fde_outer2 = [], [], [], []
+
     total_traj = 0
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, obs_static_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end) = batch
-            ade, fde = [], []
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+             non_linear_ped, loss_mask, traj_frames, seq_start_end, _) = batch
+            ade1, fde1 = [], []
             total_traj += pred_traj_gt.size(1)
 
             print('batch_/_tot_batches_{}/{}_peds_{}'.format(b, len(loader), pred_traj_gt.size(1)))
 
-            pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, obs_static_rel)
-            pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
-            ade.append(displacement_error(pred_traj_fake, pred_traj_gt, mode='raw'))
-            fde.append(final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], mode='raw'))
+            for i in range(args.best_k):
+                pred_traj_fake_rel1 = generator1(obs_traj, obs_traj_rel, seq_start_end)
+                pred_traj_fake_rel2 = generator2(obs_traj, obs_traj_rel, seq_start_end)
+                pred_traj_fake1 = relative_to_abs(pred_traj_fake_rel1, obs_traj[-1])
+                pred_traj_fake2 = relative_to_abs(pred_traj_fake_rel2, obs_traj[-1])
 
-        ade_sum = evaluate_helper(ade, seq_start_end)
-        fde_sum = evaluate_helper(fde, seq_start_end)
+                ade1.append(displacement_error(pred_traj_fake1, pred_traj_gt, mode='raw'))
+                fde1.append(displacement_error(pred_traj_fake2, pred_traj_gt, mode='raw'))
 
-        ade_outer.append(ade_sum)
-        fde_outer.append(fde_sum)
-    ade = sum(ade_outer) / (total_traj * args.pred_len)
-    fde = sum(fde_outer) / total_traj
+            ade_sum = evaluate_helper(ade1, seq_start_end)
+            fde_sum = evaluate_helper(fde1, seq_start_end)
+            ade_outer1.append(ade_sum)
+            fde_outer1.append(fde_sum)
+
+
+    ade = sum(ade_outer1) / (total_traj * args.pred_len)
+    fde = sum(fde_outer1) / (total_traj)
+
     return ade, fde
 
 
@@ -702,7 +713,7 @@ def move_figure(f, x, y):
 
 
 def main(args):
-    test_case = 5
+    test_case = 4
     if test_case == 0:
         compare_fde_ade_pred_gt_train(args.model_path)
     # need to load model
@@ -715,10 +726,10 @@ def main(args):
             checkpoint = torch.load(model_path)
             print('model_path = '+ model_path)
             _args = AttrDict(checkpoint['args'])
-            _args.dataset_name = 'zara1'
+            _args.dataset_name = 'sgan_datasets/hotel'
             data_dir = get_dset_path(_args.dataset_name, args.dset_type, True)
 
-            if test_case == 4 or test_case == 5:
+            if test_case == 4 or test_case == 5 or test_case == 1:
                 if ii > 0:
                     break
                 checkpoint1 = torch.load(paths[0])
@@ -736,14 +747,14 @@ def main(args):
                 elif test_case == 5:
                     occs1, occs2 = compare_occs_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
                     print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-
+                elif test_case == 1:
+                    ade, fde = compare_fde_ade_pred_gt_test(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
+                    print(
+                        'Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,
+                                                                                     ade, fde))
             else:
                 generator = get_generator(checkpoint)
-
-                if test_case == 1:
-                    ade, fde = compare_fde_ade_pred_gt_test(_args, generator, data_dir)
-                    print('Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len, ade, fde))
-                elif test_case == 2:
+                if test_case == 2:
                     ade, fde = evaluate_fde_ade_diff_samples(_args, generator, checkpoint['args']['best_k'], data_dir)
                     print('Dataset: {}, Pred Len: {}, k samples: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,checkpoint['args']['best_k'], ade, fde))
                 elif test_case == 3:
