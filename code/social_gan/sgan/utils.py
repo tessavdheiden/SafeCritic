@@ -72,11 +72,20 @@ def get_gpu_memory():
     return consumed_mem
 
 
-def get_dset_path(dset_name, dset_type):
-    _dir = os.path.dirname(__file__)
+def get_dset_path(dataset_path, dset_name, dset_type):
+    _dir = os.getcwd()
     _dir = _dir.split("/")[:-1]
     _dir = "/".join(_dir)
-    return os.path.join(_dir, 'datasets', dset_name, dset_type)
+    return _dir + dataset_path + '/' + get_dset_group_name(dset_name) + '/' + dset_name + '/Training/'+ dset_type
+
+
+def get_dataset_path(dset, dset_type='train', data_set_model='safegan_dataset'):
+    path_prefix = '../datasets/{}/'.format(data_set_model)
+    group_name = get_dset_group_name(dset)
+    complete_path = path_prefix + group_name + "/" + dset + '/Training/{}'.format(dset_type)
+    if os.path.isdir(complete_path):
+        file_name = os.path.join(complete_path, '{}.txt'.format(dset))
+    return file_name
 
 
 def get_dset_name(name):
@@ -105,13 +114,13 @@ def get_dset_group_name(name):
         return 'UCY'
 
 
-def get_datasetname_and_path(seq_list, data_dir):
+def get_seq_dataset_and_path_names(seq_scene_ids, data_dir):
     seq_data_sets = os.listdir(data_dir)
     all_files = [os.path.join(data_dir, _path) for _path in seq_data_sets]
     all_files = sorted(all_files)
-    seq_files = [all_files[num] for num in seq_list]
-    seq_data_names = [get_dset_name(name.split("/")[-1]) for name in seq_files]
-    return seq_data_names, seq_files
+    seq_path_names = [all_files[num] for num in seq_scene_ids]
+    seq_dataset_names = [get_dset_name(name.split("/")[-1]) for name in seq_path_names]
+    return seq_dataset_names
 
 
 def relative_to_abs(rel_traj, start_pos):

@@ -1,7 +1,10 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
-from sgan.models_static_scene import calc_polar_grid, get_homography_and_map
+from sgan.models_static_scene import get_homography_and_map
+from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries, get_pixels_from_world
+from sgan.utils import get_seq_dataset_and_path_names, get_dataset_path
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -154,7 +157,7 @@ class Decoder(nn.Module):
         self.hidden2pos = nn.Linear(h_dim, 2)
         # self.hidden2beam = nn.Linear(h_dim, 15)
 
-    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, maps=None, homographies=None):
+    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, seq_scene_ids=None, path=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -181,10 +184,10 @@ class Decoder(nn.Module):
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
                 elif (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
                     pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, maps, homographies)
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids, path)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h, static_h], dim=1)
                 elif not (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos)
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids, path)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), static_h], dim=1)
 
                 decoder_h = self.mlp(decoder_h)
@@ -437,7 +440,7 @@ class PhysicalPooling(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def forward(self, h_states, seq_start_end, end_pos, rel_pos, maps, homographies):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids, path):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)
@@ -446,7 +449,7 @@ class PhysicalPooling(nn.Module):
         Output:
         - pool_h: Tensor of shape (batch, bottleneck_dim)
         """
-        # annotated_image, h_matrix = get_homography_and_map('zara1', '../datasets/raw/all_data/UCY')
+        seq_scenes = get_seq_dataset_and_path_names(seq_scene_ids.cpu().numpy(), path)
         pool_h = []
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
@@ -455,23 +458,23 @@ class PhysicalPooling(nn.Module):
             curr_hidden = h_states.view(-1, self.h_dim)[start:end]
             curr_end_pos = end_pos[start:end]
             curr_rel_pos = rel_pos[start:end]
-            curr_static_pos = torch.zeros((num_ped, self.num_cells*2)).cuda()
-            annotated_image = maps[i]
-            h_matrix = homographies[i]
-            for i in range(num_ped):
-                end_p = curr_end_pos[i].data.cpu().numpy()
-                rel_p = curr_rel_pos[i].data.cpu().numpy()
 
-                angular_polar_grid = calc_polar_grid(end_p, rel_p, h_matrix, annotated_image)
-                curr_static_pos[i] = torch.from_numpy(angular_polar_grid).view(-1)
+            annotated_image, h_matrix = get_homography_and_map(seq_scenes[i], "/annotated_boundaries.jpg")
+
+            image_curr_end_pos = get_pixels_from_world(curr_end_pos, h_matrix, True)
+            image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
+            curr_end_pos_1 = torch.zeros((num_ped, self.num_cells, 2)).cuda()
+            for j in range(num_ped):
+                radius_image = np.linalg.norm(get_pixels_from_world(2 * np.ones((1, 2)), h_matrix, True))
+                _, angular_polar_grid = get_static_obstacles_boundaries(15, image_curr_rel_pos[j], h_matrix, image_curr_end_pos[j], annotated_image,
+                                                radius_image)
+                curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
 
             # Repeat -> H1, H1, H2, H2
             curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
-            # Repeat position -> P1, P2, P1, P2
-            curr_end_pos_1 = torch.stack((curr_static_pos[:, 0::2], curr_static_pos[:, 1::2]), 2).view(-1, 2) # x every 2nd element start=0, y also 2nd (::2), start=1
             # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
             curr_end_pos_2 = self.repeat(curr_end_pos, self.num_cells)
-            curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
+            curr_rel_pos = curr_end_pos_1.view(-1, 2) - curr_end_pos_2
 
             curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
             mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
@@ -639,7 +642,7 @@ class TrajectoryGenerator(nn.Module):
         else:
             return False
 
-    def forward(self, obs_traj, obs_traj_rel, seq_start_end, maps=None, homographies=None, user_noise=None):
+    def forward(self, obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids=None, path=None, user_noise=None):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -664,12 +667,12 @@ class TrajectoryGenerator(nn.Module):
             end_pos = obs_traj[-1, :, :]
             rel_pos = obs_traj_rel[-1, :, :]
             pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, maps, homographies)
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids, path)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h, static_h], dim=1)
         elif not (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
             end_pos = obs_traj[-1, :, :]
             rel_pos = obs_traj_rel[-1, :, :]
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, maps, homographies)
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids, path)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), static_h], dim=1)
         else:
             mlp_decoder_context_input = final_encoder_h.view(-1, self.encoder_h_dim)
@@ -697,7 +700,8 @@ class TrajectoryGenerator(nn.Module):
                 last_pos_rel,
                 state_tuple,
                 seq_start_end,
-                maps, homographies
+                seq_scene_ids,
+                path
             )
         else:
             decoder_out = self.decoder(
@@ -843,14 +847,15 @@ class TrajectoryCritic(nn.Module):
         #     start = start.item()
         #     end = end.item()
         #     num_ped = end - start
-        #     classifier_input = output[start:end]
-        #     classifier_input = self.attention(classifier_input.permute(0, 2, 1)).squeeze(2)
+        #     final_h = self.encoder(traj_rel[start:end])
+        #     classifier_input = self.pool_net(final_h.squeeze(), seq_start_end, traj[start:end][0], traj_rel[start:end][0])
         #     scores.append(self.real_classifier(classifier_input))
-        #
         # scores = torch.cat(scores, dim=0)
         final_h = self.encoder(traj_rel)
+
         classifier_input = self.pool_net(final_h.squeeze(), seq_start_end, traj[0], traj_rel[0])
         scores = self.real_classifier(classifier_input)
+
         return scores
 
 

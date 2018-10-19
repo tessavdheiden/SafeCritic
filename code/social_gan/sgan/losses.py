@@ -2,8 +2,9 @@ import torch
 from torch import autograd
 import random
 
-from sgan.models_static_scene import get_pixels_from_world, on_occupied, get_homography_and_map
-from sgan.utils import get_datasetname_and_path
+from datasets.calculate_static_scene_boundaries import get_pixels_from_world
+from sgan.models_static_scene import on_occupied, get_homography_and_map
+from sgan.utils import get_seq_dataset_and_path_names
 
 
 def bce_loss(input, target):
@@ -167,7 +168,7 @@ def final_displacement_error(
         return torch.sum(loss)
 
 
-def collision_error(pred_pos, seq_start_end, minimum_distance=0.8):
+def collision_error(pred_pos, seq_start_end, minimum_distance=0.8, mode='binary'):
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -195,12 +196,15 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.8):
         curr_seqs_norm[indices, indices, :] = minimum_distance
         overlap = curr_seqs_norm < minimum_distance
         curr_cols = torch.sum(torch.sum(overlap, dim=0), dim=1)
+        if mode == 'binary':
+            curr_cols[curr_cols > 0] = 1
+
         collisions.append(curr_cols.float())
 
     return torch.cat(collisions, dim=0).cuda()
 
 
-def occupancy_error(pred_pos, seq_start_end, path_ids, data_dir):
+def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir):
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -210,8 +214,10 @@ def occupancy_error(pred_pos, seq_start_end, path_ids, data_dir):
     - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
     """
     pred_pos = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
-    collisions = []
-    seq_data_names, seq_files = get_datasetname_and_path(path_ids, data_dir)
+    seq_length = pred_pos.size(1)
+    batch_size = pred_pos.size(0)
+    collisions = torch.zeros(batch_size).cuda()
+    seq_data_names = get_seq_dataset_and_path_names(seq_scene_ids, data_dir)
 
     for i, (start, end) in enumerate(seq_start_end):
         start = start.item()
@@ -223,8 +229,14 @@ def occupancy_error(pred_pos, seq_start_end, path_ids, data_dir):
 
         image, homography = get_homography_and_map(seq_data_names[i])
         pixels = get_pixels_from_world(curr_seqs, homography)
-        for ii in range(num_ped):
-            occupancy = on_occupied(pixels[ii], image)
-            collisions.append(occupancy)
 
-    return torch.LongTensor(collisions).cuda()
+        for ii in range(num_ped):
+            ped_id = seq_start_end[i][0] + ii
+            for iii in range(seq_length):
+                occupancy = on_occupied(pixels[ii*seq_length + iii], image)
+                if occupancy > 0:
+
+                    collisions[ped_id] = 1
+                    break # one prediction on occupied is enough
+
+    return collisions
