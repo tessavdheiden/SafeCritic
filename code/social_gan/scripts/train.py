@@ -40,7 +40,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='zara_1', type=str)
+    parser.add_argument('--dataset_name', default='bookstore_0', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -48,7 +48,7 @@ def get_argument_parser():
     parser.add_argument('--skip', default=1, type=int)
 
     # Optimization
-    parser.add_argument('--batch_size', default=10, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--num_iterations', default=6318, type=int)
     parser.add_argument('--num_epochs', default=200, type=int)
 
@@ -110,7 +110,7 @@ def get_argument_parser():
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
     parser.add_argument('--num_samples_check', default=5000, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
-    parser.add_argument('--lamb', default=0.0, type=float) # discriminator only
+    parser.add_argument('--lamb', default=0.0, type=float) # lambda*critic
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -142,6 +142,7 @@ def main(args):
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
+
     val_path = get_dset_path(args.dataset_path, args.dataset_name, 'val')
 
     long_dtype, float_dtype = get_dtypes(args)
@@ -232,7 +233,7 @@ def main(args):
     elif args.restore_from_checkpoint == 1:
         restore_path = os.path.join(args.output_dir,'%s_with_model.pt' % args.checkpoint_name)
 
-    model_name = '%s_with_model_pooling_dim_{}_pool_static_{}_lambda_{}_best_k{}_restore_{}.pt'.format(args.pooling_dim, args.pool_static, args.lamb, args.best_k, args.restore_from_checkpoint)
+    model_name = '%s_with_model.pt'
 
     if restore_path is not None and os.path.isfile(restore_path):
         logger.info('Restoring from checkpoint {}'.format(restore_path))
@@ -740,5 +741,6 @@ def cal_occs(pred_traj_gt, seq_start_end, path_ids, path): #get_dset_path(args.d
     return occupancy_error(pred_traj_gt, seq_start_end, annotated_images, h_matrixes)
 
 if __name__ == '__main__':
+    parser = get_argument_parser()
     args = parser.parse_args()
     main(args)

@@ -4,7 +4,7 @@ import os
 import torch
 
 from sgan.data.loader import data_loader
-from sgan.utils import get_dset_group_name, get_dataset_path
+from sgan.utils import get_dset_group_name, get_dataset_path, get_dset_name
 from sgan.models import TrajectoryGenerator
 from sgan.losses import displacement_error, final_displacement_error, collision_error, occupancy_error
 from scripts.evaluate_model import get_generator, relative_to_abs, evaluate_helper
@@ -12,7 +12,7 @@ from scripts.train import get_argument_parser, check_accuracy
 
 # table_column_names = np.array(["socialGAN", "safeGAN-DP4-RL", "safeGAN-SP-RL"])
 table_column_names = np.array(["socialGAN"])
-table_row_names = sorted(np.array(["students_3", "hotel", "zara_1", "zara_2", "eth"]))
+table_row_names = sorted(np.array(["students_3", "zara_2"]))
 metrics = np.array(["ADE", "FDE", "COLS", "OCCS"])
 
 
@@ -60,7 +60,7 @@ def evaluate(args, loader, generator, num_samples, data_dir):
         for batch in loader:
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, _, seq_start_end, path_ids) = batch
+             non_linear_ped, loss_mask, _, seq_start_end, seq_scene_ids) = batch
             ade, fde, cols, occs = [], [], [], []
             total_traj += pred_traj_gt.size(1)
 
@@ -78,7 +78,7 @@ def evaluate(args, loader, generator, num_samples, data_dir):
                     pred_traj_fake[-1], pred_traj_gt[-1], mode='raw'
                 ))
                 cols.append(collision_error(pred_traj_fake, seq_start_end, minimum_distance=0.8))
-                occs.append(occupancy_error(pred_pos=pred_traj_fake, seq_start_end=seq_start_end, path_ids=path_ids, data_dir=data_dir))
+                occs.append(occupancy_error(pred_pos=pred_traj_fake, seq_start_end=seq_start_end, seq_scene_ids=seq_scene_ids, data_dir=data_dir))
 
             ade_sum = evaluate_helper(ade, seq_start_end)
             fde_sum = evaluate_helper(fde, seq_start_end)
@@ -103,16 +103,18 @@ for model_idx, model_name in enumerate(table_column_names):
     model_parameter_file_path = get_model_path(model_name, '12')
     for dataset, model_name in zip(table_row_names, model_parameter_file_path):
         model = torch.load(model_name)
-        if model_name == 'socialGAN':
+        if table_column_names[model_idx] == 'socialGAN_pretrained':
             dataset_path = get_dataset_path(dataset, 'test', 'sgan_datasets')
         else:
-            dataset_path = get_dataset_path(dataset)
+            dataset_path = get_dataset_path(dataset, 'test')
         dataset_path = "/".join(dataset_path.split('/')[:-1])
-        generator, _ = get_generator(model)
-        _, loader = data_loader(args, dataset_path, shuffle=False)
 
-        ADE_value, FDE_value, COLS_value, OCCS_value = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path)
-
+        if get_dset_name(model['args']['dataset_name']) == dataset:
+            generator, _ = get_generator(model)
+            _, loader = data_loader(args, dataset_path, shuffle=False)
+            ADE_value, FDE_value, COLS_value, OCCS_value = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path)
+        else:
+            ADE_value, FDE_value, COLS_value, OCCS_value = 999, 999, 999, 999
         table.set_value(model_idx, dataset, "FDE", FDE_value)
         table.set_value(model_idx, dataset, "ADE", ADE_value)
         table.set_value(model_idx, dataset, "COLS", COLS_value)
