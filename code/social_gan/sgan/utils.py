@@ -108,7 +108,7 @@ def get_dset_name(name):
         return 'students_3'
     elif name == 'uni_examples_val.txt' or name == 'uni_examples_train.txt' or name =='uni_examples.txt' or name == 'univ':
         return 'students_3'
-    elif '_train.txt':
+    elif '_train.txt' in name:
         return name[:-10]
     elif '_val.txt' in name:
         return name[:-8]
