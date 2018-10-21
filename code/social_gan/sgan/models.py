@@ -839,23 +839,16 @@ class TrajectoryCritic(nn.Module):
         Output:
         - scores: Tensor of shape (batch,) with real/fake scores
         """
-        # output = self.encoder(traj, full_seq=True)
-        # output = output.permute(1, 0, 2)
-        # # Note: Whole seq should be evaluated.
-        # scores = []
-        # for (start, end) in seq_start_end:
-        #     start = start.item()
-        #     end = end.item()
-        #     num_ped = end - start
-        #     final_h = self.encoder(traj_rel[start:end])
-        #     classifier_input = self.pool_net(final_h.squeeze(), seq_start_end, traj[start:end][0], traj_rel[start:end][0])
-        #     scores.append(self.real_classifier(classifier_input))
-        # scores = torch.cat(scores, dim=0)
-        final_h = self.encoder(traj_rel)
-
-        classifier_input = self.pool_net(final_h.squeeze(), seq_start_end, traj[0], traj_rel[0])
-        scores = self.real_classifier(classifier_input)
-
+        seq_len = traj.size(0)
+        scores = []
+        for i, (start, end) in enumerate(seq_start_end):
+            start = start.item()
+            end = end.item()
+            num_ped = end - start
+            encoder_input = traj_rel.view(-1, 2)[0:num_ped*seq_len]
+            final_h = self.encoder(encoder_input.view(seq_len, num_ped, 2))
+            scores.append(self.real_classifier(final_h.squeeze()))
+        scores = torch.cat(scores, dim=0)
         return scores
 
 

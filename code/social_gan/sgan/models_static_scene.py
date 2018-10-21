@@ -23,7 +23,10 @@ def load_bin_map(path_name):
 
 
 def get_homography_and_map(dset, annotated_image_name = '/annotated.jpg'):
-    directory = '../datasets/safegan_dataset/'
+    _dir = os.path.dirname(os.path.realpath(__file__))
+    _dir = _dir.split("/")[:-1]
+    _dir = "/".join(_dir)
+    directory = _dir + '/datasets/safegan_dataset/'
     path_group = os.path.join(directory, get_dset_group_name(dset))
     path = os.path.join(path_group, dset)
     h_matrix = pd.read_csv(path + '/{}_homography.txt'.format(dset), delim_whitespace=True, header=None).values
