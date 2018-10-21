@@ -17,16 +17,16 @@ this is the directory where are various datasets data (example: "/home/userName/
    -ETH
    -UCY
 '''
-dataset_folder = "/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/"
-dataset = "SDD"
-test_scene = "bookstore_0"
-training_percentage = 0.7       # Percentage of annotated frames to use for training files
+dataset_folder = "/home/q392358/Documents/projects/object_prediction/data/sets/urban/stanford_campus_dataset/scripts/sgan-master/datasets/safegan_dataset/"
+dataset = "UCY"
+test_scene = "zara_2"
+training_percentage = 0.8       # Percentage of annotated frames to use for training files
 delimiter = ' '
 
 # Create train, val and test folders inside the Training folder of the test scene
-train_folder_path = "/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/" + dataset + "/" + test_scene + "/Training/train"
-val_folder_path = "/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/" + dataset + "/" + test_scene + "/Training/val"
-test_folder_path = "/home/q467565/Desktop/FLORA/code/social_gan/datasets/dataset/" + dataset + "/" + test_scene + "/Training/test"
+train_folder_path = "/home/q392358/Documents/projects/object_prediction/data/sets/urban/stanford_campus_dataset/scripts/sgan-master/datasets/safegan_dataset/" + dataset + "/" + test_scene + "/Training/train"
+val_folder_path = "/home/q392358/Documents/projects/object_prediction/data/sets/urban/stanford_campus_dataset/scripts/sgan-master/datasets/safegan_dataset/" + dataset + "/" + test_scene + "/Training/val"
+test_folder_path = "/home/q392358/Documents/projects/object_prediction/data/sets/urban/stanford_campus_dataset/scripts/sgan-master/datasets/safegan_dataset/" + dataset + "/" + test_scene + "/Training/test"
 
 if not os.path.exists(train_folder_path):
     os.makedirs(train_folder_path)
