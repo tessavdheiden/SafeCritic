@@ -47,20 +47,25 @@ def calculate_dynamics(coordinates):
     return gaze_directions, vectors
 
 
-def get_coordinates(dataset_name, scene, data, h_matrix):
+def get_coordinates(dataset_name, data, h_matrix, original_SDD_annotations):
     # Only the world coordinates should adapted to the same reference system,
     # while the pixels are already computed correctly because the homographies already take into account
     # the different reference system for all dataset scenes
-    if dataset_name == 'UCY':
-        world = np.stack((data[:, 2], data[:, 3])).T
+    if original_SDD_annotations:    # Data is the set of image coordinates in the original SDD
+        pixels = np.stack((data[:, 2], data[:, 3])).T
+        world = get_world_from_pixels(pixels, h_matrix, True)
 
-    elif dataset_name == 'SDD':
-        world = np.stack((data[:, 2], -data[:, 3])).T
+    else:
+        if dataset_name == 'UCY':
+            world = np.stack((data[:, 2], data[:, 3])).T
 
-    elif dataset_name == 'ETH':
-        world = np.stack((data[:, 2], -data[:, 3])).T
+        elif dataset_name == 'SDD':
+            world = np.stack((data[:, 2], -data[:, 3])).T
 
-    pixels = get_pixels_from_world(world, h_matrix, True)
+        elif dataset_name == 'ETH':
+            world = np.stack((data[:, 2], -data[:, 3])).T
+
+        pixels = get_pixels_from_world(world, h_matrix, True)
 
     return pixels, world
 
@@ -95,7 +100,7 @@ def get_static_obstacles_boundaries(n_buckets, vectors_image, h_matrix, current_
     return image_beams, world_beams
 
 
-def calculate_static_scene(directory, dataset, scene, annotated_image_file_name):
+def calculate_static_scene(directory, dataset, scene, annotated_image_file_name, original_SDD_annotations):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 10), num=1)
 
     for scene in scene:
@@ -107,13 +112,15 @@ def calculate_static_scene(directory, dataset, scene, annotated_image_file_name)
 
         n_frames = vidcap._meta['nframes']
 
-
-        data = read_file(path + '/{}.txt'.format(scene), "space")  # Read the full set of annotations in world coordinates [frame_id, pedestrian_id, x, y]
+        if original_SDD_annotations:     # Read the full set of annotations in image coordinates (original SDD) [frame_id, pedestrian_id, x, y]
+            data = read_file(path + '/{}_originalSDD.txt'.format(scene), "space")
+        else:     # Read the full set of annotations in world coordinates (trajnet ones) [frame_id, pedestrian_id, x, y]
+            data = read_file(path + '/{}.txt'.format(scene), "space")
 
         pedestrians = np.unique(data[:, 1])  # Get all pedestrian ids in the dataset
 
         # get coordinates in format [x, y] centered in top-left corner for image coordinates and bottom-left corner for world coordinates
-        image_coordinates, world_coordinates = get_coordinates(dataset, scene, data, h_matrix)
+        image_coordinates, world_coordinates = get_coordinates(dataset, data, h_matrix, original_SDD_annotations)
 
         for ped in pedestrians:
             # if ped != 9:
@@ -187,10 +194,11 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
 
 def main():
     directory = "dataset"
-    dataset = 'ETH'
-    scenes = ['hotel']
+    dataset = 'SDD'
+    scenes = ['gates_2']
     annotated_image_file_name = '/annotated.jpg'
-    calculate_static_scene(directory, dataset, scenes, annotated_image_file_name)
+    original_SDD_annotations = True
+    calculate_static_scene(directory, dataset, scenes, annotated_image_file_name, original_SDD_annotations)
     return True
 
 
