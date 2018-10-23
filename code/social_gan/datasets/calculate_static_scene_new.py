@@ -195,9 +195,9 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
 def main():
     directory = "dataset"
     dataset = 'SDD'
-    scenes = ['gates_2']
+    scenes = ['bookstore_0']
     annotated_image_file_name = '/annotated.jpg'
-    original_SDD_annotations = True
+    original_SDD_annotations = False
     calculate_static_scene(directory, dataset, scenes, annotated_image_file_name, original_SDD_annotations)
     return True
 
