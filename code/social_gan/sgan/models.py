@@ -2,8 +2,15 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+use_torch_for_static = False
+
+if use_torch_for_static:
+    from sgan.models_static_scene import get_static_obstacles_boundaries, get_pixels_from_world
+else:
+    from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries, get_pixels_from_world
 from sgan.models_static_scene import get_homography_and_map
-from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries, get_pixels_from_world
+
+
 from sgan.utils import get_seq_dataset_and_path_names, get_dataset_path
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -459,16 +466,19 @@ class PhysicalPooling(nn.Module):
             curr_end_pos = end_pos[start:end]
             curr_rel_pos = rel_pos[start:end]
 
-            annotated_image, h_matrix = get_homography_and_map(seq_scenes[i], "/annotated_boundaries.jpg")
+            annotated_image, h_matrix = get_homography_and_map(seq_scenes[i], "/world_points_boundary.npy")
 
             image_curr_end_pos = get_pixels_from_world(curr_end_pos, h_matrix, True)
             image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
             curr_end_pos_1 = torch.zeros((num_ped, self.num_cells, 2)).cuda()
             for j in range(num_ped):
                 radius_image = np.linalg.norm(get_pixels_from_world(2 * np.ones((1, 2)), h_matrix, True))
-                _, angular_polar_grid = get_static_obstacles_boundaries(15, image_curr_rel_pos[j], h_matrix, image_curr_end_pos[j], annotated_image,
-                                                radius_image)
-                curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
+                _, angular_polar_grid = get_static_obstacles_boundaries(15, image_curr_rel_pos[j], h_matrix, image_curr_end_pos[j], annotated_image, radius_image)
+
+                if use_torch_for_static:
+                    curr_end_pos_1[j] = angular_polar_grid
+                else:
+                    curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
 
             # Repeat -> H1, H1, H2, H2
             curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
