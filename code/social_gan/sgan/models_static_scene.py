@@ -54,7 +54,9 @@ def on_occupied(pixel, map):
 
 #############
 def get_pixels_from_world(pts_wrd, h, divide_depth=False):
-    h = torch.from_numpy(h).type(torch.float).cuda()
+    if 'numpy' in str(type(h)):
+        h = torch.from_numpy(h).type(torch.float).cuda()
+
     ones_vec = torch.ones(pts_wrd.shape[0]).cuda()
 
     if 'numpy' in str(type(pts_wrd)):
@@ -70,7 +72,8 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
 
 
 def get_world_from_pixels(pts_img, h, multiply_depth=False):
-    h = torch.from_numpy(h).type(torch.float).cuda()
+    if 'numpy' in str(type(h)):
+        h = torch.from_numpy(h).type(torch.float).cuda()
     ones_vec = torch.ones(pts_img.shape[0]).cuda()
     pts_img = pts_img.cuda()
     if multiply_depth:

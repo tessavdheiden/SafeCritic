@@ -1,20 +1,20 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import os
+import time
 
-use_torch_for_static = False
+use_torch_for_static=False
+
+from sgan.models_static_scene import get_homography_and_map
+from sgan.utils import get_dset_name
 
 if use_torch_for_static:
     from sgan.models_static_scene import get_static_obstacles_boundaries, get_pixels_from_world
 else:
     from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries, get_pixels_from_world
-from sgan.models_static_scene import get_homography_and_map
-
-
-from sgan.utils import get_seq_dataset_and_path_names, get_dataset_path
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
@@ -155,16 +155,9 @@ class Decoder(nn.Module):
                 dropout=dropout
             )
         self.spatial_embedding = nn.Linear(2, embedding_dim)
-        # self.temporal_embedding = make_mlp(
-        #     [seq_len, mlp_dim, seq_len],
-        #     activation=activation,
-        #     batch_norm=batch_norm,
-        #     dropout=dropout
-        # )
         self.hidden2pos = nn.Linear(h_dim, 2)
-        # self.hidden2beam = nn.Linear(h_dim, 15)
 
-    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, seq_scene_ids=None, path=None):
+    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, seq_scene_ids=None):
         """
         Inputs:
         - last_pos: Tensor of shape (batch, 2)
@@ -191,10 +184,10 @@ class Decoder(nn.Module):
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
                 elif (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
                     pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids, path)
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h, static_h], dim=1)
                 elif not (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids, path)
+                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
                     decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), static_h], dim=1)
 
                 decoder_h = self.mlp(decoder_h)
@@ -434,6 +427,17 @@ class PhysicalPooling(nn.Module):
             batch_norm=batch_norm,
             dropout=dropout)
 
+        self.scene_information = {}
+
+    def set_dset_list(self, data_dir):
+        self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
+        for name in self.list_data_files:
+            map, h_matrix = (get_homography_and_map(name, "/world_points_boundary.npy"))
+            if use_torch_for_static:
+                map = torch.from_numpy(map).type(torch.float).cuda()
+                h_matrix = torch.from_numpy(h_matrix).type(torch.float).cuda()
+            self.scene_information[name] = (map, h_matrix)
+
     def repeat(self, tensor, num_reps):
         """
         Inputs:
@@ -447,7 +451,7 @@ class PhysicalPooling(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids, path):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)
@@ -456,7 +460,8 @@ class PhysicalPooling(nn.Module):
         Output:
         - pool_h: Tensor of shape (batch, bottleneck_dim)
         """
-        seq_scenes = get_seq_dataset_and_path_names(seq_scene_ids.cpu().numpy(), path)
+
+        seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
         pool_h = []
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
@@ -466,19 +471,40 @@ class PhysicalPooling(nn.Module):
             curr_end_pos = end_pos[start:end]
             curr_rel_pos = rel_pos[start:end]
 
-            annotated_image, h_matrix = get_homography_and_map(seq_scenes[i], "/world_points_boundary.npy")
+            # torch.cuda.synchronize()
+            # t1 = time.time()
+            annotated_points, h_matrix = self.scene_information[seq_scenes[i]] # get_homography_and_map(seq_scenes[i], "/world_points_boundary.npy")
 
+            # torch.cuda.synchronize()
+            # print("TIME get_homography_and_map:", time.time() - t1)
+
+            # torch.cuda.synchronize()
+            # t1 = time.time()
             image_curr_end_pos = get_pixels_from_world(curr_end_pos, h_matrix, True)
             image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
             curr_end_pos_1 = torch.zeros((num_ped, self.num_cells, 2)).cuda()
-            for j in range(num_ped):
-                radius_image = np.linalg.norm(get_pixels_from_world(2 * np.ones((1, 2)), h_matrix, True))
-                _, angular_polar_grid = get_static_obstacles_boundaries(15, image_curr_rel_pos[j], h_matrix, image_curr_end_pos[j], annotated_image, radius_image)
+            # torch.cuda.synchronize()
+            # print("TIME get_pixels_from_world:", time.time() - t1)
 
+            # torch.cuda.synchronize()
+            # t1 = time.time()
+            if use_torch_for_static:
+                ones_vec = 2 * torch.ones((1, 2)).cuda()
+                tmp = get_pixels_from_world(ones_vec, h_matrix, True)
+                radius_image = torch.norm(tmp)
+            else:
+                ones_vec = 2 * np.ones((1, 2))
+                radius_image = np.linalg.norm(get_pixels_from_world(ones_vec, h_matrix, True))
+            # radius_image = torch.norm(radius_image, p=1)
+            for j in range(num_ped):
+                _, angular_polar_grid = get_static_obstacles_boundaries(15, image_curr_rel_pos[j], h_matrix, image_curr_end_pos[j], annotated_points, radius_image)
                 if use_torch_for_static:
                     curr_end_pos_1[j] = angular_polar_grid
                 else:
                     curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
+
+            # torch.cuda.synchronize()
+            # print("TIME get polar grids:", time.time() - t1)
 
             # Repeat -> H1, H1, H2, H2
             curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
@@ -547,8 +573,9 @@ class TrajectoryGenerator(nn.Module):
             grid_size=grid_size,
             neighborhood_size=neighborhood_size,
             pool_static=pool_static,
-            pooling_dim=pooling_dim
+            pooling_dim=pooling_dim,
         )
+
         if (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and pool_static:
             bottleneck_dim = bottleneck_dim // 2
             input_dim = encoder_h_dim + bottleneck_dim * 2
@@ -652,7 +679,7 @@ class TrajectoryGenerator(nn.Module):
         else:
             return False
 
-    def forward(self, obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids=None, path=None, user_noise=None):
+    def forward(self, obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids=None, user_noise=None):
         """
         Inputs:
         - obs_traj: Tensor of shape (obs_len, batch, 2)
@@ -677,12 +704,12 @@ class TrajectoryGenerator(nn.Module):
             end_pos = obs_traj[-1, :, :]
             rel_pos = obs_traj_rel[-1, :, :]
             pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids, path)
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h, static_h], dim=1)
         elif not (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
             end_pos = obs_traj[-1, :, :]
             rel_pos = obs_traj_rel[-1, :, :]
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids, path)
+            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
             mlp_decoder_context_input = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), static_h], dim=1)
         else:
             mlp_decoder_context_input = final_encoder_h.view(-1, self.encoder_h_dim)
@@ -710,8 +737,7 @@ class TrajectoryGenerator(nn.Module):
                 last_pos_rel,
                 state_tuple,
                 seq_start_end,
-                seq_scene_ids,
-                path
+                seq_scene_ids
             )
         else:
             decoder_out = self.decoder(
