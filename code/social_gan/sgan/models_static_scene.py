@@ -32,6 +32,8 @@ def get_homography_and_map(dset, annotated_points_name = '/world_points_boundary
     h_matrix = pd.read_csv(path + '/{}_homography.txt'.format(dset), delim_whitespace=True, header=None).values
     if 'txt' in annotated_points_name:
         map = np.loadtxt(path + annotated_points_name, delimiter=' ')
+    elif 'jpg' in annotated_points_name:
+        map = load_bin_map(path + annotated_points_name)
     else:
         map = np.load(path + annotated_points_name)
     return map, h_matrix
@@ -94,7 +96,7 @@ def get_polar_coordinates(current_ped_pos, boundary_points):
 
 def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_ped_pos, boundary_points, radius_image):
     image_beams = torch.zeros((n_buckets, 2)).cuda()
-    split_theta = torch.tensor(np.pi / n_buckets).cuda()     # angle of each split of the 180° polar grid in front of the current pedestrian
+    split_theta = torch.tensor(np.pi / n_buckets).cuda()     # angle of each split of the 180 polar grid in front of the current pedestrian
 
     if 'numpy' in str(type(boundary_points)):
         boundary_points = torch.from_numpy(boundary_points).type(torch.float).cuda()
@@ -104,7 +106,7 @@ def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_p
 
     polar_coordinates = get_polar_coordinates(current_ped_pos, boundary_points)  # polar coordinates of boundary points in annotated image
 
-    # the starting angle is the one of the current pedestrian trajectory - 90°, so on his/her left hand side
+    # the starting angle is the one of the current pedestrian trajectory - 90, so on his/her left hand side
     starting_angle = -torch.atan2(vector_image[1], vector_image[0]) - np.pi/2
 
     for image_beams_index in range(0, n_buckets):
