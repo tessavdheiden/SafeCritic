@@ -8,29 +8,33 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 import pandas as pd
 import imageio
-import matplotlib.animation as animation
 import cv2
 
 from attrdict import AttrDict
 
 from sgan.data.loader import data_loader
 from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator
+from sgan.models_static_scene import get_homography_and_map
 from sgan.losses import displacement_error, final_displacement_error
-from sgan.utils import relative_to_abs, get_dset_path
+from sgan.utils import relative_to_abs, get_dset_path, get_dataset_path,  get_dset_group_name
 from scripts.collision_checking import load_bin_map, on_occupied, in_collision
-from datasets.calculate_static_scene import get_pixels_from_world, get_pixel_from_coordinate,get_coordinates
+from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from datasets.calculate_static_scene_new import get_coordinates_traj
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../models/sgan_models_pretrained/evaluate', type=str)
+parser.add_argument('--model_path', default='../results/benchmark1/', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
 MAKE_MP4 = True
 FOUR_PLOTS = True
 
-def get_generator(checkpoint_in):
+def get_generator(checkpoint_in, pretrained=False):
     args = AttrDict(checkpoint_in['args'])
+    # if checkpoint_in['args']['pretrained']:
+    #     args.pool_static = 0
+    #     args.pooling_dim = 2
+    #     args.delim = 'space'
     generator = TrajectoryGenerator(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
@@ -44,12 +48,12 @@ def get_generator(checkpoint_in):
         noise_mix_type=args.noise_mix_type,
         pooling_type=args.pooling_type,
         pool_every_timestep=args.pool_every_timestep,
-        # pool_static=args.pool_static,
+        pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        # pooling_dim=args.pooling_dim,
+        pooling_dim=args.pooling_dim,
         batch_norm=args.batch_norm)
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
@@ -371,40 +375,39 @@ def evaluate(args, generator, num_samples, data_dir, iteration=0, visualize=True
     return ade, fde, cols, occs
 
 
+def get_numpy_array(tensor):
+    return tensor.data.cpu().numpy()
+
+
 def plot_trajectories_meters(dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
     colors = np.random.rand(traj_gt.size(0), 3)
     ax1.cla()
-    lines_gt = traj_gt.permute(2, 1, 0)
-    ax1.scatter(lines_gt[0], lines_gt[1], marker='.', color=colors[:, :])
-    ax1.scatter(lines_gt[0][0], lines_gt[1][0], marker='X', color=colors[:, :])
+    ax2.cla()
+    ax3.cla()
+    ax4.cla()
+    ax4.imshow(photo)
+    for p in range(traj_gt.size(0)):
+        ax1.scatter(traj_gt[p][:, 0], traj_gt[p][:, 1], marker='.', color=colors[p, :])
+        ax1.scatter(traj_gt[p][0, 0], traj_gt[p][0, 1], marker='X', color=colors[p, :])
+
+        ax2.scatter(traj1[p][:, 0], traj1[p][:, 1], marker='.', color=colors[p, :])
+        ax3.scatter(traj2[p][:, 0], traj2[p][:, 1], marker='.', color=colors[p, :])
+
+        pixels_gt = get_pixels_from_world(traj_gt[p], h)
+        # ax4.scatter(pixels_gt[:, 0], pixels_gt[:, 1], marker='.', color=colors[p, :], s=10)
+
+        pixels_obs = get_pixels_from_world(traj_obs[p], h)
+        ax4.scatter(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[p, :], s=10)
+        ax4.scatter(pixels_obs[-1, 0], pixels_obs[-1, 1], marker='X', color=colors[p, :], s=10)
+
     ax1.axis([0, 15, 0, 15])
     ax1.set_xlabel('ground truth batch {} frame {} {} {}'.format(b, i, metric, count_gt))
-
-    ax2.cla()
-    lines1 = traj1.permute(2, 1, 0)
-    ax2.scatter(lines1[0], lines1[1], marker='.', color=colors[:, :])
-    ax2.scatter(lines1[0][0], lines1[1][0], marker='X', color=colors[:, :])
     ax2.axis([0, 15, 0, 15])
     ax2.set_title(model_name1)
     ax2.set_xlabel('prediction batch {} frame {} ade {:.2f} fde {:.2f} {} {}'.format(b, i, ma1, mf1, metric, count1))
-
-    ax3.cla()
-    lines2 = traj2.permute(2, 1, 0)
-    ax3.scatter(lines2[0], lines2[1], marker='.', color=colors[:, :])
-    ax3.scatter(lines2[0][0], lines2[1][0], marker='X', color=colors[:, :])
     ax3.axis([0, 15, 0, 15])
     ax3.set_title(model_name2)
     ax3.set_xlabel('prediction batch {} frame {} ade {:.2f} fde {:.2f} {} {}'.format(b, i, ma2, mf2, metric, count2))
-
-    ax4.cla()
-    ax4.imshow(photo)
-
-    for p in range(traj_gt.size(0)):
-        pixels_gt = convert_to_pixels(dataset_name, h, traj_gt[p])
-        ax4.scatter(pixels_gt[:, 1], pixels_gt[:, 0], marker='.', color=colors[p, :], s=10)
-        ax4.scatter(pixels_gt[0, 1], pixels_gt[0, 0], marker='X', color=colors[p, :], s=10)
-        pixels_obs = convert_to_pixels(dataset_name, h, traj_obs[p])
-        ax4.scatter(pixels_obs[:, 1], pixels_obs[:, 0], marker='.', color=colors[p, :], s=10)
     ax4.axis([0, photo.shape[1], photo.shape[0], 0])
 
 
@@ -512,16 +515,31 @@ def plot_occs(static_map, h, dset, ax1, ax2, ax3, traj_gt, traj1, traj2):
                 occs2 = 1
     return occs_gt, occs1, occs2
 
+def get_path(dset):
+    _dir = os.path.dirname(os.path.realpath(__file__))
+    _dir = _dir.split("/")[:-1]
+    _dir = "/".join(_dir)
+    directory = _dir + '/datasets/safegan_dataset/'
+    path_group = os.path.join(directory, get_dset_group_name(dset))
+    path = os.path.join(path_group, dset)
+    return path
+
+
 
 def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-    args.delim = 'tab'
-    _, loader = data_loader(args, data_dir, shuffle=False)
+    _, loader = data_loader(args, "/".join(data_dir.split('/')[:-1]), shuffle=False)
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 10), num=1)
     cols1, cols2, cols_gt = 0, 0, 0
     ade1, ade2, fde1, fde2 = [], [], [], []
+
+    path = get_path(args.dataset_name)
+    # cap = cv2.VideoCapture(path + '/seq.avi')
+
     writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
     reader = imageio.get_reader("../datasets/safegan_dataset/UCY/zara_1/seq.avi", 'ffmpeg')  #  n_frames = vidcap._meta['nframes']
-    h = pd.read_csv("../datasets/safegan_dataset/UCY/zara_1/zara_1_homography.txt", delim_whitespace=True, header=None).as_matrix()
+
+    annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
+
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
@@ -538,6 +556,7 @@ def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
                 end = end.item()
                 num_ped = end - start
                 frame = traj_frames[num_ped-1][start:end][0].item()
+                # photo = cap.read(frame)
                 photo = reader.get_data(int(frame))
 
                 traj1 = pred_traj_fake1[start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
@@ -722,25 +741,16 @@ def main(args):
             filenames = os.listdir(args.model_path)
             filenames.sort()
             paths = [os.path.join(args.model_path, file_) for file_ in filenames]
-        for ii, model_path in enumerate(paths):
-            checkpoint = torch.load(model_path)
-            print('model_path = '+ model_path)
-            _args = AttrDict(checkpoint['args'])
-            _args.dataset_name = 'sgan_datasets/hotel'
-            data_dir = get_dset_path(_args.dataset_name, args.dset_type, True)
 
             if test_case == 4 or test_case == 5 or test_case == 1:
-                if ii > 0:
-                    break
                 checkpoint1 = torch.load(paths[0])
                 print('model_path = ' + paths[0])
-
-                generator1 = get_generator(checkpoint1)
+                generator1, _args = get_generator(checkpoint1)
 
                 checkpoint2 = torch.load(paths[1])
                 print('model_path = ' + paths[1])
-                generator2 = get_generator(checkpoint2)
-
+                generator2, _ = get_generator(checkpoint2)
+                data_dir = get_dataset_path(_args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
                 if test_case == 4:
                     cols1, cols2 = compare_cols_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
                     print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(cols1, cols2))
@@ -749,17 +759,19 @@ def main(args):
                     print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
                 elif test_case == 1:
                     ade, fde = compare_fde_ade_pred_gt_test(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
-                    print(
-                        'Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,
-                                                                                     ade, fde))
+                    print('Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,ade, fde))
             else:
-                generator = get_generator(checkpoint)
-                if test_case == 2:
-                    ade, fde = evaluate_fde_ade_diff_samples(_args, generator, checkpoint['args']['best_k'], data_dir)
-                    print('Dataset: {}, Pred Len: {}, k samples: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,checkpoint['args']['best_k'], ade, fde))
-                elif test_case == 3:
-                    ade, fde, cols, occs = evaluate(_args, generator,  args.num_samples, data_dir) # args.num_samples
-                    print('Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}, Collisions: {:.2f}, Occupancies: {:.2f}'.format(_args.dataset_name, _args.pred_len, ade, fde, cols, occs))
+                for path in paths:
+                    checkpoint = torch.load(path)
+                    generator, _args = get_generator(checkpoint)
+                    data_dir = get_dataset_path(_args['dataset_name'], dset_type='test',data_set_model='safegan_dataset')
+
+                    if test_case == 2:
+                        ade, fde = evaluate_fde_ade_diff_samples(_args, generator, checkpoint['args']['best_k'], data_dir)
+                        print('Dataset: {}, Pred Len: {}, k samples: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,checkpoint['args']['best_k'], ade, fde))
+                    elif test_case == 3:
+                        ade, fde, cols, occs = evaluate(_args, generator,  args.num_samples, data_dir) # args.num_samples
+                        print('Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}, Collisions: {:.2f}, Occupancies: {:.2f}'.format(_args.dataset_name, _args.pred_len, ade, fde, cols, occs))
 
 
 if __name__ == '__main__':

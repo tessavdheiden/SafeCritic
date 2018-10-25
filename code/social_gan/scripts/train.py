@@ -49,8 +49,8 @@ def get_argument_parser():
 
     # Optimization
     parser.add_argument('--batch_size', default=32, type=int)
-    parser.add_argument('--num_iterations', default=6318, type=int)
-    parser.add_argument('--num_epochs', default=200, type=int)
+    parser.add_argument('--num_iterations', default=10000, type=int)
+    parser.add_argument('--num_epochs', default=201, type=int)
 
     # Model Options
     parser.add_argument('--embedding_dim', default=16, type=int)
@@ -102,7 +102,7 @@ def get_argument_parser():
     parser.add_argument('--wgan', default=0, type=bool_flag)
 
     # Output
-    parser.add_argument('--output_dir', default=os.getcwd())
+    parser.add_argument('--output_dir', default="models/temp")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -179,7 +179,8 @@ def main(args):
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         batch_norm=args.batch_norm,
-        pooling_dim=args.pooling_dim)
+        pooling_dim=args.pooling_dim,
+        )
 
     generator.apply(init_weights)
     generator.type(float_dtype).train()
@@ -294,11 +295,15 @@ def main(args):
             # Decide whether to use the batch for stepping on discriminator or
             # generator; an iteration consists of args.d_steps steps on the
             # discriminator followed by args.g_steps steps on the generator.
+            if args.pool_static:
+                generator.static_net.set_dset_list(train_path)
+                if args.pool_every_timestep:
+                    generator.decoder.static_net.set_dset_list(train_path)
             if d_steps_left > 0:
                 step_type = 'd'
                 losses_d = discriminator_step(args, batch, generator,
                                               discriminator, d_loss_fn,
-                                              optimizer_d, train_path)
+                                              optimizer_d)
                 checkpoint['norm_d'].append(
                     get_total_norm(discriminator.parameters()))
                 d_steps_left -= 1
@@ -306,7 +311,7 @@ def main(args):
                 step_type = 'c'
                 losses_c = critic_step(args, batch, generator,
                                               critic, c_loss_fn,
-                                              optimizer_c, train_path)
+                                              optimizer_c)
                 checkpoint['norm_c'].append(
                     get_total_norm(critic.parameters()))
                 c_steps_left -= 1
@@ -315,7 +320,7 @@ def main(args):
                 step_type = 'g'
                 losses_g = generator_step(args, batch, generator,
                                               discriminator, critic, g_loss_fn,
-                                              optimizer_g, train_path)
+                                              optimizer_g)
 
                 checkpoint['norm_g'].append(
                     get_total_norm(generator.parameters())
@@ -360,15 +365,19 @@ def main(args):
 
                 # Check stats on the validation set
                 logger.info('Checking stats on val ...')
-                metrics_val = check_accuracy(
-                    args, val_loader, generator, val_path, discriminator, d_loss_fn
-                )
                 logger.info('Checking stats on train ...')
                 metrics_train = check_accuracy(
-                    args, train_loader, generator, train_path, discriminator,
+                    args, train_loader, generator, discriminator,
                     d_loss_fn, limit=True
                 )
+                if args.pool_static:
+                    generator.static_net.set_dset_list(val_path)
+                    if args.pool_every_timestep:
+                        generator.decoder.static_net.set_dset_list(val_path)
 
+                metrics_val = check_accuracy(
+                    args, val_loader, generator, discriminator, d_loss_fn
+                )
                 for k, v in sorted(metrics_val.items()):
                     logger.info('  [val] {}: {:.3f}'.format(k, v))
                     checkpoint['metrics_val'][k].append(v)
@@ -431,7 +440,7 @@ def main(args):
 
 
 def discriminator_step(
-        args, batch, generator, discriminator, d_loss_fn, optimizer_d, path
+        args, batch, generator, discriminator, d_loss_fn, optimizer_d
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
@@ -440,7 +449,7 @@ def discriminator_step(
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
     if args.pool_static:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
     else:
         generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
@@ -480,7 +489,7 @@ def discriminator_step(
 
 
 def critic_step(
-        args, batch, generator, critic, c_loss_fn, optimizer_c, path
+        args, batch, generator, critic, c_loss_fn, optimizer_c
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
@@ -489,7 +498,7 @@ def critic_step(
     loss = torch.zeros(1).to(pred_traj_gt)
 
     if args.pool_static:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
+        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
     else:
         generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
@@ -529,7 +538,7 @@ def critic_step(
     return losses
 
 def generator_step(
-        args, batch, generator, discriminator, critic, g_loss_fn, optimizer_g, path
+        args, batch, generator, discriminator, critic, g_loss_fn, optimizer_g
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
@@ -542,7 +551,7 @@ def generator_step(
 
     for _ in range(args.best_k):
         if args.pool_static:
-            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
+            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
         else:
             generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
@@ -594,7 +603,7 @@ def generator_step(
 
 
 def check_accuracy(
-        args, loader, generator, path, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
+        args, loader, generator, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
 ):
     d_losses = []
     metrics = {}
@@ -614,7 +623,7 @@ def check_accuracy(
             loss_mask = loss_mask[:, args.obs_len:]
 
             if args.pool_static:
-                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids, path)
+                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
             else:
                 pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
             # pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
