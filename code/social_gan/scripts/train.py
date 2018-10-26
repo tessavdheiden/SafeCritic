@@ -139,7 +139,7 @@ def get_dtypes(args):
 
 def main(args):
 
-
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
 
