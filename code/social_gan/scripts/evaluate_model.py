@@ -379,36 +379,7 @@ def get_numpy_array(tensor):
     return tensor.data.cpu().numpy()
 
 
-def plot_trajectories_meters(dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
-    colors = np.random.rand(traj_gt.size(0), 3)
-    ax1.cla()
-    ax2.cla()
-    ax3.cla()
-    ax4.cla()
-    ax4.imshow(photo)
-    for p in range(traj_gt.size(0)):
-        ax1.scatter(traj_gt[p][:, 0], traj_gt[p][:, 1], marker='.', color=colors[p, :])
-        ax1.scatter(traj_gt[p][0, 0], traj_gt[p][0, 1], marker='X', color=colors[p, :])
 
-        ax2.scatter(traj1[p][:, 0], traj1[p][:, 1], marker='.', color=colors[p, :])
-        ax3.scatter(traj2[p][:, 0], traj2[p][:, 1], marker='.', color=colors[p, :])
-
-        pixels_gt = get_pixels_from_world(traj_gt[p], h)
-        # ax4.scatter(pixels_gt[:, 0], pixels_gt[:, 1], marker='.', color=colors[p, :], s=10)
-
-        pixels_obs = get_pixels_from_world(traj_obs[p], h)
-        ax4.scatter(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[p, :], s=10)
-        ax4.scatter(pixels_obs[-1, 0], pixels_obs[-1, 1], marker='X', color=colors[p, :], s=10)
-
-    ax1.axis([0, 15, 0, 15])
-    ax1.set_xlabel('ground truth batch {} frame {} {} {}'.format(b, i, metric, count_gt))
-    ax2.axis([0, 15, 0, 15])
-    ax2.set_title(model_name1)
-    ax2.set_xlabel('prediction batch {} frame {} ade {:.2f} fde {:.2f} {} {}'.format(b, i, ma1, mf1, metric, count1))
-    ax3.axis([0, 15, 0, 15])
-    ax3.set_title(model_name2)
-    ax3.set_xlabel('prediction batch {} frame {} ade {:.2f} fde {:.2f} {} {}'.format(b, i, ma2, mf2, metric, count2))
-    ax4.axis([0, photo.shape[1], photo.shape[0], 0])
 
 
 def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
@@ -454,11 +425,16 @@ def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1,
     ax4.axis([0, photo.shape[1], photo.shape[0], 0])
 
 
-def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde, ade):
+def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde, ade, seq_scene_ids, path):
 
     (seq_len, batch_size, _) = pred_traj_gt.size()
 
-    pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
+    if generator.pool_static:
+        generator.static_net.set_dset_list("/".join(path.split('/')[:-1]))
+        pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
+    else:
+        pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
+
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
     ade.append(displacement_error(pred_traj_fake, pred_traj_gt) / (seq_len * batch_size))
     fde.append(final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1]) / batch_size)
@@ -466,54 +442,6 @@ def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, obs_stati
     ma, mf = sum(ade) / len(ade), sum(fde) / len(fde)
     return ade, fde, pred_traj_fake, ma, mf
 
-
-def plot_cols(ax1, ax2, ax3, traj_gt, traj1, traj2, cols_gt, cols1, cols2):
-    for ii, p1 in enumerate(traj1):
-        for iii, p2 in enumerate(traj1):
-            if ii <= iii:
-                continue
-            curr_rel_dist_1 = torch.norm(traj1[ii] - traj1[iii], p=1, dim=1)
-            curr_rel_dist_2 = torch.norm(traj2[ii] - traj2[iii], p=1, dim=1)
-            curr_rel_dist_gt = torch.norm(traj_gt[ii] - traj_gt[iii], p=1, dim=1)
-            if torch.min(curr_rel_dist_gt) < 0.2:
-                index = torch.argmin(curr_rel_dist_gt, 0)
-                ax1.scatter(traj_gt[ii][index][0], traj_gt[ii][index][1], marker='*', color='red', s=100)
-                ax1.scatter(traj_gt[iii][index][0], traj_gt[iii][index][1], marker='*', color='green', s=100)
-                cols_gt += 1
-            if torch.min(curr_rel_dist_1) < 0.2:
-                index = torch.argmin(curr_rel_dist_1, 0)
-                ax2.scatter(traj1[ii][index][0], traj1[ii][index][1], marker='*', color='red', s=100)
-                ax2.scatter(traj1[iii][index][0], traj1[iii][index][1], marker='*', color='green', s=100)
-                cols1 += 1
-            if torch.min(curr_rel_dist_2) < 0.2:
-                index = torch.argmin(curr_rel_dist_1, 0)
-                ax3.scatter(traj2[ii][index][0], traj2[ii][index][1], marker='*', color='red', s=100)
-                ax3.scatter(traj2[iii][index][0], traj2[iii][index][1], marker='*', color='green', s=100)
-                cols2 += 1
-
-
-def plot_occs(static_map, h, dset, ax1, ax2, ax3, traj_gt, traj1, traj2):
-    occs_gt, occs1, occs2 = 0,0,0
-    for ii, ped in enumerate(traj_gt):
-        pixels1 = get_coordinates_traj('UCY', traj1[ii], h, static_map)
-        pixels2 = get_coordinates_traj('UCY', traj2[ii], h,static_map)
-        pixels_gt = get_coordinates_traj('UCY', traj_gt[ii], h, static_map)
-        for index, pix in enumerate(ped):
-            if on_occupied(pixels_gt[index], static_map):
-                # ax1.imshow(static_map)
-                ax1.scatter(pixels_gt[index][0], pixels_gt[index][1], marker='*', color='red', s=100)
-                occs_gt = 1
-
-            if on_occupied(pixels1[index], static_map):
-                # ax2.imshow(static_map)
-                ax2.scatter(pixels1[index][0], pixels1[index][1], marker='*', color='red', s=100)
-                occs1 = 1
-
-            if on_occupied(pixels2[index], static_map):
-                # ax3.imshow(static_map)
-                ax3.scatter(pixels2[index][0], pixels2[index][1], marker='*', color='red', s=100)
-                occs2 = 1
-    return occs_gt, occs1, occs2
 
 def get_path(dset):
     _dir = os.path.dirname(os.path.realpath(__file__))
@@ -525,38 +453,102 @@ def get_path(dset):
     return path
 
 
+# ------------------------------- PLOT COMMON -------------------------------
+
+
+def plot_photo(ax, photo, title):
+    ax.cla()
+    ax.imshow(photo, alpha=0.4)
+    ax.set_title(title)
+    ax.axis([0, photo.shape[1], photo.shape[0], 0])
+    ax.set_yticklabels([])
+    ax.set_xticklabels([])
+
+
+def plot_pixel(ax, trajectory, person, h, colors, photo, last=False, first=False):
+    pixels_obs = get_pixels_from_world(trajectory[person], h)
+    ax.scatter(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[person, :], s=10)
+    if last:
+        ax.scatter(pixels_obs[-1, 0], pixels_obs[-1, 1], marker='X', color=colors[person, :], s=10)
+    if first:
+        ax.scatter(pixels_obs[0, 0], pixels_obs[0, 1], marker='o', color=colors[person, :], s=10)
+
+
+def plot_trajectories_pixels_photo(dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
+    plot_photo(ax1, photo, 'observed')
+    plot_photo(ax2, photo, 'ground truth')
+    plot_photo(ax3, photo, model_name1)
+    plot_photo(ax4, photo, model_name2)
+
+    colors = np.random.rand(traj_gt.size(0), 3)
+    for p in range(traj_gt.size(0)):
+        plot_pixel(ax1, traj_obs, p, h, colors, photo, True, False)
+        plot_pixel(ax2, traj_gt, p, h, colors, photo, False, True)
+        plot_pixel(ax3, traj1, p, h, colors, photo)
+        plot_pixel(ax4, traj2, p, h, colors, photo)
+
+
+# ------------------------------- PLOT COLS -------------------------------
+
+
+def plot_col_pix(ax, traj, index_agend_1, index_agend_2, index_time, h):
+    pixels_gt1 = get_pixels_from_world(traj[index_agend_1], h)
+    pixels_gt2 = get_pixels_from_world(traj[index_agend_2], h)
+    ax.scatter(pixels_gt1[index_time][0], pixels_gt1[index_time][1], marker='*', color='red', s=100)
+    ax.scatter(pixels_gt2[index_time][0], pixels_gt2[index_time][1], marker='*', color='green', s=100)
+
+
+def plot_cols(ax1, ax2, ax3, traj_gt, traj1, traj2, cols_gt, cols1, cols2, h):
+
+    for ii, p1 in enumerate(traj1):
+        for iii, p2 in enumerate(traj1):
+            if ii <= iii:
+                continue
+            curr_rel_dist_1 = torch.norm(traj1[ii] - traj1[iii], p=1, dim=1)
+            curr_rel_dist_2 = torch.norm(traj2[ii] - traj2[iii], p=1, dim=1)
+            curr_rel_dist_gt = torch.norm(traj_gt[ii] - traj_gt[iii], p=1, dim=1)
+            if torch.min(curr_rel_dist_gt) < 0.2:
+                index = torch.argmin(curr_rel_dist_gt, 0)
+                plot_col_pix(ax1, traj_gt, ii, iii, index, h)
+                cols_gt += 1
+            if torch.min(curr_rel_dist_1) < 0.2:
+                index = torch.argmin(curr_rel_dist_1, 0)
+                plot_col_pix(ax2, traj1, ii, iii, index, h)
+                cols1 += 1
+            if torch.min(curr_rel_dist_2) < 0.2:
+                index = torch.argmin(curr_rel_dist_1, 0)
+                plot_col_pix(ax3, traj2, ii, iii, index, h)
+                cols2 += 1
+    return cols_gt, cols1, cols2
+
 
 def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-    _, loader = data_loader(args, "/".join(data_dir.split('/')[:-1]), shuffle=False)
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 10), num=1)
-    cols1, cols2, cols_gt = 0, 0, 0
+    path = "/".join(data_dir.split('/')[:-1])
+    _, loader = data_loader(args, path, shuffle=False)
+    fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
+    cols1, cols2, cols_gt, cols1prev = 0, 0, 0, 0
     ade1, ade2, fde1, fde2 = [], [], [], []
 
     path = get_path(args.dataset_name)
-    # cap = cv2.VideoCapture(path + '/seq.avi')
-
     writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
-    reader = imageio.get_reader("../datasets/safegan_dataset/UCY/zara_1/seq.avi", 'ffmpeg')  #  n_frames = vidcap._meta['nframes']
-
+    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
     annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
 
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end, _) = batch
+             non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
-            ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde1, ade1)
-            ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde2, ade2)
+            ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde1, ade1, seq_scene_ids, data_dir)
+            ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde2, ade2, seq_scene_ids, data_dir)
             pred_traj_fake_gt = pred_traj_gt.permute(1, 0, 2)  # batch, seq, 2
             obs_traj = obs_traj.permute(1, 0, 2)
 
             for i, (start, end) in enumerate(seq_start_end):
                 start = start.item()
                 end = end.item()
-                num_ped = end - start
-                frame = traj_frames[num_ped-1][start:end][0].item()
-                # photo = cap.read(frame)
+                frame = traj_frames[args.obs_len][start][0].item()
                 photo = reader.get_data(int(frame))
 
                 traj1 = pred_traj_fake1[start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
@@ -564,47 +556,74 @@ def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
                 traj_gt = pred_traj_fake_gt[start:end]
                 traj_obs = obs_traj[start:end]
 
-                plot_trajectories_meters(args.dataset_name, traj_gt, traj_obs, traj1, traj2, name1, name2, 'cols', ax1, ax2, ax3, ax4,photo, b, i, cols_gt, cols1, cols2, ma1, mf1, ma2, mf2, h)
-                plot_cols(ax1, ax2, ax3, traj_gt, traj1, traj2, cols_gt, cols1, cols2)
+                plot_trajectories_pixels_photo(args.dataset_name, traj_gt, traj_obs, traj1, traj2, name1, name2, 'cols', ax1, ax2, ax3, ax4,photo, b, i, cols_gt, cols1, cols2, ma1, mf1, ma2, mf2, h)
+                cols_gt, cols1, cols2 = plot_cols(ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2, h)
 
                 plt.savefig(save_dir + 'tmp.png')
-                writer.append_data(plt.imread(save_dir + 'tmp.png'))
-                plt.draw()
-                plt.pause(0.001)
+                im = plt.imread(save_dir + 'tmp.png')
+                writer.append_data(im)
+                if cols1 > cols1prev:
+                    plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
+                    cols1prev = cols1
     writer.close()
 
     return cols1, cols2
 
 
+# ------------------------------- PLOT OCCUPANCIES -------------------------------
+
+def plot_occ_pix(ax, static_map, pixels):
+    #ax.cla()
+    ax.scatter(pixels[0], pixels[1], marker='*', color='red', s=100)
+    return True
+
+
+def plot_occs(static_map, photo, h, dset, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs1, occs2):
+    for ii, ped in enumerate(traj_gt):
+        pixels1 = get_pixels_from_world(traj1[ii], h)
+        pixels2 = get_pixels_from_world(traj2[ii], h)
+        pixels_gt = get_pixels_from_world(traj_gt[ii], h)
+        for index, pix in enumerate(ped):
+            if on_occupied(pixels_gt[index], static_map):
+                plot_occ_pix(ax1, photo, pixels_gt[index])
+                occs_gt += 1
+
+            if on_occupied(pixels1[index], static_map):
+                plot_occ_pix(ax2, photo, pixels1[index])
+                occs1 += 1
+
+            if on_occupied(pixels2[index], static_map):
+                plot_occ_pix(ax3, photo, pixels2[index])
+                occs2 += 1
+    return occs_gt, occs1, occs2
+
+
 def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-    _, loader = data_loader(args, data_dir, shuffle=False)
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 10), num=1)
-    occs1, occs2, occs_gt = 0, 0, 0
+    path = "/".join(data_dir.split('/')[:-1])
+    _, loader = data_loader(args, path, shuffle=False)
+    fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
+    occs1, occs2, occs_gt, occs1prev = 0, 0, 0, 0
     ade1, ade2, fde1, fde2 = [], [], [], []
+
+    path = get_path(args.dataset_name)
     writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
-    reader = imageio.get_reader('../datasets/raw/all_data/UCY/{}/scene_information'.format(args.dataset_name) + "/seq.avi", 'ffmpeg')  #  n_frames = vidcap._meta['nframes']
-    h = pd.read_csv('../datasets/raw/all_data/UCY/{}/scene_information/homography.txt'.format(args.dataset_name), delim_whitespace=True, header=None).as_matrix()
-
-    # path = get_dset_path('raw/all_data', args.dataset_name, False)
-    # scene_info_path = os.path.join(path, 'scene_information')
-    static_map = load_bin_map('../datasets/raw/all_data/UCY/{}/scene_information'.format(args.dataset_name), 'annotated.png')
-
+    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
+    annotated_points, h = get_homography_and_map(args.dataset_name, "/annotated.jpg")
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end, _) = batch
+             non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
-            ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde1, ade1)
-            ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, obs_static_rel, pred_traj_gt, fde2, ade2)
+            ade1, fde1, pred_traj_fake1, ma1, mf1 = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde1, ade1, seq_scene_ids, data_dir)
+            ade2, fde2, pred_traj_fake2, ma2, mf2 = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, _, pred_traj_gt, fde2, ade2, seq_scene_ids, data_dir)
             pred_traj_fake_gt = pred_traj_gt.permute(1, 0, 2)  # batch, seq, 2
             obs_traj = obs_traj.permute(1, 0, 2)
 
             for i, (start, end) in enumerate(seq_start_end):
                 start = start.item()
                 end = end.item()
-                num_ped = end - start
-                frame = traj_frames[num_ped-1][start:end][0].item()
+                frame = traj_frames[args.obs_len][start][0].item()
                 photo = reader.get_data(int(frame))
 
                 traj1 = pred_traj_fake1[start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
@@ -612,15 +631,15 @@ def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
                 traj_gt = pred_traj_fake_gt[start:end]
                 traj_obs = obs_traj[start:end]
 
-                plot_trajectories_pixels(static_map, args.dataset_name, traj_gt, traj_obs, traj1, traj2, name1, name2, 'occs', ax1, ax2, ax3, ax4,photo, b, i, occs_gt, occs1, occs2, ma1, mf1, ma2, mf2, h)
-                gt, p1, p2 = plot_occs(static_map, h, 'UCY', ax1, ax2, ax3, traj_gt, traj1, traj2)
-                occs_gt+=gt
-                occs1+=p1
-                occs2+=p2
+                plot_trajectories_pixels_photo(args.dataset_name, traj_gt, traj_obs, traj1, traj2, name1, name2, 'cols',ax1, ax2, ax3, ax4, photo, b, i, occs_gt, occs1, occs2, ma1, mf1, ma2,mf2, h)
+                occs_gt, occs1, occs2 = plot_occs(annotated_points, photo, h, 'UCY', ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
+
                 plt.savefig(save_dir + 'tmp.png')
                 writer.append_data(plt.imread(save_dir + 'tmp.png'))
-                plt.draw()
-                plt.pause(0.001)
+                if occs1 > occs1prev:
+                    plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
+                    occs1prev = occs1
+
     writer.close()
 
     return occs1, occs2
@@ -752,13 +771,13 @@ def main(args):
                 generator2, _ = get_generator(checkpoint2)
                 data_dir = get_dataset_path(_args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
                 if test_case == 4:
-                    cols1, cols2 = compare_cols_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
+                    cols1, cols2 = compare_cols_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
                     print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(cols1, cols2))
                 elif test_case == 5:
-                    occs1, occs2 = compare_occs_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
+                    occs1, occs2 = compare_occs_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
                     print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
                 elif test_case == 1:
-                    ade, fde = compare_fde_ade_pred_gt_test(_args, generator1, generator2, paths[0].split('/')[-1], paths[1].split('/')[-1], data_dir)
+                    ade, fde = compare_fde_ade_pred_gt_test(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
                     print('Dataset: {}, Pred Len: {}, ADE: {:.2f}, FDE: {:.2f}'.format(_args.dataset_name, _args.pred_len,ade, fde))
             else:
                 for path in paths:
