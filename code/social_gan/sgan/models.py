@@ -3,18 +3,14 @@ import torch.nn as nn
 import numpy as np
 import os
 import time
+from sgan.utils import get_dset_group_name, get_dset_name
 
 use_torch_for_static=False
-
-from sgan.models_static_scene import get_homography_and_map
-from sgan.utils import get_dset_name
-
 if use_torch_for_static:
-    from sgan.models_static_scene import get_static_obstacles_boundaries, get_pixels_from_world
+    from sgan.models_static_scene import get_static_obstacles_boundaries
 else:
-    from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries, get_pixels_from_world
+    from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
@@ -429,14 +425,23 @@ class PhysicalPooling(nn.Module):
 
         self.scene_information = {}
 
+    def get_map(self, dset):
+        _dir = os.path.dirname(os.path.realpath(__file__))
+        _dir = _dir.split("/")[:-1]
+        _dir = "/".join(_dir)
+        directory = _dir + '/datasets/safegan_dataset/'
+        path_group = os.path.join(directory, get_dset_group_name(dset))
+        path = os.path.join(path_group, dset)
+        map = np.load(path + "/world_points_boundary.npy")
+        return map
+
     def set_dset_list(self, data_dir):
         self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
         for name in self.list_data_files:
-            map, h_matrix = (get_homography_and_map(name, "/world_points_boundary.npy"))
+            map = self.get_map(name)
             if use_torch_for_static:
                 map = torch.from_numpy(map).type(torch.float).cuda()
-                h_matrix = torch.from_numpy(h_matrix).type(torch.float).cuda()
-            self.scene_information[name] = (map, h_matrix)
+            self.scene_information[name] = map
 
     def repeat(self, tensor, num_reps):
         """
@@ -471,36 +476,20 @@ class PhysicalPooling(nn.Module):
             curr_end_pos = end_pos[start:end]
             curr_rel_pos = rel_pos[start:end]
 
-            # torch.cuda.synchronize()
-            # t1 = time.time()
-            annotated_points, h_matrix = self.scene_information[seq_scenes[i]] # get_homography_and_map(seq_scenes[i], "/world_points_boundary.npy")
+            annotated_points = self.scene_information[seq_scenes[i]]
 
-            # torch.cuda.synchronize()
-            # print("TIME get_homography_and_map:", time.time() - t1)
-
-            # torch.cuda.synchronize()
             # t1 = time.time()
-            image_curr_end_pos = get_pixels_from_world(curr_end_pos, h_matrix, True)
-            image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
             curr_end_pos_1 = torch.zeros((num_ped, self.num_cells, 2)).cuda()
-            # torch.cuda.synchronize()
-            # print("TIME get_pixels_from_world:", time.time() - t1)
-
-            # torch.cuda.synchronize()
-            # t1 = time.time()
             if use_torch_for_static:
-                ones_vec = 2 * torch.ones((1, 2)).cuda()
-                tmp = get_pixels_from_world(ones_vec, h_matrix, True)
-                radius_image = torch.norm(tmp)
+                angular_polar_grid = get_static_obstacles_boundaries(15, curr_rel_pos, curr_end_pos, annotated_points)
+                curr_end_pos_1 = angular_polar_grid
             else:
-                ones_vec = 2 * np.ones((1, 2))
-                radius_image = np.linalg.norm(get_pixels_from_world(ones_vec, h_matrix, True))
-            # radius_image = torch.norm(radius_image, p=1)
-            for j in range(num_ped):
-                _, angular_polar_grid = get_static_obstacles_boundaries(15, image_curr_rel_pos[j], h_matrix, image_curr_end_pos[j], annotated_points, radius_image)
-                if use_torch_for_static:
-                    curr_end_pos_1[j] = angular_polar_grid
-                else:
+
+                curr_end_pos_in = curr_end_pos.data.cpu().numpy()
+                curr_rel_pos_in = curr_rel_pos.data.cpu().numpy()
+                # image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
+                for j in range(num_ped):
+                    angular_polar_grid = get_static_obstacles_boundaries(15, curr_rel_pos_in[j], curr_end_pos_in[j], annotated_points,10)
                     curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
 
             # torch.cuda.synchronize()

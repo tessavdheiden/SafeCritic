@@ -1,6 +1,7 @@
 import torch
 from torch import autograd
 import random
+import matplotlib.pyplot as plt
 
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from sgan.models_static_scene import on_occupied, get_homography_and_map
@@ -168,7 +169,7 @@ def final_displacement_error(
         return torch.sum(loss)
 
 
-def collision_error(pred_pos, seq_start_end, minimum_distance=0.8, mode='binary'):
+def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'):
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -204,7 +205,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.8, mode='binary'
     return torch.cat(collisions, dim=0).cuda()
 
 
-def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir):
+def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir, mode='binary'):
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -227,7 +228,7 @@ def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir):
         curr_seqs = pred_pos[start:end]
         curr_seqs = curr_seqs.view(-1, 2)
 
-        image, homography = get_homography_and_map(seq_data_names[i])
+        image, homography = get_homography_and_map(seq_data_names[i], '/annotated.jpg')
         pixels = get_pixels_from_world(curr_seqs, homography)
 
         for ii in range(num_ped):
@@ -235,8 +236,10 @@ def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir):
             for iii in range(seq_length):
                 occupancy = on_occupied(pixels[ii*seq_length + iii], image)
                 if occupancy > 0:
-
-                    collisions[ped_id] = 1
-                    break # one prediction on occupied is enough
+                    if mode == 'binary':
+                        collisions[ped_id] = 1
+                        break # one prediction on occupied is enough
+                    else:
+                        collisions[ped_id] += 1
 
     return collisions
