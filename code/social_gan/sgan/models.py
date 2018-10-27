@@ -489,7 +489,7 @@ class PhysicalPooling(nn.Module):
                 curr_rel_pos_in = curr_rel_pos.data.cpu().numpy()
                 # image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
                 for j in range(num_ped):
-                    angular_polar_grid = get_static_obstacles_boundaries(15, curr_rel_pos_in[j], curr_end_pos_in[j], annotated_points,10)
+                    angular_polar_grid = get_static_obstacles_boundaries(15, curr_rel_pos_in[j], curr_end_pos_in[j], annotated_points, 10, False)
                     curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
 
             # torch.cuda.synchronize()
