@@ -54,13 +54,7 @@ def on_occupied(pixel, map):
 
 #############
 def get_pixels_from_world(pts_wrd, h, divide_depth=False):
-    if 'numpy' in str(type(h)):
-        h = torch.from_numpy(h).type(torch.float).cuda()
-
     ones_vec = torch.ones(pts_wrd.shape[0]).cuda()
-
-    if 'numpy' in str(type(pts_wrd)):
-        pts_wrd = torch.from_numpy(pts_wrd).type(torch.float).cuda()
 
     pts_wrd_3d = torch.stack((pts_wrd[:, 0], pts_wrd[:, 1], ones_vec)).type(torch.float).cuda()
     pts_img_back_3d = torch.mm(torch.inverse(h), pts_wrd_3d).transpose(0, 1)
@@ -72,8 +66,6 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
 
 
 def get_world_from_pixels(pts_img, h, multiply_depth=False):
-    if 'numpy' in str(type(h)):
-        h = torch.from_numpy(h).type(torch.float).cuda()
     ones_vec = torch.ones(pts_img.shape[0]).cuda()
     pts_img = pts_img.cuda()
     if multiply_depth:
@@ -88,50 +80,74 @@ def get_world_from_pixels(pts_img, h, multiply_depth=False):
     return pts_wrd_back
 
 
-def get_polar_coordinates(current_ped_pos, boundary_points):
+def repeat_row(tensor, num_reps):
+    """
+    Inputs:
+    -tensor: 2D tensor of any shape
+    -num_reps: Number of times to repeat each row
+    Outpus:
+    -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
+    """
+    col_len = tensor.size(1)
+    tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
+    tensor = tensor.view(-1, col_len)
+    return tensor
+
+
+def get_polar_coordinates(current_peds_pos, boundary_points):
     length = boundary_points.size(0)
-    repeated_current_ped_pos = current_ped_pos.repeat(1, length).transpose(0, 1)
-    radiuses = torch.norm(boundary_points - repeated_current_ped_pos, dim=1)
-    thetas = torch.atan2(boundary_points[:, 1] - current_ped_pos[1], boundary_points[:, 0] - current_ped_pos[0])
+    # Repeat position -> P1, P1, P2, P2
+    repeated_current_ped_pos = repeat_row(current_peds_pos, length)
+    # Repeat points -> P1, P2, P1, P2
+    repeated_boundary_points = boundary_points.repeat(current_peds_pos.size(0), 1)
+    radiuses = torch.norm(repeated_boundary_points - repeated_current_ped_pos, dim=1)
+    thetas = torch.atan2(repeated_boundary_points[:, 1] - repeated_current_ped_pos[:, 1], repeated_boundary_points[:, 0] - repeated_current_ped_pos[:, 0])
     polar_coordinates = torch.stack((radiuses, thetas)).transpose(0, 1)
-    return polar_coordinates
+    return polar_coordinates, repeated_boundary_points
 
 
-def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_ped_pos, boundary_points, radius_image):
-    image_beams = torch.zeros((n_buckets, 2)).cuda()
+def get_static_obstacles_boundaries(n_buckets, vectors_image, current_peds_pos, boundary_points, radius_image = 20):
+    # print("len boundary_points:", boundary_points.size(0))
+    world_beams = torch.zeros((n_buckets*current_peds_pos.size(0), 2)).cuda()
     split_theta = torch.tensor(np.pi / n_buckets).cuda()     # angle of each split of the 180 polar grid in front of the current pedestrian
-
-    if 'numpy' in str(type(boundary_points)):
-        boundary_points = torch.from_numpy(boundary_points).type(torch.float).cuda()
-
-    if 'numpy' in str(type(radius_image)):
-        radius_image = torch.tensor(float(radius_image)).type(torch.float32).cuda()
-
-    polar_coordinates = get_polar_coordinates(current_ped_pos, boundary_points)  # polar coordinates of boundary points in annotated image
+    polar_coordinates, boundary_points_repeated = get_polar_coordinates(current_peds_pos, boundary_points)  # polar coordinates of boundary points in annotated image
 
     # the starting angle is the one of the current pedestrian trajectory - 90, so on his/her left hand side
-    starting_angle = -torch.atan2(vector_image[1], vector_image[0]) - np.pi/2
+    starting_angles = -torch.atan2(vectors_image[:, 1], vectors_image[:, 0]) - np.pi/2 # [numPeds]
+    starting_angles = starting_angles.unsqueeze(dim=1)
+    starting_angles = repeat_row(starting_angles, boundary_points.size(0)) # [numPeds*boundary_points]
 
-    for image_beams_index in range(0, n_buckets):
+    for beams_index in range(0, n_buckets):
         # select all boundary points that are located in the current split of the polar grid
-        selected_points_indices = np.argwhere( (polar_coordinates[:, 0] <= radius_image) & (polar_coordinates[:, 1] >= starting_angle)
-                                               & (polar_coordinates[:, 1] <= starting_angle + split_theta) )
-        #print('selected_points_indices', selected_points_indices)
-        if len(selected_points_indices) == 0:
-            # if there are no points in the split of the polar grid chose the point at the extreme part of the current split of the polar grid
-            x = (radius_image+current_ped_pos[0])*torch.cos(starting_angle + split_theta/2)
-            y = (radius_image+current_ped_pos[1])*torch.sin(starting_angle + split_theta/2)
-            image_beams[image_beams_index] = torch.stack((x, y)).squeeze(1)
-        else:
-            selected_points = boundary_points[selected_points_indices.transpose(0, 1)]
-            selected_polar_coordinates = polar_coordinates[selected_points_indices.transpose(0, 1)]
-            # Among all points in the split, choose the closest one
-            column = torch.index_select(selected_polar_coordinates.squeeze(1), dim=1, index=torch.tensor([0]).cuda())
-            minimum_point_index = column.min(0)[1]
-            #print('size selected_points: ', selected_points.size())
-            image_beams[image_beams_index] = selected_points[minimum_point_index]
+        # c0 = torch.index_select(polar_coordinates, dim=1, index=torch.tensor([0]).cuda())
 
-        starting_angle += split_theta
+        mask1 = torch.le(polar_coordinates[:, 0], radius_image)
+        mask2 = torch.ge(polar_coordinates[:, 1], starting_angles.squeeze(1))
+        mask3 = torch.le(polar_coordinates[:, 1], starting_angles.squeeze(1) + split_theta)
+        mask = mask1 * mask2 * mask3
+        mask = torch.stack((mask, mask)).transpose(0, 1)
+        #print(polar_coordinates[:, 0].size())
 
-    world_beams = get_world_from_pixels(image_beams, h_matrix, True)
-    return image_beams, world_beams
+        for ped_index in range(vectors_image.size(0)):
+            index = boundary_points.size(0) * ped_index
+
+            if (mask[index:index+boundary_points.size(0)] == 0).all():
+                # if there are no points in the split of the polar grid chose the point at the extreme part of the current split of the polar grid
+                x = (radius_image+current_peds_pos[ped_index, 0])*torch.cos(starting_angles[ped_index] + split_theta/2)
+                y = (radius_image+current_peds_pos[ped_index, 1])*torch.sin(starting_angles[ped_index] + split_theta/2)
+                world_beams[ped_index*n_buckets + beams_index] = torch.stack((x, y)).squeeze(1)
+            else:
+                selected_points = boundary_points_repeated[index:index+boundary_points.size(0)]
+                #print(' selected_points', selected_points)
+                selected_points = torch.masked_select(selected_points, mask[index:index+boundary_points.size(0)])
+                selected_polar_coordinates = polar_coordinates[index:index+boundary_points.size(0)]
+                selected_polar_coordinates = selected_polar_coordinates[mask[index:index+boundary_points.size(0)]].view(-1, 2)
+                # Among all points in the split, choose the closest one
+                column = torch.index_select(selected_polar_coordinates, dim=1, index=torch.tensor([0]).cuda())
+                minimum_point_index = column.min(0)[1]
+                #print('size selected_points: ', selected_points.size())
+                world_beams[ped_index * n_buckets + beams_index] = selected_points[minimum_point_index]
+
+        starting_angles += split_theta
+
+    return world_beams
