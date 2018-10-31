@@ -4,7 +4,6 @@ import imageio
 import numpy as np
 import pandas as pd
 import sys
-import torch
 
 sys.path.append("../")
 
@@ -27,17 +26,27 @@ def calculate_dynamics(coordinates):
     return gaze_directions, vectors
 
 
-def get_coordinates(dataset_name, scene, data, h_matrix):
+def get_coordinates(dataset_name, data, h_matrix, original_SDD_annotations):
     # Only the world coordinates should adapted to the same reference system,
     # while the pixels are already computed correctly because the homographies already take into account
     # the different reference system for all dataset scenes
-    if dataset_name == 'UCY':
-        world = np.stack((data[:, 2], data[:, 3])).T
+    if original_SDD_annotations:    # Data is the set of image coordinates in the original SDD
+        pixels = np.stack((data[:, 2], data[:, 3])).T
+        world = get_world_from_pixels(pixels, h_matrix, True)
+        if dataset_name == 'SDD':
+            world = np.stack((world[:, 0], -world[:, 1])).T
 
-    elif dataset_name == 'SDD':
-        world = np.stack((data[:, 2], -data[:, 3])).T
+    else:
+        if dataset_name == 'UCY':
+            world = np.stack((data[:, 2], data[:, 3])).T
 
-    pixels = get_pixels_from_world(world, h_matrix, True)
+        elif dataset_name == 'SDD':
+            world = np.stack((data[:, 2], -data[:, 3])).T
+
+        elif dataset_name == 'ETH':
+            world = np.stack((data[:, 2], -data[:, 3])).T
+
+        pixels = get_pixels_from_world(world, h_matrix, True)
 
     return pixels, world
 
@@ -49,7 +58,6 @@ def plot_image_world(ax1, ax2, photo, image_current_ped, vectors_world, vectors_
     ax1.quiver(image_current_ped[0], image_current_ped[1], vectors_image[0], vectors_image[1], color='blue', label='current ped')
     ax1.scatter(image_beams[:, 0], image_beams[:, 1], marker='+', c='red', label='road boundary')
     ax1.scatter(image_other_ped[:, 0], image_other_ped[:, 1], marker='+', c='blue', label='other peds')
-
     ax1.set_xlabel('frame {} ped {}'.format(str(frame), ped))
 
     ax2.cla()
@@ -74,14 +82,16 @@ def get_polar_coordinates(current_ped_pos, boundary_points):
     return polar_coordinates
 
 
-def get_static_obstacles_boundaries(n_buckets, vector_image, current_ped_pos, boundary_points, radius_image, pytorch_not=True, annotated_image=None, h_matrix=None):
+def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_ped_pos, annotated_image, radius_image):
+    if all(vector_image == 0):
+        return np.zeros((1, 2)), get_world_from_pixels(np.zeros((1, 2)), h_matrix, True)
+
     image_beams = np.zeros((n_buckets, 2))
-    split_theta = np.pi / n_buckets     # angle of each split of the 180 polar grid in front of the current pedestrian
-    if pytorch_not:
-        boundary_points = get_boundary_points(annotated_image)    # image coordinates of boundary points in annotated image
+    split_theta = np.pi / n_buckets     # angle of each split of the 180° polar grid in front of the current pedestrian
+    boundary_points = get_boundary_points(annotated_image)    # image coordinates of boundary points in annotated image
     polar_coordinates = get_polar_coordinates(current_ped_pos, boundary_points)  # polar coordinates of boundary points in annotated image
 
-    # the starting angle is the one of the current pedestrian trajectory - 90deg, so on his/her left hand side
+    # the starting angle is the one of the current pedestrian trajectory - 90°, so on his/her left hand side
     starting_angle = -np.arctan2(vector_image[1], vector_image[0]) - np.pi/2
 
     for image_beams_index in range(0, n_buckets):
@@ -102,37 +112,35 @@ def get_static_obstacles_boundaries(n_buckets, vector_image, current_ped_pos, bo
             image_beams[image_beams_index] = selected_points[minimum_point_index]
 
         starting_angle += split_theta
-    if pytorch_not:
-        world_beams = get_world_from_pixels(image_beams, h_matrix, True)
-        return world_beams
-    else:
-        return image_beams
+
+    world_beams = get_world_from_pixels(image_beams, h_matrix, True)
+    return image_beams, world_beams
 
 
-def calculate_static_scene(directory, dataset, scene, annotated_image_file_name):
+def calculate_static_scene(directory, dataset, scene, annotated_image_file_name, original_SDD_annotations):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 10), num=1)
 
     for scene in scene:
 
         path = os.path.join(directory, dataset, scene)
         vidcap = imageio.get_reader(path + "/video.mov", 'ffmpeg')  # video reader for extracting frames
-        # image = load_bin_map(path, annotated_image_file_name)  # annotated images for the static obstacles
-
-        boundary_points = np.load(path + "/annotated_boundary_points.npy")
+        image = load_bin_map(path, annotated_image_file_name)  # annotated images for the static obstacles
         h_matrix = pd.read_csv(path + '/{}_homography.txt'.format(scene), delim_whitespace=True, header=None).values
 
         n_frames = vidcap._meta['nframes']
 
-
-        data = read_file(path + '/{}.txt'.format(scene), "space")  # Read the full set of annotations in world coordinates [frame_id, pedestrian_id, x, y]
+        if original_SDD_annotations:     # Read the full set of annotations in image coordinates (original SDD) [frame_id, pedestrian_id, x, y]
+            data = read_file(path + '/{}_originalSDD.txt'.format(scene), "space")
+        else:     # Read the full set of annotations in world coordinates (trajnet ones) [frame_id, pedestrian_id, x, y]
+            data = read_file(path + '/{}.txt'.format(scene), "space")
 
         pedestrians = np.unique(data[:, 1])  # Get all pedestrian ids in the dataset
 
         # get coordinates in format [x, y] centered in top-left corner for image coordinates and bottom-left corner for world coordinates
-        image_coordinates, world_coordinates = get_coordinates(dataset, scene, data, h_matrix)
+        image_coordinates, world_coordinates = get_coordinates(dataset, data, h_matrix, original_SDD_annotations)
 
         for ped in pedestrians:
-            # if ped != 9:
+            #if ped != 1:
             #    continue
 
             # Get all rows and frames relative to a particular pedestrian
@@ -154,7 +162,7 @@ def calculate_static_scene(directory, dataset, scene, annotated_image_file_name)
 
                 # get coordinates of points on boundaries of static obstacles
                 radius_image = np.linalg.norm(get_pixels_from_world(2 * np.ones((1, 2)), h_matrix, True))
-                image_beams, world_beams = get_static_obstacles_boundaries(n_buckets, vectors_image[i], image_current_ped[i], radius_image, True, image, h_matrix)
+                image_beams, world_beams = get_static_obstacles_boundaries(n_buckets, vectors_image[i], h_matrix, image_current_ped[i], image, radius_image)
 
                 # get positions of other pedestrian that are in the same frame of the current pedestrian, in image and world coordinates
                 world_other_ped = world_coordinates[(data[:, 0] == frame) & (data[:, 1] != ped)]
@@ -166,11 +174,14 @@ def calculate_static_scene(directory, dataset, scene, annotated_image_file_name)
 
                 photo = vidcap.get_data(int(frame))
                 plot_image_world(ax1, ax2, photo, image_current_ped[i], vectors_world[i], vectors_image[i],
-                                 image_beams, image_other_ped, world_current_ped[i], world_beams, world_other_ped,
-                                 frame, ped)
+                                 image_beams, image_other_ped, world_current_ped[i], world_beams, world_other_ped, frame, ped)
+
                 plt.draw()
                 plt.pause(0.301)
+                break
+
         plt.show()
+
 
 
 def get_world_from_pixels(pts_img, h, multiply_depth=False):
@@ -184,11 +195,12 @@ def get_world_from_pixels(pts_img, h, multiply_depth=False):
         ones_vec = pts_3d[:, 2]
     pts_img_3d = np.stack((pts_img[:, 0], pts_img[:, 1], ones_vec))
     pts_wrd_back = np.around(np.dot(h, pts_img_3d)[0:2].T, decimals=2)
+
     # print('image_in = \n{},\nworld_out = \n{}'.format(pts_img, pts_wrd_back))
     return pts_wrd_back
 
 
-def get_pixels_from_world(pts_wrd, h, divide_depth=True):
+def get_pixels_from_world(pts_wrd, h, divide_depth=False):
     ones_vec = np.ones(pts_wrd.shape[0])
 
     pts_wrd_3d = np.stack((pts_wrd[:, 0], pts_wrd[:, 1], ones_vec))
@@ -205,11 +217,12 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=True):
 
 
 def main():
-    directory = "dataset"
-    dataset = 'UCY'
-    scenes = ['students_3']
-    annotated_image_file_name = "/annotated_boundaries.jpg"
-    calculate_static_scene(directory, dataset, scenes, annotated_image_file_name)
+    directory = "safegan_dataset"
+    dataset = 'SDD'
+    scenes = ['bookstore_0']
+    annotated_image_file_name = '/annotated_boundaries.jpg'
+    original_SDD_annotations = False
+    calculate_static_scene(directory, dataset, scenes, annotated_image_file_name, original_SDD_annotations)
     return True
 
 

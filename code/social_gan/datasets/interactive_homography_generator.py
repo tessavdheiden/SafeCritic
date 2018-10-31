@@ -174,8 +174,8 @@ def generate_homographies(dir_world, dir_image, dir_dataset, annotated_image_nam
 
         for scene_file in files:
 
-            if scene_file != "students_3.txt":
-                continue
+            #if scene_file != "students_3.txt":
+            #    continue
             print("\n*****scene_file: ", scene_file)
 
             # Load the world and image data file in format: [frame_id, pedestrian_id, x, y]
