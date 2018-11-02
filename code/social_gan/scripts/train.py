@@ -533,7 +533,6 @@ def critic_step(
     losses['C_data_loss'] = data_loss.item()
     loss += data_loss
     losses['C_total_loss'] = loss.item()
-    print("this")
     optimizer_c.zero_grad()
     loss.backward()
     if args.clipping_threshold_c > 0:
@@ -597,8 +596,6 @@ def generator_step(
         oracle_loss = - args.lamb * torch.mean(values_fake)
     loss += discriminator_loss + oracle_loss
 
-    if - args.lamb * torch.mean(values_fake) < -0.1:
-        print("oracle loss:", - args.lamb * torch.mean(values_fake))
     losses['G_oracle_loss'] = oracle_loss.item()
     losses['G_discriminator_loss'] = discriminator_loss.item()
     losses['G_total_loss'] = loss.item()
