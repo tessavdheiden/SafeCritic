@@ -202,12 +202,13 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
                 ped2 = curr_seqs[iii]
                 overlap = torch.norm(ped1 - ped2, dim=1)
                 cols = torch.sum(overlap < minimum_distance, dim=0)
-                if mode == 'binary':
-                    curr_cols[ii] = 1
-                    curr_cols[iii] = 1
-                else:
-                    curr_cols[ii] = cols
-                    curr_cols[iii] = cols
+                if cols > 0:
+                    if mode == 'binary':
+                        curr_cols[ii] = 1
+                        curr_cols[iii] = 1
+                    else:
+                        curr_cols[ii] = cols
+                        curr_cols[iii] = cols
 
         collisions.append(curr_cols.float())
 
