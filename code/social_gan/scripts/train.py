@@ -50,7 +50,7 @@ def get_argument_parser():
     # Optimization
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--num_iterations', default=10000, type=int)
-    parser.add_argument('--num_epochs', default=301, type=int)
+    parser.add_argument('--num_epochs', default=201, type=int)
 
     # Model Options
     parser.add_argument('--embedding_dim', default=16, type=int)
