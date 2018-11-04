@@ -95,7 +95,7 @@ def get_argument_parser():
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
     parser.add_argument('--c_steps', default=5, type=int)
     parser.add_argument('--clipping_threshold_c', default=0, type=float)
-    parser.add_argument('--collision_threshold', default=1.0, type=float)
+    parser.add_argument('--collision_threshold', default=0.25, type=float)
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
@@ -372,7 +372,7 @@ def main(args):
                 logger.info('Checking stats on train ...')
                 metrics_train = check_accuracy(
                     args, train_loader, generator, discriminator,
-                    d_loss_fn, limit=True
+                    d_loss_fn, critic, c_loss_fn, limit=True
                 )
                 if args.pool_static:
                     generator.static_net.set_dset_list(val_path)
@@ -380,7 +380,8 @@ def main(args):
                         generator.decoder.static_net.set_dset_list(val_path)
 
                 metrics_val = check_accuracy(
-                    args, val_loader, generator, discriminator, d_loss_fn
+                    args, val_loader, generator, discriminator,
+                    d_loss_fn, critic, c_loss_fn
                 )
                 for k, v in sorted(metrics_val.items()):
                     logger.info('  [val] {}: {:.3f}'.format(k, v))
@@ -593,7 +594,7 @@ def generator_step(
         oracle_loss = - (1.0 - args.lamb) * torch.mean(values_fake)
     else:
         discriminator_loss = g_loss_fn(scores_fake)
-        oracle_loss = - args.lamb * torch.mean(values_fake)
+        oracle_loss = args.lamb * (torch.mean(-1 * (values_fake - torch.ones_like(values_fake))))
     loss += discriminator_loss + oracle_loss
 
     losses['G_oracle_loss'] = oracle_loss.item()
@@ -612,9 +613,10 @@ def generator_step(
 
 
 def check_accuracy(
-        args, loader, generator, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
+        args, loader, generator, discriminator=None, d_loss_fn=None, critic=None, c_loss_fn=None, limit=False, eval_discriminator=True, eval_critic=True
 ):
     d_losses = []
+    c_losses = []
     metrics = {}
     collisions_pred, collisions_gt = [], []
     g_l2_losses_abs, g_l2_losses_rel = [], []
@@ -666,6 +668,13 @@ def check_accuracy(
                 d_loss = d_loss_fn(scores_real, scores_fake)
                 d_losses.append(d_loss.item())
 
+            if eval_critic:
+                rewards_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
+                rewards_real = critic(traj_real, traj_real_rel, seq_start_end)
+
+                c_loss = c_loss_fn(scores_real, scores_fake, rewards_real, rewards_fake)
+                c_losses.append(c_loss.item())
+
             g_l2_losses_abs.append(g_l2_loss_abs.item())
             g_l2_losses_rel.append(g_l2_loss_rel.item())
             collisions_pred.append(cols_pred.item())
@@ -711,6 +720,10 @@ def check_accuracy(
 
     if eval_discriminator:
         metrics['d_loss'] = sum(d_losses) / len(d_losses)
+    if eval_critic:
+        metrics['c_loss'] = sum(c_losses) / len(c_losses)
+
+
 
     return metrics
 
