@@ -2,14 +2,17 @@ import torch
 import torch.nn as nn
 import numpy as np
 import os
+import pandas as pd
 import time
 from sgan.utils import get_dset_group_name, get_dset_name
 
-use_torch_for_static=False
+use_torch_for_static=True
 if use_torch_for_static:
-    from sgan.models_static_scene import get_static_obstacles_boundaries
+    from sgan.models_static_scene import get_static_obstacles_boundaries, get_polar_coordinates
 else:
     from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries
+
+use_simple_torch_implementation=True
 
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
@@ -435,6 +438,8 @@ class PhysicalPooling(nn.Module):
         map = np.load(path + "/world_points_boundary.npy")
         return map
 
+
+
     def set_dset_list(self, data_dir):
         self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
         for name in self.list_data_files:
@@ -455,6 +460,113 @@ class PhysicalPooling(nn.Module):
         tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
         tensor = tensor.view(-1, col_len)
         return tensor
+
+    def get_bounds(self, ped_pos):
+        top_left_x = ped_pos[:, 0] - self.neighborhood_size / 2
+        top_left_y = ped_pos[:, 1] + self.neighborhood_size / 2
+        bottom_right_x = ped_pos[:, 0] + self.neighborhood_size / 2
+        bottom_right_y = ped_pos[:, 1] - self.neighborhood_size / 2
+        top_left = torch.stack([top_left_x, top_left_y], dim=1)
+        bottom_right = torch.stack([bottom_right_x, bottom_right_y], dim=1)
+        return top_left, bottom_right
+
+    def get_grid_locations(self, top_left, boundary_points):
+        cell_x = torch.floor(
+            ((boundary_points[:, 0] - top_left[:, 0]) / self.neighborhood_size) *
+            self.grid_size)
+        cell_y = torch.floor(
+            ((top_left[:, 1] - boundary_points[:, 1]) / self.neighborhood_size) *
+            self.grid_size)
+        grid_pos = cell_x + cell_y * self.grid_size
+        return grid_pos
+
+
+    # def get_boundary_points(self, boundary_points, curr_hidden, curr_end_pos, seq_start_end, grid_size=8):
+    #     num_ped = curr_end_pos.size(0)
+    #     num_cell = boundary_points.size(0)
+    #     grid_size = grid_size * grid_size
+    #
+    #     # Get bounds
+    #     top_left, bottom_right = self.get_bounds(curr_end_pos)
+    #
+    #     # Get same number of elements in pedestrian and boundary data
+    #     # Repeat position -> P1, P2, P1, P2
+    #     curr_end_pos = curr_end_pos.repeat(num_cell, 1)
+    #     boundary_points = boundary_points.repeat(num_ped, 1)
+    #     # Repeat bounds -> B1, B1, B2, B2
+    #     top_left = self.repeat(top_left, num_cell)
+    #     bottom_right = self.repeat(bottom_right, num_cell)
+    #
+    #     # Make all positions to exclude as non-zero
+    #     # Find which peds to exclude
+    #     x_bound = ((boundary_points[:, 0] >= bottom_right[:, 0]) +
+    #                (boundary_points[:, 0] <= top_left[:, 0]))
+    #     y_bound = ((boundary_points[:, 1] >= top_left[:, 1]) +
+    #                (boundary_points[:, 1] <= bottom_right[:, 1]))
+    #
+    #     within_bound = x_bound + y_bound
+    #     within_bound[0::num_ped + 1] = 1  # Don't include the ped itself
+    #     within_bound = within_bound.view(-1)
+    #
+    #     grid_pos = self.get_grid_locations(top_left, boundary_points).type_as(seq_start_end)
+    #
+    #     grid_pos += 1
+    #     total_grid_size = self.grid_size * self.grid_size
+    #     offset = torch.arange(0, total_grid_size * num_cell, total_grid_size).type_as(seq_start_end)
+    #     # Repeat bounds -> B1, B1, B2, B2
+    #     offset = self.repeat(offset.view(-1, 1), num_ped).view(-1)
+    #     grid_pos += offset
+    #     grid_pos[within_bound != 0] = 0
+    #     grid_pos = grid_pos.view(-1, 1).expand_as(boundary_points)
+    #
+    #     curr_hidden_repeat = curr_hidden.repeat(num_cell, 1)
+    #
+    #     curr_pool_h_size = (num_ped * grid_size) + 1
+    #     curr_pool_h = curr_hidden.new_zeros((curr_pool_h_size, self.h_dim))
+    #
+    #
+    #     curr_pool_h = curr_pool_h.scatter_add(0, grid_pos,
+    #                                           curr_hidden_repeat)
+    #     curr_pool_h = curr_pool_h[1:]
+    #     pool_h.append(curr_pool_h.view(num_ped, -1))
+    #
+    # pool_h = torch.cat(pool_h, dim=0)
+    # pool_h = self.mlp_pool(pool_h)
+
+    # def get_grid_cells(self, curr_end_pos, curr_rel_pos, annotated_points):
+    #     polar_coordinates, repeated_boundary_points = get_polar_coordinates(curr_end_pos, curr_rel_pos,
+    #                                                                         annotated_points)
+    #
+    #     thetas = polar_coordinates[:, 1]
+    #     polar_radius = polar_coordinates[:, 0]
+    #     grid_cells = torch.round(thetas / (2* np.pi) * 4).type(torch.LongTensor)
+    #
+    #     # to do: discard all points outside -90 and +90, group by per pedestrian
+    #
+    #     df = pd.DataFrame()
+    #     df['grid'] = grid_cells
+    #     df['polar'] = polar_radius
+    #     res_df = df.groupby(df.grid)['polar'].apply(np.min)
+    #     return res_df
+    #
+    # def viz(self, polar_coordinates, curr_end_pos, curr_rel_pos, annotated_points):
+    #     import matplotlib.pyplot as plt
+    #     plt.scatter(annotated_points[:, 0], annotated_points[:, 1])
+    #     plt.scatter(curr_end_pos[:, 0], curr_end_pos[:, 1])
+    #     plt.quiver(curr_end_pos[:, 0], curr_end_pos[:, 1], curr_rel_pos[:, 0], curr_rel_pos[:, 1])
+    #     plt.scatter(curr_end_pos[0, 0], curr_end_pos[0, 1], marker='s', s=100, c='r')
+    #     print(polar_coordinates[0, 1] * 180 / np.pi)
+    #     plt.show()
+    def test(self, curr_end_pos, curr_rel_pos, annotated_points):
+        import numpy as np
+
+        curr_end_pos_numpy = curr_end_pos.data.cpu().numpy()
+        curr_rel_pos_numpy = curr_rel_pos.data.cpu().numpy()
+        annotated_points_numpy = annotated_points.data.cpu().numpy()
+
+        np.save('curr_end_pos_numpy.npy', curr_end_pos_numpy)
+        np.save('curr_rel_pos_numpy.npy', curr_rel_pos_numpy)
+        np.save('annotated_points_numpy.npy', annotated_points_numpy)
 
     def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
         """
@@ -477,20 +589,15 @@ class PhysicalPooling(nn.Module):
             curr_rel_pos = rel_pos[start:end]
 
             annotated_points = self.scene_information[seq_scenes[i]]
+            down_sampling = (annotated_points.size(0) // 100)
+            annotated_points = annotated_points[::down_sampling]
 
             # t1 = time.time()
-            curr_end_pos_1 = torch.zeros((num_ped, self.num_cells, 2)).cuda()
-            if use_torch_for_static:
-                angular_polar_grid = get_static_obstacles_boundaries(15, curr_rel_pos, curr_end_pos, annotated_points)
-                curr_end_pos_1 = angular_polar_grid
-            else:
+            self.num_cells = annotated_points.size(0)
+            curr_end_pos_1 = annotated_points.repeat(num_ped, 1)
 
-                curr_end_pos_in = curr_end_pos.data.cpu().numpy()
-                curr_rel_pos_in = curr_rel_pos.data.cpu().numpy()
-                # image_curr_rel_pos = get_pixels_from_world(curr_rel_pos, h_matrix, True)
-                for j in range(num_ped):
-                    angular_polar_grid = get_static_obstacles_boundaries(15, curr_rel_pos_in[j], curr_end_pos_in[j], annotated_points, 10, False)
-                    curr_end_pos_1[j] = torch.from_numpy(angular_polar_grid)
+            #grid_cells = self.get_grid_cells(curr_end_pos, curr_rel_pos, annotated_points)
+            #boundary_points = self.get_boundary_points(curr_end_pos)
 
             # torch.cuda.synchronize()
             # print("TIME get polar grids:", time.time() - t1)
@@ -854,8 +961,12 @@ class TrajectoryCritic(nn.Module):
                 activation=activation,
                 batch_norm=batch_norm
             )
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.lstm = nn.LSTM(
+            embedding_dim, h_dim, num_layers, dropout=dropout
+        )
 
-    def forward(self, traj, traj_rel, seq_start_end=None):
+    def forward(self, traj, traj_rel, seq_start_end=None, pool_every=False):
         """
         Inputs:discriminator
         - traj: Tensor of shape (obs_len + pred_len, batch, 2)
@@ -866,13 +977,24 @@ class TrajectoryCritic(nn.Module):
         """
         seq_len = traj.size(0)
         scores = []
+        traj_rel_perm = traj_rel.permute(1, 0, 2)
+        traj_perm = traj.permute(1, 0, 2)
+        # final_h = self.encoder(traj_rel)
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
             end = end.item()
             num_ped = end - start
-            encoder_input = traj_rel.view(-1, 2)[0:num_ped*seq_len]
-            final_h = self.encoder(encoder_input.view(seq_len, num_ped, 2))
-            scores.append(self.real_classifier(final_h.squeeze()))
+            if pool_every:
+                encoder_input = traj_rel_perm[start:end].permute(1,0,2)
+                hidden = self.encoder(encoder_input.contiguous())
+                final_h = self.pool_net(
+                    hidden, [(torch.tensor(0), torch.tensor(end-start))], traj_rel[-1][start:end], traj[-1][start:end]
+                )
+                scores.append(self.real_classifier(final_h))
+            else:
+                encoder_input = traj_rel.view(-1, 2)[start*seq_len:end*seq_len]
+                final_h = self.encoder(encoder_input.view(seq_len, num_ped, 2))
+                scores.append(self.real_classifier(final_h.squeeze()))
         scores = torch.cat(scores, dim=0)
         return scores
 

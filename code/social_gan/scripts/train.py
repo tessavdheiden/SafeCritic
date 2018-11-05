@@ -40,7 +40,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='bookstore_0', type=str)
+    parser.add_argument('--dataset_name', default='zara_1', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -72,7 +72,7 @@ def get_argument_parser():
     # Pooling Options
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
     parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
-    parser.add_argument('--pool_static', default=1, type=bool_flag)
+    parser.add_argument('--pool_static', default=0, type=bool_flag)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -92,9 +92,10 @@ def get_argument_parser():
     # Critic Options
     parser.add_argument('--c_type', default='global', type=str)
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
-    parser.add_argument('--c_learning_rate', default=0.001, type=float)
-    parser.add_argument('--c_steps', default=1, type=int)
+    parser.add_argument('--c_learning_rate', default=5e-3, type=float)
+    parser.add_argument('--c_steps', default=5, type=int)
     parser.add_argument('--clipping_threshold_c', default=0, type=float)
+    parser.add_argument('--collision_threshold', default=0.25, type=float)
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
@@ -102,7 +103,7 @@ def get_argument_parser():
     parser.add_argument('--wgan', default=0, type=bool_flag)
 
     # Output
-    parser.add_argument('--output_dir', default="models/temp")
+    parser.add_argument('--output_dir', default="../models_ucy/temp")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -110,7 +111,7 @@ def get_argument_parser():
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
     parser.add_argument('--num_samples_check', default=5000, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
-    parser.add_argument('--lamb', default=0.0, type=float) # lambda*critic
+    parser.add_argument('--lamb', default=1.0, type=float) # lambda*critic
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -139,7 +140,7 @@ def get_dtypes(args):
 
 def main(args):
 
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
 
@@ -225,7 +226,7 @@ def main(args):
 
     optimizer_g = optim.Adam(generator.parameters(), lr=args.g_learning_rate)
     optimizer_d = optim.Adam(discriminator.parameters(), lr=args.d_learning_rate)
-    optimizer_c = optim.Adam(critic.parameters(), lr=args.d_learning_rate)
+    optimizer_c = optim.Adam(critic.parameters(), lr=args.c_learning_rate)
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -270,8 +271,11 @@ def main(args):
             'g_optim_state': None,
             'd_state': None,
             'd_optim_state': None,
+            'c_state': None,
+            'c_optim_state': None,
             'g_best_state': None,
             'd_best_state': None,
+            'c_best_state': None,
             'best_t': None,
             'g_best_nl_state': None,
             'd_best_state_nl': None,
@@ -368,7 +372,7 @@ def main(args):
                 logger.info('Checking stats on train ...')
                 metrics_train = check_accuracy(
                     args, train_loader, generator, discriminator,
-                    d_loss_fn, limit=True
+                    d_loss_fn, critic, c_loss_fn, limit=True
                 )
                 if args.pool_static:
                     generator.static_net.set_dset_list(val_path)
@@ -376,7 +380,8 @@ def main(args):
                         generator.decoder.static_net.set_dset_list(val_path)
 
                 metrics_val = check_accuracy(
-                    args, val_loader, generator, discriminator, d_loss_fn
+                    args, val_loader, generator, discriminator,
+                    d_loss_fn, critic, c_loss_fn
                 )
                 for k, v in sorted(metrics_val.items()):
                     logger.info('  [val] {}: {:.3f}'.format(k, v))
@@ -393,6 +398,7 @@ def main(args):
                     checkpoint['best_t'] = t
                     checkpoint['g_best_state'] = generator.state_dict()
                     checkpoint['d_best_state'] = discriminator.state_dict()
+                    checkpoint['c_best_state'] = critic.state_dict()
 
                 if metrics_val['ade_nl'] == min_ade_nl:
                     logger.info('New low for avg_disp_error_nl')
@@ -406,6 +412,8 @@ def main(args):
                 checkpoint['g_optim_state'] = optimizer_g.state_dict()
                 checkpoint['d_state'] = discriminator.state_dict()
                 checkpoint['d_optim_state'] = optimizer_d.state_dict()
+                checkpoint['c_state'] = critic.state_dict()
+                checkpoint['c_optim_state'] = optimizer_c.state_dict()
                 checkpoint_path = os.path.join(
                     args.output_dir, model_name % args.checkpoint_name
                 )
@@ -419,9 +427,9 @@ def main(args):
                     args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
                 logger.info('Saving checkpoint to {}'.format(checkpoint_path))
                 key_blacklist = [
-                    'g_state', 'd_state', 'g_best_state', 'g_best_nl_state',
+                    'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
                     'g_optim_state', 'd_optim_state', 'd_best_state',
-                    'd_best_nl_state'
+                    'd_best_nl_state', 'c_optim_state', 'c_best_state'
                 ]
                 small_checkpoint = {}
                 for k, v in checkpoint.items():
@@ -513,12 +521,12 @@ def critic_step(
 
     scores_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
     scores_real = critic(traj_real, traj_real_rel, seq_start_end)
-    rewards_real = cal_cols(traj_real, seq_start_end)
-    rewards_real *= -1 / args.pred_len
+    rewards_real = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold)
+    rewards_real *= -1 #/ args.pred_len
     rewards_real += 1
 
-    rewards_fake = cal_cols(traj_fake, seq_start_end)
-    rewards_fake *= -1 / args.pred_len
+    rewards_fake = cal_cols(traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
+    rewards_fake *= -1 #/ args.pred_len
     rewards_fake += 1
 
     # Compute loss with optional gradient penalty
@@ -526,7 +534,6 @@ def critic_step(
     losses['C_data_loss'] = data_loss.item()
     loss += data_loss
     losses['C_total_loss'] = loss.item()
-
     optimizer_c.zero_grad()
     loss.backward()
     if args.clipping_threshold_c > 0:
@@ -583,11 +590,14 @@ def generator_step(
     scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
     values_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
     if args.wgan:
-        discriminator_loss = - args.lamb * torch.mean(scores_fake) - (1.0 - args.lamb) * torch.mean(values_fake)
+        discriminator_loss = - args.lamb * torch.mean(scores_fake)
+        oracle_loss = - (1.0 - args.lamb) * torch.mean(values_fake)
     else:
-        discriminator_loss = g_loss_fn(scores_fake) - args.lamb * torch.mean(values_fake)
-    loss += discriminator_loss
+        discriminator_loss = g_loss_fn(scores_fake)
+        oracle_loss = args.lamb * (torch.mean(-1 * (values_fake - torch.ones_like(values_fake))))
+    loss += discriminator_loss + oracle_loss
 
+    losses['G_oracle_loss'] = oracle_loss.item()
     losses['G_discriminator_loss'] = discriminator_loss.item()
     losses['G_total_loss'] = loss.item()
 
@@ -603,9 +613,10 @@ def generator_step(
 
 
 def check_accuracy(
-        args, loader, generator, discriminator=None, d_loss_fn=None, limit=False, eval_discriminator=True
+        args, loader, generator, discriminator=None, d_loss_fn=None, critic=None, c_loss_fn=None, limit=False, eval_discriminator=True, eval_critic=True
 ):
     d_losses = []
+    c_losses = []
     metrics = {}
     collisions_pred, collisions_gt = [], []
     g_l2_losses_abs, g_l2_losses_rel = [], []
@@ -640,8 +651,8 @@ def check_accuracy(
             fde, fde_l, fde_nl = cal_fde(
                 pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
             )
-            cols_pred = cal_cols(pred_traj_fake, seq_start_end).sum()
-            cols_gt = cal_cols(pred_traj_gt, seq_start_end).sum()
+            cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold).sum()
+            cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold).sum()
 
             # occs_pred = cal_occs(pred_traj_fake, seq_start_end, path_ids).sum()
 
@@ -656,6 +667,13 @@ def check_accuracy(
 
                 d_loss = d_loss_fn(scores_real, scores_fake)
                 d_losses.append(d_loss.item())
+
+            if eval_critic:
+                rewards_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
+                rewards_real = critic(traj_real, traj_real_rel, seq_start_end)
+
+                c_loss = c_loss_fn(scores_real, scores_fake, rewards_real, rewards_fake)
+                c_losses.append(c_loss.item())
 
             g_l2_losses_abs.append(g_l2_loss_abs.item())
             g_l2_losses_rel.append(g_l2_loss_rel.item())
@@ -702,6 +720,10 @@ def check_accuracy(
 
     if eval_discriminator:
         metrics['d_loss'] = sum(d_losses) / len(d_losses)
+    if eval_critic:
+        metrics['c_loss'] = sum(c_losses) / len(c_losses)
+
+
 
     return metrics
 
@@ -735,8 +757,8 @@ def cal_fde(
     return fde, fde_l, fde_nl
 
 
-def cal_cols(pred_traj_gt, seq_start_end):
-    return collision_error(pred_traj_gt, seq_start_end, minimum_distance=0.8)
+def cal_cols(pred_traj_gt, seq_start_end, minimum_distance):
+    return collision_error(pred_traj_gt, seq_start_end, minimum_distance=minimum_distance)
 
 
 def cal_occs(pred_traj_gt, seq_start_end, path_ids, path): #get_dset_path(args.dataset_name, 'test')

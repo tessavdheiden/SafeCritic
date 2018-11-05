@@ -170,6 +170,12 @@ def final_displacement_error(
 
 
 def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'):
+    def test(ped1, ped2):
+        import matplotlib.pyplot as plt
+        print(ped1.size())
+        plt.scatter(ped1[:, 0], ped1[:, 1], c='r')
+        plt.scatter(ped2[:, 0], ped2[:, 1], c='g')
+        plt.show()
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -178,27 +184,31 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
     Output:
     - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
     """
-    pred_pos = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+    pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
 
     collisions = []
     for i, (start, end) in enumerate(seq_start_end):
         start = start.item()
         end = end.item()
         num_ped = end - start
+        curr_seqs = pred_pos_perm[start:end]
 
-        curr_seqs = pred_pos[start:end]
-
-        curr_seqs_1 = curr_seqs.repeat(1, num_ped, 1)
-        curr_seqs_2 = curr_seqs.repeat(num_ped, 1, 1)
-        curr_seqs_rel = curr_seqs_1.view(-1, 2) - curr_seqs_2.view(-1, 2)
-        curr_seqs_norm = torch.norm(curr_seqs_rel.view(num_ped * num_ped, -1, 2), p=1, dim=2).view(num_ped, num_ped, -1)
-
-        indices = torch.arange(0, num_ped).type(torch.LongTensor)
-        curr_seqs_norm[indices, indices, :] = minimum_distance
-        overlap = curr_seqs_norm < minimum_distance
-        curr_cols = torch.sum(torch.sum(overlap, dim=0), dim=1)
-        if mode == 'binary':
-            curr_cols[curr_cols > 0] = 1
+        curr_cols = torch.zeros(num_ped)
+        for ii in range(num_ped):
+            for iii in range(num_ped):
+                if ii <= iii:
+                    continue
+                ped1 = curr_seqs[ii]
+                ped2 = curr_seqs[iii]
+                overlap = torch.norm(ped1 - ped2, dim=1)
+                cols = torch.sum(overlap < minimum_distance, dim=0)
+                if cols > 0:
+                    if mode == 'binary':
+                        curr_cols[ii] = 1
+                        curr_cols[iii] = 1
+                    else:
+                        curr_cols[ii] = cols
+                        curr_cols[iii] = cols
 
         collisions.append(curr_cols.float())
 
