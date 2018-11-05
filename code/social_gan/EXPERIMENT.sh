@@ -16,15 +16,15 @@ python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4_SP_RL' --dataset_n
 # TABLE 3, 5: ADE, FDE, colls, occs on SDD
 python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4' --dataset_name 'bookstore_0' --pooling_dim 4 --pool_static 0 --lamb 0.0 --checkpoint_name 'bookstore_0' 
 python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4' --dataset_name 'deathCircle_0' --pooling_dim 4 --pool_static 0 --lamb 0.0 --checkpoint_name 'deathCircle_0' 
-python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4' --dataset_name 'gates_0_12' --pooling_dim 4 --pool_static 0 --lamb 0.0 --checkpoint_name 'gates_0_12' 
+python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4' --dataset_name 'gates_0' --pooling_dim 4 --pool_static 0 --lamb 0.0 --checkpoint_name 'gates_0'
 
 python3 scripts/train.py --output_dir 'models_ucy/safeGAN_SP' --dataset_name 'bookstore_0' --pooling_dim 2 --pool_static 1 --lamb 0.0 --checkpoint_name 'bookstore_0' 
 python3 scripts/train.py --output_dir 'models_ucy/safeGAN_SP' --dataset_name 'deathCircle_0' --pooling_dim 2 --pool_static 1 --lamb 0.0 --checkpoint_name 'deathCircle_0' 
-python3 scripts/train.py --output_dir 'models_ucy/safeGAN_SP' --dataset_name 'gates_0_12' --pooling_dim 2 --pool_static 1 --lamb 0.0 --checkpoint_name 'gates_0_12' 
+python3 scripts/train.py --output_dir 'models_ucy/safeGAN_SP' --dataset_name 'gates_0' --pooling_dim 2 --pool_static 1 --lamb 0.0 --checkpoint_name 'gates_0'
 
 python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4_SP_RL' --dataset_name 'bookstore_0' --pooling_dim 4 --pool_static 1 --lamb 0.0 --checkpoint_name 'bookstore_0' 
 python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4_SP_RL' --dataset_name 'deathCircle_0' --pooling_dim 4 --pool_static 1 --lamb 0.0 --checkpoint_name 'deathCircle_0' 
-python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4_SP_RL' --dataset_name 'gates_0_12' --pooling_dim 4 --pool_static 1 --lamb 0.0 --checkpoint_name 'gates_0_12' 
+python3 scripts/train.py --output_dir 'models_ucy/safeGAN_DP4_SP_RL' --dataset_name 'gates_0' --pooling_dim 4 --pool_static 1 --lamb 0.0 --checkpoint_name 'gates_0'
 
 
 
