@@ -13,7 +13,7 @@ else:
     from datasets.calculate_static_scene_boundaries import get_static_obstacles_boundaries
 
 use_simple_torch_implementation=True
-use_boundary_subsampling = True
+use_boundary_subsampling = True         # Switch to False if you want to use pandas implementation of polar grid
 
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
