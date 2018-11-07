@@ -18,14 +18,14 @@ sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 
 from sgan.data.loader import data_loader
-from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, calc_gradient_penalty
-from sgan.losses import displacement_error, final_displacement_error, collision_error, occupancy_error
+from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss
+from sgan.losses import displacement_error, final_displacement_error
+from scripts.collision_checking import collision_error, occupancy_error
 
 from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator, TrajectoryCritic
-from sgan.models_static_scene import get_homography_and_map
 
 from sgan.utils import int_tuple, bool_flag, get_total_norm
-from sgan.utils import relative_to_abs, get_dset_path, get_seq_dataset_and_path_names
+from sgan.utils import relative_to_abs, get_dset_path
 
 
 torch.backends.cudnn.benchmark = True
@@ -83,19 +83,20 @@ def get_argument_parser():
     parser.add_argument('--grid_size', default=8, type=int)
 
     # Discriminator Options
-    parser.add_argument('--d_type', default='global', type=str)
+    parser.add_argument('--d_type', default='local', type=str)
     parser.add_argument('--encoder_h_dim_d', default=64, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
     parser.add_argument('--d_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
     # Critic Options
-    parser.add_argument('--c_type', default='global', type=str)
+    parser.add_argument('--c_type', default='static', type=str)
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
     parser.add_argument('--c_steps', default=5, type=int)
     parser.add_argument('--clipping_threshold_c', default=0, type=float)
-    parser.add_argument('--collision_threshold', default=0.25, type=float)
+    parser.add_argument('--collision_threshold', default=.25, type=float)
+    parser.add_argument('--occupancy_threshold', default=1.0, type=float)
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
@@ -104,14 +105,14 @@ def get_argument_parser():
 
     # Output
     parser.add_argument('--output_dir', default="../models_ucy/temp")
-    parser.add_argument('--print_every', default=50, type=int)
-    parser.add_argument('--checkpoint_every', default=50, type=int)
+    parser.add_argument('--print_every', default=5, type=int)
+    parser.add_argument('--checkpoint_every', default=5, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
     parser.add_argument('--num_samples_check', default=5000, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
-    parser.add_argument('--lamb', default=1.0, type=float) # lambda*critic
+    parser.add_argument('--lamb', default=1.0, type=float)
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -180,7 +181,7 @@ def main(args):
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         batch_norm=args.batch_norm,
-        pooling_dim=args.pooling_dim,
+        pooling_dim=args.pooling_dim
         )
 
     generator.apply(init_weights)
@@ -208,7 +209,9 @@ def main(args):
         num_layers=args.num_layers,
         dropout=args.dropout,
         batch_norm=args.batch_norm,
-        d_type=args.c_type)
+        d_type=args.c_type,
+        collision_threshold=args.collision_threshold,
+        occupancy_threshold=args.occupancy_threshold)
 
     discriminator.apply(init_weights)
     discriminator.type(float_dtype).train()
@@ -313,6 +316,8 @@ def main(args):
                 d_steps_left -= 1
             elif c_steps_left > 0:
                 step_type = 'c'
+                if args.c_type == 'static':
+                    critic.set_dset_list(train_path)
                 losses_c = critic_step(args, batch, generator,
                                               critic, c_loss_fn,
                                               optimizer_c)
@@ -337,7 +342,7 @@ def main(args):
                 logger.info('{} step took {}'.format(step_type, t2 - t1))
 
             # Skip the rest if we are not at the end of an iteration
-            if d_steps_left > 0 or g_steps_left > 0:
+            if d_steps_left > 0 or g_steps_left > 0 or c_steps_left > 0:
                 continue
 
             if args.timing == 1:
@@ -376,8 +381,12 @@ def main(args):
                 )
                 if args.pool_static:
                     generator.static_net.set_dset_list(val_path)
+                    critic.set_dset_list(val_path)
                     if args.pool_every_timestep:
                         generator.decoder.static_net.set_dset_list(val_path)
+
+                if args.c_type == 'static':
+                    critic.set_dset_list(val_path)
 
                 metrics_val = check_accuracy(
                     args, val_loader, generator, discriminator,
@@ -437,12 +446,12 @@ def main(args):
                         small_checkpoint[k] = v
                 torch.save(small_checkpoint, checkpoint_path)
 
-                # plot_training_losses(checkpoint['D_losses']['D_data_loss'], checkpoint['C_losses']['C_data_loss'], checkpoint['G_losses']['G_discriminator_loss'], checkpoint['metrics_val']['cols'], checkpoint['metrics_val']['ade'], checkpoint['metrics_val']['fde'], iteration=t, save_dir='../results/')
                 logger.info('Done.')
 
             t += 1
             d_steps_left = args.d_steps
             g_steps_left = args.g_steps
+            c_steps_left = args.c_steps
             if t >= args.num_iterations:
                 break
 
@@ -505,35 +514,40 @@ def critic_step(
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
 
-    if args.pool_static:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
-    else:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
-
-
-    pred_traj_fake_rel = generator_out
-    pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
+    # if args.pool_static:
+    #     generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
+    # else:
+    #     generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
+    #
+    # pred_traj_fake_rel = generator_out
+    # pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 
     traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
     traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
-    traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
-    traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
-    scores_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
-    scores_real = critic(traj_real, traj_real_rel, seq_start_end)
-    rewards_real = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold)
-    rewards_real *= -1 #/ args.pred_len
-    rewards_real += 1
+    rewards_real = 0
+    if 'dynamic' in critic.d_type:
+        scores_real, rewards = critic(traj_real, traj_real_rel, seq_start_end)
+        cols_real = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold)
+        rewards_real += -1 * cols_real.unsqueeze(1) + 1
 
-    rewards_fake = cal_cols(traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
-    rewards_fake *= -1 #/ args.pred_len
-    rewards_fake += 1
+    if 'static' in critic.d_type:
+        scores_real, rewards = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
+        seq_scenes = [critic.list_data_files[num] for num in seq_scene_ids]
+        cols_real = cal_occs(traj_real, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold)
+        rewards_real += -1 * cols_real.unsqueeze(1) + 1
 
-    # Compute loss with optional gradient penalty
-    data_loss = c_loss_fn(scores_real, scores_fake, rewards_real, rewards_fake)
+    if 'static' in critic.d_type and 'static' in critic.d_type:
+        rewards_real /= 2
+
+    # Compute loss with optional loss function
+    data_loss = c_loss_fn(scores_real, rewards_real)
     losses['C_data_loss'] = data_loss.item()
     loss += data_loss
     losses['C_total_loss'] = loss.item()
+    losses['C_scores_real_min'] = torch.min(scores_real)
+    losses['C_scores_real_max'] = torch.max(scores_real)
+
     optimizer_c.zero_grad()
     loss.backward()
     if args.clipping_threshold_c > 0:
@@ -588,7 +602,10 @@ def generator_step(
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
     scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
-    values_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
+    if args.c_type == 'static':
+        values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
+    else:
+        values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end)
     if args.wgan:
         discriminator_loss = - args.lamb * torch.mean(scores_fake)
         oracle_loss = - (1.0 - args.lamb) * torch.mean(values_fake)
@@ -619,6 +636,7 @@ def check_accuracy(
     c_losses = []
     metrics = {}
     collisions_pred, collisions_gt = [], []
+    occupancies_gt, occupancies_pred = [], []
     g_l2_losses_abs, g_l2_losses_rel = [], []
     disp_error, disp_error_l, disp_error_nl = [], [], []
     f_disp_error, f_disp_error_l, f_disp_error_nl = [], [], []
@@ -637,7 +655,7 @@ def check_accuracy(
                 pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
             else:
                 pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
-            # pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
+
             pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 
             g_l2_loss_abs, g_l2_loss_rel = cal_l2_losses(
@@ -654,7 +672,10 @@ def check_accuracy(
             cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold).sum()
             cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold).sum()
 
-            # occs_pred = cal_occs(pred_traj_fake, seq_start_end, path_ids).sum()
+            if args.c_type == 'static':
+                seq_scenes = [critic.list_data_files[num] for num in seq_scene_ids]
+                occs_pred = cal_occs(pred_traj_fake, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode = "binary").sum()
+                occs_gt = cal_occs(pred_traj_gt, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode = "binary").sum()
 
             traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
             traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
@@ -669,10 +690,13 @@ def check_accuracy(
                 d_losses.append(d_loss.item())
 
             if eval_critic:
-                rewards_fake = critic(traj_fake, traj_fake_rel, seq_start_end)
-                rewards_real = critic(traj_real, traj_real_rel, seq_start_end)
+                if args.c_type == 'static':
+                    # rewards_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end)
+                    rewards_real, _ = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
+                else:
+                    rewards_real, _ = critic(traj_real, traj_real_rel, seq_start_end)
 
-                c_loss = c_loss_fn(scores_real, scores_fake, rewards_real, rewards_fake)
+                c_loss = c_loss_fn(scores_real, rewards_real)
                 c_losses.append(c_loss.item())
 
             g_l2_losses_abs.append(g_l2_loss_abs.item())
@@ -685,6 +709,10 @@ def check_accuracy(
             f_disp_error.append(fde.item())
             f_disp_error_l.append(fde_l.item())
             f_disp_error_nl.append(fde_nl.item())
+
+            if args.c_type == 'static':
+                occupancies_gt.append(occs_gt.item())
+                occupancies_pred.append(occs_pred.item())
 
             loss_mask_sum += torch.numel(loss_mask.data)
             total_traj += pred_traj_gt.size(1)
@@ -701,6 +729,10 @@ def check_accuracy(
     metrics['fde'] = sum(f_disp_error) / total_traj
     metrics['cols'] = sum(collisions_pred) / total_traj
     metrics['cols_gt'] = sum(collisions_gt) / total_traj
+
+    if args.c_type == 'static':
+        metrics['occs'] = sum(occupancies_pred) / total_traj
+        metrics['occs_gt'] = sum(occupancies_gt) / total_traj
 
     if total_traj_l != 0:
         metrics['ade_l'] = sum(disp_error_l) / (total_traj_l * args.pred_len)
@@ -722,8 +754,6 @@ def check_accuracy(
         metrics['d_loss'] = sum(d_losses) / len(d_losses)
     if eval_critic:
         metrics['c_loss'] = sum(c_losses) / len(c_losses)
-
-
 
     return metrics
 
@@ -757,19 +787,12 @@ def cal_fde(
     return fde, fde_l, fde_nl
 
 
-def cal_cols(pred_traj_gt, seq_start_end, minimum_distance):
-    return collision_error(pred_traj_gt, seq_start_end, minimum_distance=minimum_distance)
+def cal_cols(pred_traj_gt, seq_start_end, minimum_distance, mode="binary"):
+    return collision_error(pred_traj_gt, seq_start_end, minimum_distance=minimum_distance, mode=mode)
 
 
-def cal_occs(pred_traj_gt, seq_start_end, path_ids, path): #get_dset_path(args.dataset_name, 'test')
-    # get scene info (homography and map)
-    annotated_images, h_matrixes = [], []
-    names, dirs = get_seq_dataset_and_path_names(path_ids, path)
-    for name, dir in zip(names, dirs):
-            annotated_image, h_matrix = get_homography_and_map(name)
-            annotated_images.append(annotated_image)
-            h_matrixes.append(h_matrix)
-    return occupancy_error(pred_traj_gt, seq_start_end, annotated_images, h_matrixes)
+def cal_occs(pred_traj_gt, seq_start_end, scene_information, seq_scene, minimum_distance, mode="binary"):
+    return occupancy_error(pred_traj_gt, seq_start_end, scene_information, seq_scene, minimum_distance=minimum_distance, mode=mode)
 
 if __name__ == '__main__':
     parser = get_argument_parser()

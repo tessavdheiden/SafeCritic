@@ -5,10 +5,10 @@ import torch
 
 from sgan.data.loader import data_loader
 from sgan.utils import get_dset_group_name, get_dataset_path, get_dset_name
-from sgan.models import TrajectoryGenerator
-from sgan.losses import displacement_error, final_displacement_error, collision_error, occupancy_error
+from sgan.losses import displacement_error, final_displacement_error
+from scripts.collision_checking import collision_error, occupancy_error
 from scripts.evaluate_model import get_generator, relative_to_abs, evaluate_helper
-from scripts.train import get_argument_parser, check_accuracy
+from scripts.train import get_argument_parser
 
 # benchmark collisions or displacement errors
 benchmark = "displacement"

@@ -1,60 +1,79 @@
-
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import cv2
+import torch
 
 
-def within_bounds(row, col, map):
-    (rows, cols) = map.shape
-    if row < rows and row >= 0 and col < cols and col >= 0:
-        return True
-    else:
-        False
+def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'):
+    """
+    Input:
+    - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - minimum_distance: Minimum between people
+    last pos
+    Output:
+    - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
+    """
+    pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+
+    collisions = []
+    for i, (start, end) in enumerate(seq_start_end):
+        start = start.item()
+        end = end.item()
+        num_ped = end - start
+        curr_seqs = pred_pos_perm[start:end]
+
+        curr_cols = torch.zeros(num_ped)
+        for ii in range(num_ped):
+            ped1 = curr_seqs[ii]
+            for iii in range(num_ped):
+                if ii <= iii:
+                    continue
+                ped2 = curr_seqs[iii]
+                overlap = torch.norm(ped1 - ped2, dim=1)
+                cols = torch.sum(overlap < minimum_distance, dim=0)
+                if cols > 0:
+                    if mode == 'binary':
+                        curr_cols[ii] = 1
+                        curr_cols[iii] = 1
+                    else:
+                        curr_cols[ii] = cols
+                        curr_cols[iii] = cols
+
+        collisions.append(curr_cols.float())
+
+    return torch.cat(collisions, dim=0).cuda()
 
 
-def collision_checking_with_static_environment(traj, static_map, path):
-    count = 0
-    positions_in_collision = []
-    for ped in range(0, traj.shape[1]):
-        for time in range(0, traj.shape[0]):
-            position = get_pixel_from_coordinate(path, traj[time][ped])
-            row, col = int(position[0]), int(position[1])
-            if within_bounds(row, col, static_map) and static_map[row][col] == 0:
-                count += 1
-                positions_in_collision.append(position)
-    return count, positions_in_collision
+def occupancy_error(pred_pos, seq_start_end, scene_information, seq_scene, minimum_distance=0.2, mode='binary'):
+    """
+    Input:
+    - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - minimum_distance: Minimum between people
+    last pos
+    Output:
+    - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
+    """
+    seq_length = pred_pos.size(0)
+    pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+    collisions = []
+    for i, (start, end) in enumerate(seq_start_end):
+        start = start.item()
+        end = end.item()
+        num_ped = end - start
 
+        curr_seqs = pred_pos_perm[start:end]
 
-def on_occupied(pixel, map):
-    if within_bounds(int(pixel[0]), int(pixel[1]), map) and map[int(pixel[0])][int(pixel[1])] == 0:
-        return True
-    else:
-        return False
+        scene = scene_information[seq_scene[i]]
+        num_points = scene.size(0)
 
+        curr_cols = torch.zeros(num_ped)
+        for ii in range(num_ped):
+            ped = curr_seqs[ii]
+            overlap = torch.norm(ped.repeat(num_points, 1) - scene.repeat(seq_length, 1), dim=1)
+            cols = torch.sum(overlap < minimum_distance, dim=0)
+            if cols > 0:
+                if mode == 'binary':
+                    curr_cols[ii] = 1
+                else:
+                    curr_cols[ii] = cols
 
-def in_collision(pose1, pose2, radius):
-    pose11 = np.around(pose1, decimals=2)
-    pose22 = np.around(pose2, decimals=2)
+        collisions.append(curr_cols.float())
 
-    distance = pose11 - pose22
-    if np.sqrt(distance[0] ** 2 + distance[1] ** 2) < radius:
-        return True
-    return False
-
-
-def rgb2gray(rgb):
-    return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
-
-
-def grey2bin(grey):
-    grey[grey > 0.5] = 1
-    grey[grey <= 0.5] = 0
-    return grey
-
-
-def load_bin_map(path, file='/annotated.png'):
-    static_map = plt.imread(path + file)
-    static_map = rgb2gray(static_map)
-    static_map = grey2bin(static_map)
-    return static_map
+    return torch.cat(collisions, dim=0).cuda()
