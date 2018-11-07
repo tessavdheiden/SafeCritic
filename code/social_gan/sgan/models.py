@@ -4,10 +4,8 @@ import numpy as np
 import os
 import pandas as pd
 from sgan.utils import get_dset_group_name, get_dset_name
-from sgan.losses import collision_error, occupancy_error
+from scripts.collision_checking import collision_error, occupancy_error
 from sgan.pooling import PhysicalPooling, PoolHiddenNet, SocialPooling, make_mlp
-
-
 
 
 def get_noise(shape, noise_type):
