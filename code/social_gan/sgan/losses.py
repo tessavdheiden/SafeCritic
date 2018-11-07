@@ -55,7 +55,7 @@ def gan_d_loss(scores_real, scores_fake):
     return loss_real + loss_fake
 
 
-def critic_loss(scores_real, scores_fake, y_real, y_fake):
+def critic_loss(scores_real, y_real, loss='squared_error'):
     """
     Input:
     - scores_real: Tensor of shape (N,) giving scores for real samples
@@ -66,37 +66,14 @@ def critic_loss(scores_real, scores_fake, y_real, y_fake):
     """
     # loss_real = bce_loss(scores_real, y_real)
     # loss_fake = bce_loss(scores_fake, y_fake)
-    loss_real = (scores_real - y_real) ** 2
-    loss_fake = (scores_fake - y_fake) ** 2
-
-    return loss_real.mean() + loss_fake.mean()
-
-
-def calc_gradient_penalty(netD, traj_real_rel, traj_real, traj_fake_rel, LAMBDA=10, device="cuda"):
-    real_data = traj_real_rel.permute(1, 0, 2)
-    fake_data = traj_fake_rel.permute(1, 0, 2)
-    BATCH_SIZE = real_data.size(0)
-    seq_len = real_data.size(1)
-    DIM = real_data.size(2)
-    alpha = torch.rand(BATCH_SIZE, 1)
-    alpha = alpha.expand(BATCH_SIZE, int(real_data.nelement() / BATCH_SIZE)).contiguous()
-    alpha = alpha.view(BATCH_SIZE, seq_len, DIM).cuda()
-
-    fake_data = fake_data.view(BATCH_SIZE, seq_len, DIM)
-    interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
-
-    interpolates = interpolates.to(device)
-    interpolates.requires_grad_(True)
-
-    disc_interpolates = netD(traj_real, interpolates)
-
-    gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates,
-                              grad_outputs=torch.ones(disc_interpolates.size()).to(device),
-                              create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-    gradients = gradients.view(gradients.size(0), gradients.size(1), -1)
-    gradient_penalty = ((gradients.norm(2, dim=2) - 1) ** 2).mean() * LAMBDA
-    return gradient_penalty
+    if loss == 'squared_error':
+        loss_real = torch.sqrt((scores_real - y_real) ** 2)
+        # loss_fake = (scores_fake - y_fake) ** 2
+        return loss_real.mean()# + loss_fake.mean()
+    elif loss == 'bce':
+        loss_real = bce_loss(scores_real, y_real)
+        # loss_fake = bce_loss(scores_fake, y_fake)
+        return loss_real# + loss_fake
 
 
 def l2_loss(pred_traj, pred_traj_gt, loss_mask, random=0, mode='average'):
@@ -170,12 +147,6 @@ def final_displacement_error(
 
 
 def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'):
-    def test(ped1, ped2):
-        import matplotlib.pyplot as plt
-        print(ped1.size())
-        plt.scatter(ped1[:, 0], ped1[:, 1], c='r')
-        plt.scatter(ped2[:, 0], ped2[:, 1], c='g')
-        plt.show()
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -195,10 +166,10 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
 
         curr_cols = torch.zeros(num_ped)
         for ii in range(num_ped):
+            ped1 = curr_seqs[ii]
             for iii in range(num_ped):
                 if ii <= iii:
                     continue
-                ped1 = curr_seqs[ii]
                 ped2 = curr_seqs[iii]
                 overlap = torch.norm(ped1 - ped2, dim=1)
                 cols = torch.sum(overlap < minimum_distance, dim=0)
@@ -215,7 +186,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
     return torch.cat(collisions, dim=0).cuda()
 
 
-def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir, mode='binary'):
+def occupancy_error(pred_pos, seq_start_end, scene_information, seq_scene, minimum_distance=0.2, mode='binary'):
     """
     Input:
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -224,32 +195,30 @@ def occupancy_error(pred_pos, seq_start_end, seq_scene_ids, data_dir, mode='bina
     Output:
     - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
     """
-    pred_pos = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
-    seq_length = pred_pos.size(1)
-    batch_size = pred_pos.size(0)
-    collisions = torch.zeros(batch_size).cuda()
-    seq_data_names = get_seq_dataset_and_path_names(seq_scene_ids, data_dir)
-
+    seq_length = pred_pos.size(0)
+    pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+    collisions = []
     for i, (start, end) in enumerate(seq_start_end):
         start = start.item()
         end = end.item()
         num_ped = end - start
 
-        curr_seqs = pred_pos[start:end]
-        curr_seqs = curr_seqs.view(-1, 2)
+        curr_seqs = pred_pos_perm[start:end]
 
-        image, homography = get_homography_and_map(seq_data_names[i], '/annotated.jpg')
-        pixels = get_pixels_from_world(curr_seqs, homography)
+        scene = scene_information[seq_scene[i]]
+        num_points = scene.size(0)
 
+        curr_cols = torch.zeros(num_ped)
         for ii in range(num_ped):
-            ped_id = seq_start_end[i][0] + ii
-            for iii in range(seq_length):
-                occupancy = on_occupied(pixels[ii*seq_length + iii], image)
-                if occupancy > 0:
-                    if mode == 'binary':
-                        collisions[ped_id] = 1
-                        break # one prediction on occupied is enough
-                    else:
-                        collisions[ped_id] += 1
+            ped = curr_seqs[ii]
+            overlap = torch.norm(ped.repeat(num_points, 1) - scene.repeat(seq_length, 1), dim=1)
+            cols = torch.sum(overlap < minimum_distance, dim=0)
+            if cols > 0:
+                if mode == 'binary':
+                    curr_cols[ii] = 1
+                else:
+                    curr_cols[ii] = cols
 
-    return collisions
+        collisions.append(curr_cols.float())
+
+    return torch.cat(collisions, dim=0).cuda()

@@ -142,8 +142,6 @@ def get_dset_group_name(name):
     # elif name == 'quad_0' or name == 'quad_1' or name == 'quad_2' or name == 'quad_3':
     #     return 'SDD'
 
-
-
 def get_seq_dataset_and_path_names(seq_scene_ids, data_dir):
     seq_data_sets = os.listdir(data_dir)
     all_files = [os.path.join(data_dir, _path) for _path in seq_data_sets]
