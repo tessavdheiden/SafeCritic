@@ -7,7 +7,6 @@ import sys
 
 sys.path.append("../")
 
-from scripts.collision_checking import load_bin_map
 from sgan.data.trajectories import read_file
 
 
@@ -115,6 +114,21 @@ def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_p
 
     world_beams = get_world_from_pixels(image_beams, h_matrix, True)
     return image_beams, world_beams
+
+
+def rgb2gray(rgb):
+    return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
+
+def grey2bin(grey):
+    grey[grey > 0.5] = 1
+    grey[grey <= 0.5] = 0
+    return grey
+
+def load_bin_map(path, file):
+    static_map = plt.imread(path + file)
+    static_map = rgb2gray(static_map)
+    static_map = grey2bin(static_map)
+    return static_map
 
 
 def calculate_static_scene(directory, dataset, scene, annotated_image_file_name, original_SDD_annotations):
