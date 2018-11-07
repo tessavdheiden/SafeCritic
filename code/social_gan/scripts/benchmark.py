@@ -10,18 +10,33 @@ from sgan.losses import displacement_error, final_displacement_error, collision_
 from scripts.evaluate_model import get_generator, relative_to_abs, evaluate_helper
 from scripts.train import get_argument_parser, check_accuracy
 
-table_column_names = np.array(["safeGAN_SP_RL"])
-table_row_names = sorted(np.array(["zara_1", "zara_2", "students_3"]))
-metrics = np.array(["ADE", "FDE", "COLS", "OCCS"])
+# benchmark collisions or displacement errors
+benchmark = "displacement"
 
+if benchmark == "collisions":
+    table_column_names = np.array(["safeGAN_RL_CT1","safeGAN_RL_CT.75", "safeGAN_RL_CT.5", "safeGAN_RL_CT.25", "safeGAN_RL_CT.1", "safeGAN_RL_CT.0"])
+    metrics = np.array(["COLS", "OCCS"])
+elif benchmark == "displacement":
+    table_column_names = np.array(["socialGAN", "safeGAN_DP4", "safeGAN_SP", "safeGAN_DP4_SP"])
+    metrics = np.array(["ADE", "FDE"])
+
+dataset = "sdd"
+
+if dataset == "ucy":
+    table_row_names = sorted(np.array(["zara_1", "zara_2", "students_3"]))
+elif dataset == "sdd":
+    table_row_names = sorted(np.array(["bookstore_0", "deathCircle_0", "gates_0"]))
+
+dataset_group = get_dset_group_name(table_row_names[0])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class Table:
     def __init__(self, cols, rows, subcols):
         self.cols = cols
-        self.rows = rows
+        self.rows = np.append(rows, ["avarage"])
         self.subcols = subcols
         self.make()
+        self.avarage = {}
 
     def make(self):
         I = pd.Index(self.rows, name="dataset")
@@ -33,9 +48,10 @@ class Table:
             self.cells.append(df)
 
     def set_value(self, model, dataset, metric, value):
-        self.cells[model][metric][dataset] = "{0:.2f}".format(value)
+        self.cells[model][metric][dataset] = "{0:.6f}".format(value)
 
-    def print(self):
+    def print(self, model):
+        self.calc_avarage(model)
         for i, cell in enumerate(self.cells):
             print(self.cols[i])
             print(cell)
@@ -51,15 +67,29 @@ class Table:
             file.write('\n')
         file.close()
 
+    def from_file(self, path = '../results/benchmark.txt'):
+        with open(path, 'r') as myfile:
+            for line in myfile:
+                row = line.strip().split('\t')
+                print(row[0])
+
+    def calc_avarage(self, model):
+        for col in self.subcols:
+            self.cells[model][col]["avarage"] = sum(self.cells[model][col]) / (self.cells[model][col].shape[0]-1)
 
 
 def get_model_path(model, num):
-    path_prefix = '../models/'
+    if dataset_group == "UCY":
+        path_prefix = '../models_ucy/'
+    elif dataset_group == "SDD":
+        path_prefix = '../models_sdd/'
+    else:
+        "no correct dataset_group"
+
     if os.path.isdir(os.path.join(path_prefix + model)):
         filenames = os.listdir(path_prefix + model)
         filenames = sorted(filenames)
-        selected_names = [name for name in filenames if '12' in name]
-        selected_names = [name for name in selected_names if not 'no_model' in name]
+        selected_names = [name for name in filenames if not 'no_model' in name]
         all_files = [os.path.join(path_prefix + model, _path) for _path in selected_names]
     return all_files
 
@@ -67,6 +97,8 @@ def get_model_path(model, num):
 def evaluate(args, loader, generator, num_samples, data_dir):
     ade_outer, fde_outer, cols_outer, occs_outer = [], [], [], []
     total_traj = 0
+    cols_all = 0
+
     with torch.no_grad():
         for batch in loader:
             batch = [tensor.cuda() for tensor in batch]
@@ -87,32 +119,41 @@ def evaluate(args, loader, generator, num_samples, data_dir):
                 pred_traj_fake = relative_to_abs(
                     pred_traj_fake_rel, obs_traj[-1]
                 )
-                ade.append(displacement_error(
-                    pred_traj_fake, pred_traj_gt, mode='raw'
-                ))
-                fde.append(final_displacement_error(
-                    pred_traj_fake[-1], pred_traj_gt[-1], mode='raw'
-                ))
-                cols.append(collision_error(pred_traj_fake, seq_start_end, minimum_distance=0.8, mode='all'))
-                occs.append(occupancy_error(pred_pos=pred_traj_fake, seq_start_end=seq_start_end, seq_scene_ids=seq_scene_ids, data_dir=data_dir, mode='all'))
+                if benchmark == "displacement":
+                    ade.append(displacement_error(
+                        pred_traj_fake, pred_traj_gt, mode='raw'
+                    ))
+                    fde.append(final_displacement_error(
+                        pred_traj_fake[-1], pred_traj_gt[-1], mode='raw'
+                    ))
+                elif benchmark == "collisions":
+                    cols.append(collision_error(pred_traj_fake, seq_start_end, minimum_distance=0.25, mode='all'))
+                    occs.append(occupancy_error(pred_pos=pred_traj_fake, seq_start_end=seq_start_end, seq_scene_ids=seq_scene_ids, data_dir=data_dir, mode='all'))
 
-            ade_sum = evaluate_helper(ade, seq_start_end)
-            fde_sum = evaluate_helper(fde, seq_start_end)
-            cols_sum = evaluate_helper(cols, seq_start_end)
-            occs_sum = evaluate_helper(occs, seq_start_end)
-
-            ade_outer.append(ade_sum)
-            fde_outer.append(fde_sum)
-            cols_outer.append(cols_sum)
-            occs_outer.append(occs_sum)
-        ade = sum(ade_outer) / (total_traj * args.pred_len)
-        fde = sum(fde_outer) / (total_traj)
-        cols = sum(cols_outer)
-        occs = sum(occs_outer)
+            if benchmark == "displacement":
+                ade_sum = evaluate_helper(ade, seq_start_end)
+                fde_sum = evaluate_helper(fde, seq_start_end)
+                ade_outer.append(ade_sum)
+                fde_outer.append(fde_sum)
+            elif benchmark == "collisions":
+                cols_all += torch.sum(torch.sum(torch.stack(cols, dim=1)), dim=0)
+                cols_sum = evaluate_helper(cols, seq_start_end)
+                occs_sum = evaluate_helper(occs, seq_start_end)
+                cols_outer.append(cols_sum)
+                occs_outer.append(occs_sum)
+        if benchmark == "displacement":
+            ade = sum(ade_outer) / (total_traj * args.pred_len)
+            fde = sum(fde_outer) / total_traj
+        elif benchmark == "collisions":
+            cols = sum(cols_outer)
+            occs = sum(occs_outer) / total_traj
+            print(cols_all , "=cols_all ", total_traj, "=total_traj ", num_samples, "=num_samples")
+            print(cols_all/total_traj/num_samples, "=cols_all/total_traj/num_samples")
+            print(cols, " min from all batches")
         return ade, fde, cols, occs
 
+
 parser = get_argument_parser()
-# args = parser.parse_args()
 table = Table(table_column_names, table_row_names, metrics)
 
 for model_idx, model_name in enumerate(table_column_names):
@@ -122,26 +163,36 @@ for model_idx, model_name in enumerate(table_column_names):
         if table_column_names[model_idx] == 'socialGAN_pretrained':
             model['args']['pretrained'] = True
             # dataset_path = get_dataset_path(dataset, 'test', 'sgan_datasets')
-
         dataset_path = get_dataset_path(dataset, 'test')
         dataset_path = "/".join(dataset_path.split('/')[:-1])
+        print(get_dset_name(model['args']['dataset_name']))
+        print(dataset)
+        if True: #get_dset_name(model['args']['dataset_name']) == dataset:
 
-        if get_dset_name(model['args']['dataset_name']) == dataset:
-            print(get_dset_name(model['args']['dataset_name']))
             generator, args = get_generator(model)
             if args.pool_static:
                 generator.static_net.set_dset_list(dataset_path)
                 if args.pool_every_timestep:
                     generator.decoder.static_net.set_dset_list(dataset_path)
+
             _, loader = data_loader(args, dataset_path, shuffle=False)
             ADE_value, FDE_value, COLS_value, OCCS_value = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path)
         else:
-            ADE_value, FDE_value, COLS_value, OCCS_value = 999, 999, 999, 999
-        table.set_value(model_idx, dataset, "FDE", FDE_value)
-        table.set_value(model_idx, dataset, "ADE", ADE_value)
-        table.set_value(model_idx, dataset, "COLS", COLS_value)
-        table.set_value(model_idx, dataset, "OCCS", OCCS_value)
-    table.print()
-    table.save('../results/')
+            ADE_value, FDE_value, COLS_value, OCCS_value = 0, 0, 0, 0
+        if benchmark == "displacement":
+            table.set_value(model_idx, dataset, "FDE", FDE_value)
+            table.set_value(model_idx, dataset, "ADE", ADE_value)
+        elif benchmark == "collisions":
+            table.set_value(model_idx, dataset, "COLS", COLS_value)
+            # table.set_value(model_idx, dataset, "OCCS", OCCS_value)
+
+table.print(model_idx)
+table.save('../results/')
+
+
+
+
+
+
 
 
