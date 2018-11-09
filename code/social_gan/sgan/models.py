@@ -518,8 +518,7 @@ class TrajectoryCritic(nn.Module):
             num_layers=num_layers,
             dropout=dropout
         )
-        if self.d_type == 'all':
-            h_dim = 1
+
         real_classifier_dims = [h_dim, mlp_dim, 1]
         self.real_classifier = make_mlp(
             real_classifier_dims,
@@ -537,10 +536,10 @@ class TrajectoryCritic(nn.Module):
                 activation=activation,
                 batch_norm=batch_norm
             )
-        self.spatial_embedding = nn.Linear(1, h_dim)
-        self.lstm = nn.LSTM(
-            embedding_dim, h_dim, num_layers, dropout=dropout
-        )
+        if self.d_type == 'static' or self.d_type == 'dynamic':
+            self.spatial_embedding = nn.Linear(1, 1)
+        if self.d_type == 'static_and_dynamic' or self.d_type == 'dynamic_and_static':
+            self.spatial_embedding = nn.Linear(2, 1)
 
         self.scene_information = {}
 
@@ -629,17 +628,18 @@ class TrajectoryCritic(nn.Module):
             scores = self.real_classifier(classifier_input)
         if self.d_type == 'dynamic':
             cols = collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold, mode='binary')
-            rewards = -1 * cols.unsqueeze(1) + 1
+            rewards = -1 * cols.unsqueeze(1)
+            rewards += 1
             scores = self.spatial_embedding(rewards)
         if self.d_type == 'static':
             seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
             cols = occupancy_error(traj, seq_start_end, self.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary')
             rewards = -1 * cols.unsqueeze(1) + 1
             scores = self.spatial_embedding(rewards)
-        if self.d_type == 'dynamic_and_static' or self.d_type == 'static_and_dynamic':
-            seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
-            cols_static = occupancy_error(traj, seq_start_end, self.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary')
-            cols_dynamic = collision_error(traj, seq_start_end, self.collision_threshold)
-            rewards = -1 * (cols_static.unsqueeze(1) + cols_dynamic.unsqueeze(1)) / 2
-            scores = self.spatial_embedding(rewards)
+        # if self.d_type == 'dynamic_and_static' or self.d_type == 'static_and_dynamic':
+        #     seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
+        #     cols_static = occupancy_error(traj, seq_start_end, self.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary')
+        #     cols_dynamic = collision_error(traj, seq_start_end, self.collision_threshold)
+        #     rewards = -1 * (cols_static.unsqueeze(1) + cols_dynamic.unsqueeze(1)) / 2
+        #     scores = self.spatial_embedding(rewards)
         return scores, rewards
