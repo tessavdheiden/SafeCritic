@@ -1,16 +1,24 @@
-from sgan.models import TrajectoryCritic, TrajectoryDiscriminator
+
 import torch
 import matplotlib.pyplot as plt
-from scripts.evaluate_model import get_generator, get_trajectories, plot_cols, get_path, plot_pixel, plot_photo
-from sgan.data.loader import data_loader
-from sgan.models_static_scene import get_homography_and_map
-from scripts.train import cal_cols
-import numpy as np
 from attrdict import AttrDict
 import imageio
+import numpy as np
+import sys
+import os
+
+current_path = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(current_path, os.path.pardir))
+
+from scripts.evaluate_model import get_generator, get_trajectories, plot_cols, get_path, plot_pixel, plot_photo
+from sgan.models import TrajectoryCritic, TrajectoryDiscriminator
+from sgan.data.loader import data_loader
+from sgan.models_static_scene import get_homography_and_map
+from scripts.train import cal_cols, cal_occs
 from sgan.utils import get_dataset_path
 
-model_path = "../results/analysis2/Ours: SafeGAN_DP4_SP.pt"
+# model_path = "../results/analysis3b/Ours: SafeGAN_DP4_SP.pt"
+model_path = "../models_ucy/socialGAN/zara_1_12_local_gsteps_5_with_model.pt"
 
 def get_oracle(checkpoint_in):
     args = AttrDict(checkpoint_in['args'])
@@ -24,7 +32,8 @@ def get_oracle(checkpoint_in):
         dropout=args.dropout,
         batch_norm=args.batch_norm,
         d_type=args.c_type,
-        collision_threshold=args.collision_threshold)
+        collision_threshold=args.collision_threshold,
+        occupancy_threshold=args.occupancy_threshold)
 
     critic.load_state_dict(checkpoint_in['c_state'])
     critic.cuda()
@@ -49,10 +58,16 @@ def get_discriminator(checkpoint_in):
     return critic, args
 
 
-def get_scores(oracle, obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end):
+def get_scores(oracle, obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, seq_scene_ids):
     traj = torch.cat([obs_traj, pred_traj], dim=0)
     traj_rel = torch.cat([obs_traj_rel, pred_traj_rel], dim=0)
-    scores, _ = oracle(traj, traj_rel, seq_start_end)
+    scores, _ = oracle(traj, traj_rel, seq_start_end, seq_scene_ids)
+    return scores
+
+def get_discriminator_scores(oracle, obs_traj, pred_traj, obs_traj_rel, pred_traj_rel, seq_start_end, seq_scene_ids):
+    traj = torch.cat([obs_traj, pred_traj], dim=0)
+    traj_rel = torch.cat([obs_traj_rel, pred_traj_rel], dim=0)
+    scores = oracle(traj, traj_rel, seq_start_end)
     return scores
 
 
@@ -93,7 +108,7 @@ def plot_observed(traj_obs, ax1, photo, h, colors=None):
 
 
 def evaluate_accuracy(model_path):
-    args, generator, oracle, loader = get_generator_oracle_loader(model_path)
+    args, generator, oracle, loader, _ = get_generator_oracle_loader(model_path)
     cols_obs, cols_gt, cols_gt_prev, cols_fake, cols_fake_prev = 0, 0, 0, 0, 0
     total_traj = 0
     tp_real, tn_real, fp_real, fn_real = 0, 0, 0, 0
@@ -156,7 +171,7 @@ def evaluate_likelihood():
     model_sample_variance = torch.zeros(len(paths), len(num_samples))
 
     for p, model_path in enumerate(paths):
-        args, generator, oracle, loader = get_generator_oracle_loader(model_path)
+        args, generator, oracle, loader, _ = get_generator_oracle_loader(model_path)
         for n, n_samp in enumerate(num_samples):
             likelihood = 0
             counter = 0
@@ -195,91 +210,125 @@ def evaluate_likelihood():
 
 
 def evaluate(model_path):
-    args, generator, oracle, loader = get_generator_oracle_loader(model_path)
-    args.collision_threshold = .25
+    args, generator, oracle, discriminator, loader, data_path = get_generator_oracle_discriminator_loader(model_path)
+    oracle.d_type = 'dynamic'
     model_name = model_path.split('/')[-1][:-3]
 
-    fig, ((ax1, ax2, ax3)) = plt.subplots(1, 3, figsize=(12, 4), num=1)
+    fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     cols_obs, cols_gt, cols_gt_prev, cols_fake, cols_fake_prev = 0, 0, 0, 0, 0
     path = get_path(args.dataset_name)
-    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
+    reader = imageio.get_reader(path + "/{}_video.mov".format(args.dataset_name), 'ffmpeg')
     annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
 
     total_traj = 0
+    photo = reader.get_data(int(0))
+    plot_photo(ax3, photo, model_name)
+    for s in range(20):
+        with torch.no_grad():
+            for b, batch in enumerate(loader):
+                batch = [tensor.cuda() for tensor in batch]
+                (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+                 non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
-    with torch.no_grad():
-        for b, batch in enumerate(loader):
-            batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
+                total_traj += obs_traj.size(1)
 
-            total_traj += obs_traj.size(1)
+                # generate trajectories
+                pred_traj_fake, pred_traj_fake_rel = get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, path)
 
-            # generate trajectories
-            pred_traj_fake, pred_traj_fake_rel = get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids)
+                # generate score
+                scores_pred_real_o = get_scores(oracle, obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, seq_start_end, seq_scene_ids)
+                scores_pred_fake_o = get_scores(oracle, obs_traj, pred_traj_fake, obs_traj_rel, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
 
-            # generate score
-            scores_pred_real = get_scores(oracle, obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, seq_start_end)
-            scores_pred_fake = get_scores(oracle, obs_traj, pred_traj_fake, obs_traj_rel, pred_traj_fake_rel, seq_start_end)
+                scores_pred_real_d = get_discriminator_scores(discriminator, obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, seq_start_end, seq_scene_ids)
+                scores_pred_fake_d = get_discriminator_scores(discriminator, obs_traj, pred_traj_fake, obs_traj_rel, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
 
-            # generate rewards
-            cols_of_real = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold, mode="binary")
-            rewards_real = -1 * cols_of_real.unsqueeze(1)
-            rewards_real += 1
+                # generate rewards
+                cols_of_real = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold, mode="binary")
+                rewards_real = -1 * cols_of_real.unsqueeze(1)
+                rewards_real += 1
 
-            cols_of_fake = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold, mode="binary")
-            rewards_fake = -1 * cols_of_fake.unsqueeze(1)
-            rewards_fake += 1
+                cols_of_fake = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold, mode="binary")
+                rewards_fake = -1 * cols_of_fake.unsqueeze(1)
+                rewards_fake += 1
 
-            # prepare plotting
-            pred_traj_gt_perm = pred_traj_gt.permute(1, 0, 2)
-            pred_traj_fake_perm = pred_traj_fake.permute(1, 0, 2)
-            obs_traj_perm = obs_traj.permute(1, 0, 2)
+                # seq_scenes = [oracle.list_data_files[num] for num in seq_scene_ids]
+                # occs_pred = cal_occs(pred_traj_gt, seq_start_end, oracle.scene_information, seq_scenes,
+                #                      minimum_distance=args.occupancy_threshold, mode="binary")
 
-            for i, (start, end) in enumerate(seq_start_end):
-                start = start.item()
-                end = end.item()
-                num_ped = end-start
+                # prepare plotting
+                pred_traj_gt_perm = pred_traj_gt.permute(1, 0, 2)
+                pred_traj_fake_perm = pred_traj_fake.permute(1, 0, 2)
+                obs_traj_perm = obs_traj.permute(1, 0, 2)
 
-                # get scores for scene i
-                current_scores_real = scores_pred_real[start:end]
-                current_scores_fake = scores_pred_fake[start:end]
+                for i, (start, end) in enumerate(seq_start_end):
+                    current_scene = b * len(seq_start_end) + i
+                    # print(current_scene)
+                    # if current_scene != 117:
+                    #     continue
 
-                # get trajectories for scene i
-                traj_fake = pred_traj_fake_perm[start:end]
-                traj_gt = pred_traj_gt_perm[start:end]
-                traj_obs = obs_traj_perm[start:end]
+                    start = start.item()
+                    end = end.item()
+                    num_ped = end-start
 
-                # get photo and frame
-                frame = traj_frames[args.obs_len][start][0].item()
-                photo = reader.get_data(int(frame))
+                    # get scores for scene i
+                    current_scores_fake_d = scores_pred_fake_d[start:end]
+                    current_scores_fake_o = scores_pred_fake_o[start:end]
 
-                # plot trajectories
-                colors = np.random.rand(num_ped, 3)
-                plot_gt_pred_trajectories_pixels_photo(traj_gt, traj_obs, traj_fake, model_name, ax1, ax2, ax3, photo, h, colors)
-                cols_obs, cols_gt, cols_fake = plot_cols(ax1, ax2, ax3, traj_obs, traj_gt, traj_fake, cols_obs, cols_gt, cols_fake, h, min_distance=args.collision_threshold)
+                    # get trajectories for scene i
+                    traj_fake = pred_traj_fake_perm[start:end]
+                    traj_gt = pred_traj_gt_perm[start:end]
+                    traj_obs = obs_traj_perm[start:end]
 
-                index = range(0, num_ped)
-                for ii in index:
-                    # print("current_score={}".format(current_scores_real[ii]))
-                    plot_pixel(ax2, traj_gt, ii, h, a=.25, last=False, first=False, size=200*(1-current_scores_real[ii]), colors=np.zeros((num_ped, 3)) + np.array([1, 0, 0]))
-                    plot_pixel(ax3, traj_fake, ii, h, a=.25, last=False, first=False, size=200 * (1-current_scores_fake[ii]), colors=np.zeros((num_ped, 3)) + np.array([1, 0, 0]))
+                    # get photo and frame
+                    frame = traj_frames[args.obs_len][start][0].item()
+                    photo = reader.get_data(int(frame))
 
-                # plot if there are collisions in ground truth
-                if cols_gt > cols_gt_prev:
+                    # plot trajectories and oracle
+                    colors = np.random.rand(num_ped, 3)
+                    if s == 0:
+                        plot_photo(ax1, photo, model_name)
+                        plot_photo(ax2, photo, model_name)
+                        plot_photo(ax3, photo, model_name)
+                        plot_photo(ax4, photo, model_name)
+
+                    for p in range(traj_gt.size(0)):
+                        score_d = current_scores_fake_d[p]
+                        score_o = current_scores_fake_o[p]
+
+                        plot_pixel(ax1, traj_obs, p, h, 1, False, False, size=10, colors=colors)
+                        plot_pixel(ax2, traj_gt, p, h, 1, False, False, size=10, colors=colors)
+                        plot_pixel(ax3, traj_fake, p, h, 1, False, False, size=10, colors=colors)
+                        plot_pixel(ax4, traj_fake, p, h, 1, False, False, size=10, colors=colors)
+
+                        if score_o < 0.5:
+                            for p in range(traj_gt.size(0)):
+                                score_d = current_scores_fake_d[p]
+                                score_o = current_scores_fake_o[p]
+                                plot_pixel(ax3, traj_fake, p, h, a=.5, last=False, first=False, size=300 * (1-score_d),
+                                           colors=np.zeros((num_ped, 3)) + np.array([0.25, 0, 0.25]))
+                                plot_pixel(ax4, traj_fake, p, h, a=.5, last=False, first=False, size=300 * (score_o),
+                                           colors=np.zeros((num_ped, 3)) + np.array([0., 0.25, 0]))
+                                plot_pixel(ax4, traj_fake, p, h, a=.5, last=False, first=False, size=300 * (1-score_o),
+                                           colors=np.zeros((num_ped, 3)) + np.array([0.25, .0, 0]))
+                                plt.draw()
+                                plt.pause(0.001)
+
+                        if score_d > 0.5:
+                            for p in range(traj_gt.size(0)):
+                                plot_pixel(ax3, traj_fake, p, h, a=.5, last=False, first=False, size=300 * (score_d),
+                                           colors=np.zeros((num_ped, 3)) + np.array([0.25, 0, 0.25]))
+                                plot_pixel(ax4, traj_fake, p, h, a=.5, last=False, first=False, size=300 * (1-score_o),
+                                           colors=np.zeros((num_ped, 3)) + np.array([0, .25, 0]))
+                                plt.draw()
+                                plt.pause(0.001)
+
+                    cols_fake += cols_of_fake[start:end].sum()
+                    plt.tight_layout()
+                    plt.axis('off')
                     plt.draw()
                     plt.pause(0.001)
-                    cols_gt_prev += cols_gt - cols_gt_prev
-
-                    # plt.savefig('../results/selection/frame_{}'.format(i))
-
-                # plot if there are collisions
-                if cols_fake > cols_fake_prev:
-                    plt.draw()
-                    plt.pause(0.001)
-                    cols_fake_prev += cols_fake - cols_fake_prev
-                    # plt.savefig('../results/selection/frame_{}'.format(i))
-
+                    # plt.savefig('../results/selection/scene_{}'.format(b * len(seq_start_end) + i))
+    plt.savefig('../results/selection/scene_{}'.format(b * len(seq_start_end) + i))
     print("cols_fake", cols_fake)
     print("cols_gt", cols_gt)
     print("total_traj", total_traj)
@@ -292,7 +341,7 @@ def evaluate_latent_space(model_path):
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     path = get_path(args.dataset_name)
-    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
+    reader = imageio.get_reader(path + "/seq.mov", 'ffmpeg')
     annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
 
     total_traj = 0
@@ -333,17 +382,16 @@ def evaluate_latent_space(model_path):
                 z_dynamic_pool = latent_space_after_dynamic_pooling[start:end]
                 z_static_pool = latent_space_after_static_pooling[start:end]
 
-
                 # get photo and frame
                 frame = traj_frames[args.obs_len][start][0].item()
                 photo = reader.get_data(int(frame))
 
                 # plot trajectories
                 colors = np.random.rand(num_ped, 3)
-                plot_gt_pred_trajectories_pixels_photo(traj_gt, traj_obs, traj_fake, model_name, ax1, ax2, ax3, photo, h, colors)
+                plot_gt_pred_trajectories_pixels_photo(traj_gt, traj_obs, traj_fake, model_name, ax1, ax1, ax1, photo, h, colors)
 
                 # plot latent space
-                ax2.cla()
+                # ax2.cla()
                 ax2.scatter(z[:, :].std(1), z[:, :].mean(1), color=colors[:, :])
                 ax2.set_xlabel('component 2')
                 ax2.set_ylabel('component 1')
@@ -351,19 +399,22 @@ def evaluate_latent_space(model_path):
                 ax2.axis("square")
 
                 # plot latent space
-                ax3.cla()
+                # ax3.cla()
                 ax3.scatter(z_dynamic_pool[:, :].std(1), z_dynamic_pool[:, :].mean(1), color=colors[:, :])
                 ax3.set_xlabel('component 2')
                 ax3.set_ylabel('component 1')
-                ax3.set_title('after dynamic pooling')
+                ax3.set_title('dynamic pooling')
                 ax3.axis("square")
 
-                ax4.cla()
+                # ax4.cla()
                 ax4.scatter(z_static_pool[:, :].std(1), z_static_pool[:, :].mean(1), color=colors[:, :])
                 ax4.set_xlabel('component 2')
                 ax4.set_ylabel('component 1')
-                ax4.set_title('after static pooling')
+                ax4.set_title('static pooling')
                 ax4.axis("square")
+
+                plt.draw()
+                plt.pause(0.001)
 
                 plt.savefig('../results/temp/scene_{}'.format(b*len(seq_start_end) + i))
 
@@ -379,27 +430,29 @@ def check_loss(model_path):
     plt.show()
 
 
-def get_generator_oracle_loader(model_path, oracle_load=True):
+def get_generator_oracle_discriminator_loader(model_path, oracle_load=True):
     checkpoint = torch.load(model_path)
-    if oracle_load:
-        oracle, _ = get_oracle(checkpoint)
+
     generator, args = get_generator(checkpoint)
+    discriminator, _ = get_discriminator(checkpoint)
+    # args['dataset_name'] = 'hyang_7'
     data_dir = get_dataset_path(args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, path, shuffle=False)
     if oracle_load:
-        return args, generator, oracle, loader
+        oracle, _ = get_oracle(checkpoint)
+        oracle.set_dset_list(path)
+        return args, generator, oracle, discriminator, loader, path
     else:
-        return args, generator, loader
+        return args, generator, discriminator, loader, path
 
 
 def main():
-
     # check_loss(model_path)
     # evaluate_accuracy(args, generator, oracle, loader)
 
-    # evaluate(data_dir, args, generator, oracle, loader)
+    evaluate(model_path)
     # evaluate_likelihood()
-    evaluate_latent_space(model_path)
+    # evaluate_latent_space(model_path)
 if __name__ == '__main__':
     main()

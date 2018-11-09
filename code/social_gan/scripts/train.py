@@ -83,7 +83,7 @@ def get_argument_parser():
     parser.add_argument('--grid_size', default=8, type=int)
 
     # Discriminator Options
-    parser.add_argument('--d_type', default='local', type=str)
+    parser.add_argument('--d_type', default='global', type=str)
     parser.add_argument('--encoder_h_dim_d', default=64, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
     parser.add_argument('--d_steps', default=1, type=int)
@@ -93,10 +93,10 @@ def get_argument_parser():
     parser.add_argument('--c_type', default='static', type=str)
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--c_steps', default=5, type=int)
+    parser.add_argument('--c_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_c', default=0, type=float)
     parser.add_argument('--collision_threshold', default=.25, type=float)
-    parser.add_argument('--occupancy_threshold', default=1.0, type=float)
+    parser.add_argument('--occupancy_threshold', default=.01, type=float)
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
@@ -105,8 +105,8 @@ def get_argument_parser():
 
     # Output
     parser.add_argument('--output_dir', default="../models_ucy/temp")
-    parser.add_argument('--print_every', default=5, type=int)
-    parser.add_argument('--checkpoint_every', default=5, type=int)
+    parser.add_argument('--print_every', default=50, type=int)
+    parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
@@ -140,8 +140,6 @@ def get_dtypes(args):
 
 
 def main(args):
-
-
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
 
@@ -525,20 +523,18 @@ def critic_step(
     traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
     traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
 
-    rewards_real = 0
     if 'dynamic' in critic.d_type:
         scores_real, rewards = critic(traj_real, traj_real_rel, seq_start_end)
         cols_real = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold)
-        rewards_real += -1 * cols_real.unsqueeze(1) + 1
+        rewards_real = -1 * cols_real.unsqueeze(1)
+        rewards_real += 1
 
     if 'static' in critic.d_type:
         scores_real, rewards = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
         seq_scenes = [critic.list_data_files[num] for num in seq_scene_ids]
         cols_real = cal_occs(traj_real, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold)
-        rewards_real += -1 * cols_real.unsqueeze(1) + 1
-
-    if 'static' in critic.d_type and 'static' in critic.d_type:
-        rewards_real /= 2
+        rewards_real = -1 * cols_real.unsqueeze(1)
+        rewards_real += 1
 
     # Compute loss with optional loss function
     data_loss = c_loss_fn(scores_real, rewards_real)
@@ -612,7 +608,9 @@ def generator_step(
     else:
         discriminator_loss = g_loss_fn(scores_fake)
         oracle_loss = args.lamb * (torch.mean(-1 * (values_fake - torch.ones_like(values_fake))))
-    loss += discriminator_loss + oracle_loss
+
+    if args.pooling_type != 'spool':
+        loss += discriminator_loss + oracle_loss
 
     losses['G_oracle_loss'] = oracle_loss.item()
     losses['G_discriminator_loss'] = discriminator_loss.item()
