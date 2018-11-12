@@ -53,7 +53,7 @@ def read_file(_path, delim='\t'):
         delim = ' '
     with open(_path, 'r') as f:
         for line in f:
-            line = line.strip().split(delim)
+            line = line.strip().split(delim)[:4]
             line = [float(i) for i in line]
             data.append(line)
     return np.asarray(data)
