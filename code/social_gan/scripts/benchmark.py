@@ -20,16 +20,16 @@ if benchmark == "collisions":
     #table_column_names = np.array(["safeGAN_RL_OT.10", "safeGAN_RL_OT.075", "safeGAN_RL_OT.05", "safeGAN_RL_OT.025", "safeGAN_RL_OT.01", "safeGAN_RL_OT.00"])
     metrics = np.array(["COLS", "OCCS"])
 elif benchmark == "displacement":
-    table_column_names = np.array(["socialGAN_GP", "socialGAN_LP", "safeGAN_SP", "safeGAN_SP_APG"])
+    table_column_names = np.array(["SafeGAN_SP", "socialGAN", "socialLSTM", "safeGAN_DP4", "safeGAN_DP4_norm"])
     # table_column_names = np.array(["socialGAN", "safeGAN_DP4", "safeGAN_SP", "safeGAN_DP4_SP"])
     metrics = np.array(["ADE", "FDE"])
 
-dataset = "ucy"
+dataset = "sdd"
 
 if dataset == "ucy":
-    table_row_names = sorted(np.array(["zara_1", "zara_2", "students_3"]))
+    table_row_names = sorted(np.array(["students_3"]))
 elif dataset == "sdd":
-    table_row_names = sorted(np.array(["bookstore_0", "deathCircle_0", "gates_0"]))
+    table_row_names = sorted(np.array(["bookstore_3", "coupa_3", "deathCircle_4", "gates_8", "hyang_7", "nexus_9"]))
 
 dataset_group = get_dset_group_name(table_row_names[0])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -103,6 +103,7 @@ def evaluate(args, loader, generator, num_samples, data_dir, oracle=None):
     total_traj = 0
     cols_all, occs_all = 0, 0
     num_samples = 20
+    # num_samples = args.best_k
     with torch.no_grad():
         for batch in loader:
             batch = [tensor.cuda() for tensor in batch]
@@ -167,6 +168,11 @@ def evaluate(args, loader, generator, num_samples, data_dir, oracle=None):
 parser = get_argument_parser()
 table = Table(table_column_names, table_row_names, metrics)
 
+# import matplotlib.pyplot as plt
+# plt.cla()
+# plt.scatter(np.arange(0, len(model['metrics_val']['ade'])), model['metrics_val']['ade'])
+# plt.show()
+
 for model_idx, model_name in enumerate(table_column_names):
     print(model_name)
     model_parameter_file_path = get_model_path(model_name, '12')
@@ -179,9 +185,9 @@ for model_idx, model_name in enumerate(table_column_names):
         dataset_path = "/".join(dataset_path.split('/')[:-1])
         print(get_dset_name(model['args']['dataset_name']))
         print(dataset)
-        if True: #get_dset_name(model['args']['dataset_name']) == dataset:
-
+        if get_dset_name(model['args']['dataset_name']) == dataset or get_dset_name(model['args']['dataset_name']) == 'sdd':
             generator, args = get_generator(model)
+            args.dataset_name = dataset
             # if model['args']['c_type'] == 'static':
             #     oracle, _ = get_oracle(model)
             if args.pool_static:
@@ -200,7 +206,7 @@ for model_idx, model_name in enumerate(table_column_names):
             # table.set_value(model_idx, dataset, "COLS", COLS_value)
             table.set_value(model_idx, dataset, "OCCS", OCCS_value)
 
-table.print(model_idx)
+    table.print(model_idx)
 table.save('../results/')
 
 

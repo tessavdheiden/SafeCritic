@@ -35,12 +35,15 @@ logging.basicConfig(level=logging.INFO, format=FORMAT, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
 
+import matplotlib.pyplot as plt
+fig, (ax1) = plt.subplots(1, 1, figsize=(4, 4), num=1)
+
 def get_argument_parser():
     parser = argparse.ArgumentParser()
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='zara_1', type=str)
+    parser.add_argument('--dataset_name', default='students_3', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -56,13 +59,13 @@ def get_argument_parser():
     parser.add_argument('--embedding_dim', default=16, type=int)
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout', default=0, type=float)
-    parser.add_argument('--batch_norm', default=0, type=bool_flag)
+    parser.add_argument('--batch_norm', default=1, type=bool_flag)
     parser.add_argument('--mlp_dim', default=64, type=int)
 
     # Generator Options
     parser.add_argument('--encoder_h_dim_g', default=32, type=int)
     parser.add_argument('--decoder_h_dim_g', default=32, type=int)
-    parser.add_argument('--noise_dim', default=(8,), type=int_tuple)
+    parser.add_argument('--noise_dim', default=(8, ), type=int_tuple) #(8,)
     parser.add_argument('--noise_type', default='gaussian')
     parser.add_argument('--noise_mix_type', default='global')
     parser.add_argument('--clipping_threshold_g', default=2.0, type=float)
@@ -105,14 +108,15 @@ def get_argument_parser():
 
     # Output
     parser.add_argument('--output_dir', default="../models_ucy/temp")
-    parser.add_argument('--print_every', default=50, type=int)
-    parser.add_argument('--checkpoint_every', default=50, type=int)
+    parser.add_argument('--print_every', default=200, type=int)
+    parser.add_argument('--checkpoint_every', default=200, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
     parser.add_argument('--num_samples_check', default=5000, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
-    parser.add_argument('--lamb', default=1.0, type=float)
+    parser.add_argument('--lamb', default=0.0, type=float)
+    parser.add_argument('--sanity_check', default=0, type=bool_flag)
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -140,6 +144,8 @@ def get_dtypes(args):
 
 
 def main(args):
+    if args.pooling_type == 'spool':
+        print('INFO: Discriminator loss disabled')
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
 
@@ -186,6 +192,8 @@ def main(args):
     generator.type(float_dtype).train()
     logger.info('Here is the generator:')
     logger.info(generator)
+    g_loss_fn = gan_g_loss
+    optimizer_g = optim.Adam(generator.parameters(), lr=args.g_learning_rate)
 
     discriminator = TrajectoryDiscriminator(
         obs_len=args.obs_len,
@@ -198,36 +206,35 @@ def main(args):
         batch_norm=args.batch_norm,
         d_type=args.d_type)
 
-    critic = TrajectoryCritic(
-        obs_len=args.obs_len,
-        pred_len=args.pred_len,
-        embedding_dim=args.embedding_dim,
-        h_dim=args.encoder_h_dim_c,
-        mlp_dim=args.mlp_dim,
-        num_layers=args.num_layers,
-        dropout=args.dropout,
-        batch_norm=args.batch_norm,
-        d_type=args.c_type,
-        collision_threshold=args.collision_threshold,
-        occupancy_threshold=args.occupancy_threshold)
-
     discriminator.apply(init_weights)
     discriminator.type(float_dtype).train()
     logger.info('Here is the discriminator:')
     logger.info(discriminator)
-
-    critic.apply(init_weights)
-    critic.type(float_dtype).train()
-    logger.info('Here is the critic:')
-    logger.info(critic)
-
-    g_loss_fn = gan_g_loss
     d_loss_fn = gan_d_loss
-    c_loss_fn = critic_loss
-
-    optimizer_g = optim.Adam(generator.parameters(), lr=args.g_learning_rate)
     optimizer_d = optim.Adam(discriminator.parameters(), lr=args.d_learning_rate)
-    optimizer_c = optim.Adam(critic.parameters(), lr=args.c_learning_rate)
+
+    if args.lamb > 0.0:
+        critic = TrajectoryCritic(
+            obs_len=args.obs_len,
+            pred_len=args.pred_len,
+            embedding_dim=args.embedding_dim,
+            h_dim=args.encoder_h_dim_c,
+            mlp_dim=args.mlp_dim,
+            num_layers=args.num_layers,
+            dropout=args.dropout,
+            batch_norm=args.batch_norm,
+            d_type=args.c_type,
+            collision_threshold=args.collision_threshold,
+            occupancy_threshold=args.occupancy_threshold)
+
+        critic.apply(init_weights)
+        critic.type(float_dtype).train()
+        logger.info('Here is the critic:')
+        logger.info(critic)
+        c_loss_fn = critic_loss
+        optimizer_c = optim.Adam(critic.parameters(), lr=args.c_learning_rate)
+    else:
+        args.c_steps = 0
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -235,6 +242,7 @@ def main(args):
         restore_path = args.checkpoint_start_from
     elif args.restore_from_checkpoint == 1:
         restore_path = os.path.join(args.output_dir,'%s_with_model.pt' % args.checkpoint_name)
+
 
     model_name = '%s_with_model.pt'
 
@@ -248,6 +256,7 @@ def main(args):
         t = checkpoint['counters']['t']
         epoch = checkpoint['counters']['epoch']
         checkpoint['restore_ts'].append(t)
+
     else:
         # Starting from scratch, so initialize checkpoint data structure
         t, epoch = 0, 0
@@ -325,8 +334,13 @@ def main(args):
 
             elif g_steps_left > 0:
                 step_type = 'g'
-                losses_g = generator_step(args, batch, generator,
-                                              discriminator, critic, g_loss_fn,
+                if args.lamb > 0:
+                    losses_g = generator_step(args, batch, generator,
+                                                  discriminator, g_loss_fn,
+                                                  optimizer_g, critic)
+                else:
+                    losses_g = generator_step(args, batch, generator,
+                                              discriminator, g_loss_fn,
                                               optimizer_g)
 
                 checkpoint['norm_g'].append(
@@ -359,9 +373,10 @@ def main(args):
                 for k, v in sorted(losses_g.items()):
                     logger.info('  [G] {}: {:.3f}'.format(k, v))
                     checkpoint['G_losses'][k].append(v)
-                for k, v in sorted(losses_c.items()):
-                    logger.info('  [C] {}: {:.3f}'.format(k, v))
-                    checkpoint['C_losses'][k].append(v)
+                if args.lamb > 0:
+                    for k, v in sorted(losses_c.items()):
+                        logger.info('  [C] {}: {:.3f}'.format(k, v))
+                        checkpoint['C_losses'][k].append(v)
                 checkpoint['losses_ts'].append(t)
 
             # Maybe save a checkpoint
@@ -373,23 +388,36 @@ def main(args):
                 # Check stats on the validation set
                 logger.info('Checking stats on val ...')
                 logger.info('Checking stats on train ...')
-                metrics_train = check_accuracy(
-                    args, train_loader, generator, discriminator,
-                    d_loss_fn, critic, c_loss_fn, limit=True
-                )
                 if args.pool_static:
                     generator.static_net.set_dset_list(val_path)
-                    critic.set_dset_list(val_path)
+                    # critic.set_dset_list(val_path)
                     if args.pool_every_timestep:
                         generator.decoder.static_net.set_dset_list(val_path)
+                if args.lamb > 0.0:
+                    metrics_train = check_accuracy(
+                        args, train_loader, generator, discriminator,
+                        d_loss_fn, True, critic, c_loss_fn
+                    )
+                else:
+                    metrics_train = check_accuracy(
+                        args, train_loader, generator, discriminator,
+                        d_loss_fn, limit=True
+                    )
 
-                if args.c_type == 'static':
+
+                if args.c_type == 'static' and args.lamb > 0:
                     critic.set_dset_list(val_path)
 
-                metrics_val = check_accuracy(
-                    args, val_loader, generator, discriminator,
-                    d_loss_fn, critic, c_loss_fn
-                )
+                if args.lamb > 0.0:
+                    metrics_val = check_accuracy(
+                        args, val_loader, generator, discriminator,
+                        d_loss_fn, False, critic, c_loss_fn
+                    )
+                else:
+                    metrics_val = check_accuracy(
+                        args, val_loader, generator, discriminator,
+                        d_loss_fn, False
+                    )
                 for k, v in sorted(metrics_val.items()):
                     logger.info('  [val] {}: {:.3f}'.format(k, v))
                     checkpoint['metrics_val'][k].append(v)
@@ -405,7 +433,8 @@ def main(args):
                     checkpoint['best_t'] = t
                     checkpoint['g_best_state'] = generator.state_dict()
                     checkpoint['d_best_state'] = discriminator.state_dict()
-                    checkpoint['c_best_state'] = critic.state_dict()
+                    if args.lamb > 0.0:
+                        checkpoint['c_best_state'] = critic.state_dict()
 
                 if metrics_val['ade_nl'] == min_ade_nl:
                     logger.info('New low for avg_disp_error_nl')
@@ -419,8 +448,9 @@ def main(args):
                 checkpoint['g_optim_state'] = optimizer_g.state_dict()
                 checkpoint['d_state'] = discriminator.state_dict()
                 checkpoint['d_optim_state'] = optimizer_d.state_dict()
-                checkpoint['c_state'] = critic.state_dict()
-                checkpoint['c_optim_state'] = optimizer_c.state_dict()
+                if args.lamb > 0.0:
+                    checkpoint['c_state'] = critic.state_dict()
+                    checkpoint['c_optim_state'] = optimizer_c.state_dict()
                 checkpoint_path = os.path.join(
                     args.output_dir, model_name % args.checkpoint_name
                 )
@@ -445,6 +475,7 @@ def main(args):
                 torch.save(small_checkpoint, checkpoint_path)
 
                 logger.info('Done.')
+
 
             t += 1
             d_steps_left = args.d_steps
@@ -487,10 +518,6 @@ def discriminator_step(
     losses['D_data_loss'] = data_loss.item()
     loss += data_loss
     losses['D_total_loss'] = loss.item()
-
-    # if args.wgan:
-    #     gradient_penalty = calc_gradient_penalty(discriminator, traj_real_rel, traj_real, traj_fake_rel)
-    #     loss += gradient_penalty
 
     optimizer_d.zero_grad()
     loss.backward()
@@ -555,7 +582,7 @@ def critic_step(
     return losses
 
 def generator_step(
-        args, batch, generator, discriminator, critic, g_loss_fn, optimizer_g
+        args, batch, generator, discriminator, g_loss_fn, optimizer_g, critic=None
 ):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
@@ -598,22 +625,21 @@ def generator_step(
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
     scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
-    if args.c_type == 'static':
-        values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
-    else:
-        values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end)
-    if args.wgan:
-        discriminator_loss = - args.lamb * torch.mean(scores_fake)
-        oracle_loss = - (1.0 - args.lamb) * torch.mean(values_fake)
-    else:
-        discriminator_loss = g_loss_fn(scores_fake)
-        oracle_loss = args.lamb * (torch.mean(-1 * (values_fake - torch.ones_like(values_fake))))
-
-    if args.pooling_type != 'spool':
-        loss += discriminator_loss + oracle_loss
-
-    losses['G_oracle_loss'] = oracle_loss.item()
+    discriminator_loss = g_loss_fn(scores_fake)
     losses['G_discriminator_loss'] = discriminator_loss.item()
+    if args.pooling_type != 'spool':
+        loss += discriminator_loss
+
+    if args.lamb > 0.0:
+        if args.c_type == 'static':
+            values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
+        else:
+            values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end)
+        oracle_loss = args.lamb * (torch.mean(-1 * (values_fake - torch.ones_like(values_fake))))
+        losses['G_oracle_loss'] = oracle_loss.item()
+        if args.pooling_type != 'spool':
+            loss += oracle_loss
+
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()
@@ -628,7 +654,7 @@ def generator_step(
 
 
 def check_accuracy(
-        args, loader, generator, discriminator=None, d_loss_fn=None, critic=None, c_loss_fn=None, limit=False, eval_discriminator=True, eval_critic=True
+        args, loader, generator, discriminator=None, d_loss_fn=None, limit=False, critic=None, c_loss_fn=None, eval_discriminator=True, eval_critic=True
 ):
     d_losses = []
     c_losses = []
@@ -667,18 +693,19 @@ def check_accuracy(
             fde, fde_l, fde_nl = cal_fde(
                 pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
             )
-            cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold).sum()
-            cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold).sum()
-
-            if args.c_type == 'static':
-                seq_scenes = [critic.list_data_files[num] for num in seq_scene_ids]
-                occs_pred = cal_occs(pred_traj_fake, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode = "binary").sum()
-                occs_gt = cal_occs(pred_traj_gt, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode = "binary").sum()
+            if args.lamb > 0.0:
+                cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold).sum()
+                cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold).sum()
+                if args.c_type == 'static':
+                    seq_scenes = [critic.list_data_files[num] for num in seq_scene_ids]
+                    occs_pred = cal_occs(pred_traj_fake, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode = "binary").sum()
+                    occs_gt = cal_occs(pred_traj_gt, seq_start_end, critic.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode = "binary").sum()
 
             traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
             traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
             traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
             traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
+
 
             if eval_discriminator:
                 scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
@@ -687,7 +714,7 @@ def check_accuracy(
                 d_loss = d_loss_fn(scores_real, scores_fake)
                 d_losses.append(d_loss.item())
 
-            if eval_critic:
+            if eval_critic and args.lamb > 0.0:
                 if args.c_type == 'static':
                     # rewards_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end)
                     rewards_real, _ = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
@@ -699,8 +726,7 @@ def check_accuracy(
 
             g_l2_losses_abs.append(g_l2_loss_abs.item())
             g_l2_losses_rel.append(g_l2_loss_rel.item())
-            collisions_pred.append(cols_pred.item())
-            collisions_gt.append(cols_gt.item())
+
             disp_error.append(ade.item())
             disp_error_l.append(ade_l.item())
             disp_error_nl.append(ade_nl.item())
@@ -708,7 +734,9 @@ def check_accuracy(
             f_disp_error_l.append(fde_l.item())
             f_disp_error_nl.append(fde_nl.item())
 
-            if args.c_type == 'static':
+            if args.c_type == 'static' and args.lamb > 0.0:
+                collisions_pred.append(cols_pred.item())
+                collisions_gt.append(cols_gt.item())
                 occupancies_gt.append(occs_gt.item())
                 occupancies_pred.append(occs_pred.item())
 
@@ -716,6 +744,11 @@ def check_accuracy(
             total_traj += pred_traj_gt.size(1)
             total_traj_l += torch.sum(linear_ped).item()
             total_traj_nl += torch.sum(non_linear_ped).item()
+
+            if args.sanity_check:
+                seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
+                sanity_check(ax1, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end,
+                             generator.static_net.scene_information, seq_scenes)
 
             if limit and total_traj >= args.num_samples_check:
                 break
@@ -725,10 +758,10 @@ def check_accuracy(
 
     metrics['ade'] = sum(disp_error) / (total_traj * args.pred_len)
     metrics['fde'] = sum(f_disp_error) / total_traj
-    metrics['cols'] = sum(collisions_pred) / total_traj
-    metrics['cols_gt'] = sum(collisions_gt) / total_traj
 
-    if args.c_type == 'static':
+    if args.c_type == 'static' and args.lamb > 0.0:
+        metrics['cols'] = sum(collisions_pred) / total_traj
+        metrics['cols_gt'] = sum(collisions_gt) / total_traj
         metrics['occs'] = sum(occupancies_pred) / total_traj
         metrics['occs_gt'] = sum(occupancies_gt) / total_traj
 
@@ -750,10 +783,31 @@ def check_accuracy(
 
     if eval_discriminator:
         metrics['d_loss'] = sum(d_losses) / len(d_losses)
-    if eval_critic:
+    if eval_critic and args.lamb > 0.0:
         metrics['c_loss'] = sum(c_losses) / len(c_losses)
 
     return metrics
+
+
+def sanity_check(ax,pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, scene_information, seq_scene):
+    obs = obs_traj.permute(1, 0, 2)
+    pred = pred_traj_fake.permute(1, 0, 2)
+    gt = pred_traj_gt.permute(1, 0, 2)
+    for i, (start, end) in enumerate(seq_start_end[0:2]):
+        ax1.cla()
+        start = start.item()
+        end = end.item()
+        annotated_points = scene_information[seq_scene[i]]
+        o = obs[start:end].contiguous().view(-1, 2)
+        g = gt[start:end].contiguous().view(-1, 2)
+        p = pred[start:end].contiguous().view(-1, 2)
+        ax.scatter(o[:, 0], o[:, 1], c='orange', s=1)
+        ax.scatter(p[:, 0], p[:, 1], c='purple', s=1)
+        ax.scatter(g[:, 0], g[:, 1], c='green', s=1)
+        ax.scatter(annotated_points[:, 0], annotated_points[:, 1], c='black',marker='.', s=10)
+        ax.axis([0, 15, 0, 15])
+        plt.draw()
+        plt.pause(0.001)
 
 
 def cal_l2_losses(
