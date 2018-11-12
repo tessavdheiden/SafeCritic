@@ -74,6 +74,15 @@ for root, dirs, files in os.walk(dir_dataset):
             dset = dir_dataset
             h = pd.read_csv(dir_dataset + '/{}_homography.txt'.format(dataset_name), delim_whitespace=True, header=None).values
             world_boundary_points = get_world_from_pixels(boundary_points, h)
+            plt.scatter(world_boundary_points[:, 0], world_boundary_points[:, 1], s=1)
+
+            # check with coordinates
+            coordinates = np.loadtxt(dir_dataset + "/" + '{}.txt'.format(dataset_name))
+            x = coordinates[:, 2]
+            y = coordinates[:, 3]
+            pts_wrd = np.stack((x, y)).T
+            plt.scatter(pts_wrd[:, 0], pts_wrd[:, 1], s=1)
+            plt.show()
             np.save(dir_dataset + "/" + 'world_points_boundary.npy', world_boundary_points)
 
         # plt.show()
