@@ -7,7 +7,7 @@ import pandas as pd
 
 from sgan.utils import get_dset_group_name, get_dset_name
 
-use_boundary_subsampling = True         # Switch to False if you want to use pandas implementation of polar grid
+use_boundary_subsampling = False         # Switch to False if you want to use pandas implementation of polar grid
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
@@ -123,10 +123,7 @@ class PhysicalPooling(nn.Module):
         mlp_pre_dim = embedding_dim + h_dim
         mlp_pre_pool_dims = [mlp_pre_dim, 512, bottleneck_dim]
 
-        if use_boundary_subsampling:
-            self.spatial_embedding = nn.Linear(2, embedding_dim)
-        else:
-            self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim)
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
         self.mlp_pre_pool = make_mlp(
             mlp_pre_pool_dims,
             activation=activation,
@@ -144,7 +141,7 @@ class PhysicalPooling(nn.Module):
         path = os.path.join(path_group, dset)
         map = np.load(path + "/world_points_boundary.npy")
         if down_sampling:
-            down_sampling = (map.shape[0] // 50)
+            down_sampling = (map.shape[0] // 100)
             return map[::down_sampling]
         else:
             return map
@@ -275,7 +272,7 @@ class PhysicalPooling(nn.Module):
                 # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
                 curr_ped_pos_repeated = self.repeat(curr_end_pos, self.num_cells)
                 boundary_points_per_ped = self.get_polar_grid_points(curr_end_pos, curr_disp_pos, annotated_points, self.num_cells, self.neighborhood_size)
-                curr_rel_pos = boundary_points_per_ped.view(-1, 2 * self.num_cells) - curr_ped_pos_repeated.view(-1, 2 * self.num_cells)
+                curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated
 
             curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
             mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
