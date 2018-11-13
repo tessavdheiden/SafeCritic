@@ -102,7 +102,8 @@ class Decoder(nn.Module):
                     activation=activation,
                     batch_norm=batch_norm,
                     dropout=dropout,
-                    pooling_dim=pooling_dim
+                    pooling_dim=pooling_dim,
+                    neighborhood_size=neighborhood_size
                 )
             elif pooling_type == 'spool':
                 self.pool_net = SocialPooling(
@@ -240,7 +241,7 @@ class TrajectoryGenerator(nn.Module):
         if (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and pool_static:
             bottleneck_dim = bottleneck_dim // 2
             input_dim = encoder_h_dim + bottleneck_dim * 2
-        elif (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') or pool_static:
+        elif (self.pooling_type == 'spool' or self.pooling_type == 'pool_net'):
             input_dim = encoder_h_dim + bottleneck_dim
         else:
             input_dim = encoder_h_dim
@@ -253,11 +254,13 @@ class TrajectoryGenerator(nn.Module):
                 bottleneck_dim=bottleneck_dim,
                 activation=activation,
                 batch_norm=batch_norm,
-                pooling_dim=pooling_dim
+                pooling_dim=pooling_dim,
+                neighborhood_size=neighborhood_size
             )
         elif pooling_type == 'spool':
             self.pool_net = SocialPooling(
                 h_dim=encoder_h_dim,
+                bottleneck_dim=bottleneck_dim,
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout,

@@ -9,7 +9,6 @@ from sgan.utils import get_dset_group_name, get_dset_name
 
 use_boundary_subsampling = True         # Switch to False if you want to use pandas implementation of polar grid
 
-
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
     for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
@@ -28,7 +27,7 @@ class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
         self, embedding_dim=64, h_dim=64, mlp_dim=1024, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, dropout=0.0, pooling_dim=2
+        activation='relu', batch_norm=True, dropout=0.0, pooling_dim=2, neighborhood_size=2.0
     ):
         super(PoolHiddenNet, self).__init__()
 
@@ -37,6 +36,7 @@ class PoolHiddenNet(nn.Module):
         self.bottleneck_dim = bottleneck_dim
         self.embedding_dim = embedding_dim
         self.pooling_dim = pooling_dim
+        self.neighborhood_size = neighborhood_size
 
         mlp_pre_dim = embedding_dim + h_dim
         mlp_pre_pool_dims = [mlp_pre_dim, 512, bottleneck_dim]
@@ -84,6 +84,10 @@ class PoolHiddenNet(nn.Module):
             curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
 
             if self.pooling_dim == 4:
+                curr_rel_pos[curr_rel_pos > self.neighborhood_size / 2] = 0
+                curr_rel_pos[curr_rel_pos < -self.neighborhood_size / 2] = 0
+                curr_rel_pos /= (self.neighborhood_size / 2)
+
                 curr_disp = rel_pos[start:end]
                 curr_disp_1 = curr_disp.repeat(num_ped, 1)
                 # Repeat position -> P1, P1, P2, P2
@@ -119,7 +123,10 @@ class PhysicalPooling(nn.Module):
         mlp_pre_dim = embedding_dim + h_dim
         mlp_pre_pool_dims = [mlp_pre_dim, 512, bottleneck_dim]
 
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        if use_boundary_subsampling:
+            self.spatial_embedding = nn.Linear(2, embedding_dim)
+        else:
+            self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim)
         self.mlp_pre_pool = make_mlp(
             mlp_pre_pool_dims,
             activation=activation,
@@ -137,10 +144,7 @@ class PhysicalPooling(nn.Module):
         path = os.path.join(path_group, dset)
         map = np.load(path + "/world_points_boundary.npy")
         if down_sampling:
-            desired_num_points = 100
-            if map.shape[0] <= desired_num_points:
-                return map
-            down_sampling = (map.shape[0] // desired_num_points)
+            down_sampling = (map.shape[0] // 50)
             return map[::down_sampling]
         else:
             return map
@@ -171,7 +175,6 @@ class PhysicalPooling(nn.Module):
         plt.scatter(curr_end_pos[:, 0], curr_end_pos[:, 1])
         plt.quiver(curr_end_pos[:, 0], curr_end_pos[:, 1], curr_rel_pos[:, 0], curr_rel_pos[:, 1])
         plt.show()
-
 
     def get_polar_grid_points(self, ped_positions, ped_directions, boundary_points, num_beams, radius):
         # It returns num_beams boundary points for each pedestrian
@@ -229,7 +232,6 @@ class PhysicalPooling(nn.Module):
 
         return cartesian_grid_points
 
-
     def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
         """
         Inputs:
@@ -249,25 +251,31 @@ class PhysicalPooling(nn.Module):
             curr_hidden = h_states.view(-1, self.h_dim)[start:end]
             curr_end_pos = end_pos[start:end]
             annotated_points = self.scene_information[seq_scenes[i]]
-            curr_rel_pos = rel_pos[start:end]
 
             if use_boundary_subsampling:
                 ''' Old code with subsampling of boundary points '''
-                #self.check(self, curr_end_pos, curr_rel_pos, annotated_points)
+
                 self.num_cells = annotated_points.size(0)
                 curr_end_pos_1 = annotated_points.repeat(num_ped, 1)
+
                 # Repeat -> H1, H1, H2, H2
                 curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
                 # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
                 curr_end_pos_2 = self.repeat(curr_end_pos, self.num_cells)
                 curr_rel_pos = curr_end_pos_1.view(-1, 2) - curr_end_pos_2
+
+                curr_rel_pos[curr_rel_pos > self.neighborhood_size / 2] = 0
+                curr_rel_pos[curr_rel_pos < -self.neighborhood_size / 2] = 0
+                curr_rel_pos /= (self.neighborhood_size / 2)
+
             else:
                 ''' New code with pandas implementation of polar grid (Giuseppe)'''
+                curr_disp_pos = rel_pos[start:end]
                 curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
                 # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
                 curr_ped_pos_repeated = self.repeat(curr_end_pos, self.num_cells)
-                boundary_points_per_ped = self.get_polar_grid_points(curr_end_pos, curr_rel_pos, annotated_points, self.num_cells, self.neighborhood_size)
-                curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated
+                boundary_points_per_ped = self.get_polar_grid_points(curr_end_pos, curr_disp_pos, annotated_points, self.num_cells, self.neighborhood_size)
+                curr_rel_pos = boundary_points_per_ped.view(-1, 2 * self.num_cells) - curr_ped_pos_repeated.view(-1, 2 * self.num_cells)
 
             curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
             mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
@@ -282,7 +290,7 @@ class SocialPooling(nn.Module):
     """Current state of the art pooling mechanism:
     http://cvgl.stanford.edu/papers/CVPR16_Social_LSTM.pdf"""
     def __init__(
-        self, h_dim=64, activation='relu', batch_norm=True, dropout=0.0,
+        self, h_dim=64, bottleneck_dim= 1024,activation='relu', batch_norm=True, dropout=0.0,
         neighborhood_size=2.0, grid_size=8, pool_dim=None
     ):
         super(SocialPooling, self).__init__()
@@ -292,7 +300,7 @@ class SocialPooling(nn.Module):
         if pool_dim:
             mlp_pool_dims = [grid_size * grid_size * h_dim, pool_dim]
         else:
-            mlp_pool_dims = [grid_size * grid_size * h_dim, h_dim]
+            mlp_pool_dims = [grid_size * grid_size * h_dim, bottleneck_dim]
 
         self.mlp_pool = make_mlp(
             mlp_pool_dims,
@@ -334,7 +342,7 @@ class SocialPooling(nn.Module):
         return tensor
 
 
-    def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos):
         """
         Inputs:
         - h_states: Tesnsor of shape (num_layers, batch, h_dim)
