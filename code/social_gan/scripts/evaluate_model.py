@@ -149,8 +149,9 @@ def plot_photo(ax, photo, title):
     ax.cla()
     # ax.imshow(photo, alpha=0.4)
     ax.imshow(photo)
-    ax.set_title(title)
+    # ax.set_title(title)
     ax.axis([0, photo.shape[1], photo.shape[0], 0])
+    ax.axis('off')
     ax.set_yticklabels([])
     ax.set_xticklabels([])
 

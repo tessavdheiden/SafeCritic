@@ -20,7 +20,7 @@ if benchmark == "collisions":
     #table_column_names = np.array(["safeGAN_RL_OT.10", "safeGAN_RL_OT.075", "safeGAN_RL_OT.05", "safeGAN_RL_OT.025", "safeGAN_RL_OT.01", "safeGAN_RL_OT.00"])
     metrics = np.array(["COLS", "OCCS"])
 elif benchmark == "displacement":
-    table_column_names = np.array(["SafeGAN_SP", "socialGAN", "socialLSTM", "safeGAN_DP4", "safeGAN_DP4_norm"])
+    table_column_names = np.array(["safeGAN_DP4_SP", "safeGAN_DP4_SP_BN", "safeGAN_DP4_SP_BN_16", "safeGAN_SP"])
     # table_column_names = np.array(["socialGAN", "safeGAN_DP4", "safeGAN_SP", "safeGAN_DP4_SP"])
     metrics = np.array(["ADE", "FDE"])
 
@@ -162,7 +162,7 @@ def evaluate(args, loader, generator, num_samples, data_dir, oracle=None):
             # print('collisions via helper =',cols.item(), ', collisions = ', cols_, 'cols_all = ', cols_all.item())
             print('occupancies via helper =', occs.item(), ', occupancies = ', occs_.item(), 'occs_all = ', occs_all.item())
 
-        return ade, fde, cols, occs
+        return ade, fde, cols, occs, total_traj
 
 
 parser = get_argument_parser()
@@ -196,9 +196,10 @@ for model_idx, model_name in enumerate(table_column_names):
                     generator.decoder.static_net.set_dset_list(dataset_path)
 
             _, loader = data_loader(args, dataset_path, shuffle=False)
-            ADE_value, FDE_value, COLS_value, OCCS_value = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path)
+            ADE_value, FDE_value, COLS_value, OCCS_value, total_traj = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path)
         else:
-            ADE_value, FDE_value, COLS_value, OCCS_value = 0, 0, 0, 0
+            ADE_value, FDE_value, COLS_value, OCCS_value, total_traj = 0, 0, 0, 0, 0
+        print('dataset = {}, total_traj = {}'.format(dataset, total_traj))
         if benchmark == "displacement":
             table.set_value(model_idx, dataset, "FDE", FDE_value)
             table.set_value(model_idx, dataset, "ADE", ADE_value)

@@ -14,11 +14,12 @@ from scripts.evaluate_model import get_generator, get_trajectories, plot_cols, g
 from sgan.models import TrajectoryCritic, TrajectoryDiscriminator
 from sgan.data.loader import data_loader
 from sgan.models_static_scene import get_homography_and_map
+from datasets.calculate_static_scene_boundaries import get_pixels_from_world, get_world_from_pixels
 from scripts.train import cal_cols, cal_occs
 from sgan.utils import get_dataset_path
 
 # model_path = "../results/analysis3b/Ours: SafeGAN_DP4_SP.pt"
-model_path = "../models_ucy/socialGAN/zara_1_12_local_gsteps_5_with_model.pt"
+model_path = "../models_sdd/safeGAN_SP/sdd_12_with_model.pt"
 
 def get_oracle(checkpoint_in):
     args = AttrDict(checkpoint_in['args'])
@@ -206,6 +207,104 @@ def evaluate_likelihood():
     plt.ylabel('likelihood of collision')
     plt.grid(True)
     plt.legend()
+    plt.show()
+
+
+def create_density_map(model_path):
+    def f(pixels, photo, N=100):
+        # for r in range(photo.shape[0]):
+        #     for c in range(photo.shape[0]):
+
+        rows = np.linspace(0, photo.shape[0], N)
+        cols = np.linspace(0, photo.shape[1], N)
+        R, C = np.meshgrid(rows, cols)
+        Z = np.ones((N, N))
+
+        for p in pixels:
+            pr = int(p[0] / photo.shape[0] * N)
+            pc = int(p[1] / photo.shape[1] * N)
+            if pr >= (N - 1) or pc >= (N - 1):
+                continue
+            # index = pr*photo.shape[0] + pc
+            Z[pr, pc] = 0
+        # Z /= np.max(Z)
+        # Z*= 255
+
+        return R, C, Z
+
+    dataset_name = 'coupa_3'
+    path = get_path(dataset_name)
+    reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
+    annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
+    # annotated_points_, h = get_homography_and_map(dataset_name, "/world_points_boundary (copy).npy")
+    # coordinates = np.loadtxt('../datasets/safegan_dataset/UCY/{}/Training/test/{}.txt'.format(dataset_name, dataset_name))
+
+    photo = reader.get_data(int(0))
+
+
+    # R, C, Z = f(pixels, photo)
+    # ax3.cla()
+    # plot_photo(ax3, photo, 'tmp')
+    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=10)
+    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=100)
+    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='black', alpha=.1, s=1, marker='+')
+    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=100)
+    # ax3.axis('off')
+
+    # fig, ((ax1)) = plt.subplots(1, 1, figsize=(4, 4), num=1)
+
+    plt.cla()
+    plt.imshow(photo)
+    args, generator, discriminator, loader, data_path = get_generator_oracle_discriminator_loader(model_path, False)
+
+    path = get_path(args.dataset_name)
+    for s in range(10):
+        with torch.no_grad():
+            for b, batch in enumerate(loader):
+                batch = [tensor.cuda() for tensor in batch]
+                (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+                 non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
+
+                # generate trajectories
+                pred_traj_fake, pred_traj_fake_rel = get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end,
+                                                                      pred_traj_gt, seq_scene_ids, path)
+                # generate score
+                # scores_pred_real_o = get_scores(oracle, obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, seq_start_end, seq_scene_ids)
+                # scores_pred_fake_o = get_scores(oracle, obs_traj, pred_traj_fake, obs_traj_rel, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
+                seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
+                cols_of_fake = cal_occs(pred_traj_fake, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=0.25, mode="binary")
+
+                index = cols_of_fake < 1
+                pred = pred_traj_fake.permute(1, 0, 2)
+                gt = pred_traj_fake.permute(1, 0, 2)
+                for i, (start, end) in enumerate(seq_start_end):
+                    start = start.item()
+                    end = end.item()
+                    col = cols_of_fake[i]
+                    world_gt = gt[start:end].view(-1, 2)
+                    pixels_w = get_pixels_from_world(world_gt, h)
+                    # plt.scatter(pixels_w[:, 0], pixels_w[:, 1], c='green', alpha=.01, s=10)
+
+                    if col < 1:
+
+                        world = pred[start:end].view(-1, 2)
+                        pixels = get_pixels_from_world(world, h)
+                        plt.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=10,  edgecolors='none')
+
+                # get photo and frame
+                # for i in range(pred_traj_fake.size(1)):
+                #
+                    # ax1.scatter(obs_traj.permute(1, 0, 2)[i][:, 0], obs_traj.permute(1, 0, 2)[i][:, 1], c='green', s=1)
+                    # if scores_pred_fake_o[i] > .5:
+
+                    # if scores_pred_real_o[i] > .5:
+                    #     ax1.scatter(pred_traj_gt.permute(1, 0, 2)[i][:, 0], pred_traj_gt.permute(1, 0, 2)[i][:, 1], c='green', s=1)
+                # ax2.scatter(annotated_points[::downsampling, 0], annotated_points[::downsampling, 1], c='black',
+                #             marker='.', s=10)
+                #
+    plt.axis([0, photo.shape[1], photo.shape[0], 0])
+    plt.axis('off')
+    plt.tight_layout()
     plt.show()
 
 
@@ -435,7 +534,7 @@ def get_generator_oracle_discriminator_loader(model_path, oracle_load=True):
 
     generator, args = get_generator(checkpoint)
     discriminator, _ = get_discriminator(checkpoint)
-    # args['dataset_name'] = 'hyang_7'
+    args['dataset_name'] = 'coupa_3'
     data_dir = get_dataset_path(args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, path, shuffle=False)
@@ -451,7 +550,7 @@ def main():
     # check_loss(model_path)
     # evaluate_accuracy(args, generator, oracle, loader)
 
-    evaluate(model_path)
+    create_density_map(model_path)
     # evaluate_likelihood()
     # evaluate_latent_space(model_path)
 if __name__ == '__main__':
