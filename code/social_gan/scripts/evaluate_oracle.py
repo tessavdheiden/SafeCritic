@@ -21,7 +21,7 @@ from sgan.utils import get_dataset_path
 # model_path = "../results/analysis3b/Ours: SafeGAN_DP4_SP.pt"
 model_path = "../models_sdd/safeGAN_SP/sdd_12_with_model.pt"
 
-def get_oracle(checkpoint_in):
+def get_oracle(checkpoint_in, generator):
     args = AttrDict(checkpoint_in['args'])
     critic = TrajectoryCritic(
         obs_len=args.obs_len,
@@ -33,6 +33,7 @@ def get_oracle(checkpoint_in):
         dropout=args.dropout,
         batch_norm=args.batch_norm,
         d_type=args.c_type,
+        generator=generator,
         collision_threshold=args.collision_threshold,
         occupancy_threshold=args.occupancy_threshold)
 
@@ -166,48 +167,117 @@ def evaluate_accuracy(model_path):
 
 
 def evaluate_likelihood():
-    num_samples = [1, 5, 10]
-    paths = ["../results/analysis1/Ours: SafeGAN_RL_CT.1.pt", "../results/analysis1b/Ours: SafeGAN_RL_CT.25.pt", "../results/analysis1c/Ours: SafeGAN_RL_CT.5.pt", "../results/analysis1d/Ours: SafeGAN_RL_CT.75.pt", "../results/analysis1e/Ours: SafeGAN_RL_CT1.0.pt"]
-    model_sample_likelihood = torch.zeros(len(paths), len(num_samples))
-    model_sample_variance = torch.zeros(len(paths), len(num_samples))
+    colors = np.asarray([[.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0],[0, .75, 0], [0, 0, .75], [1, 0, 0]])
+    samples = 10
+    prefix = "../models_ucy/safeGAN_DP4_Post/"
+    paths = ['generator_zara_1_lambda_1_mse_with_model.pt', 'generator_zara_1_lambda_.75_mse_with_model.pt', 'generator_zara_1_lambda_.50_mse_with_model.pt', 'generator_zara_1_lambda_.25_mse_with_model.pt', 'generator_zara_1_lambda_.1_mse_with_model.pt']
 
-    for p, model_path in enumerate(paths):
-        args, generator, oracle, loader, _ = get_generator_oracle_loader(model_path)
-        for n, n_samp in enumerate(num_samples):
-            likelihood = 0
-            counter = 0
-            with torch.no_grad():
-                for b, batch in enumerate(loader):
-                    batch = [tensor.cuda() for tensor in batch]
-                    (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-                     non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
-                    mean_scores = torch.zeros(n_samp)
-                    all_scores = []
-                    for i in range(n_samp):
-                        pred_traj_fake, pred_traj_fake_rel = get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids)
-                        scores_pred_fake = get_scores(oracle, obs_traj, pred_traj_fake, obs_traj_rel, pred_traj_fake_rel, seq_start_end)
-                        mean_scores[i] = scores_pred_fake.mean()
-                        all_scores.append(scores_pred_fake)
-                    likelihood += (1-mean_scores.mean())
-                    counter += 1
-                    # print(mean_scores.mean() / n_samp)
-            likelihood /= counter
-            variance = torch.cat(all_scores, dim=0).std()
-            model_sample_likelihood[p][n] = likelihood
-            model_sample_variance[p][n] = variance
-            print('likelihood={:.3f} and variance={:.3f} for {} samples'.format(likelihood, variance, n_samp))
 
-    plt.scatter(num_samples, model_sample_likelihood[4, :], label='ct=1.0')
-    plt.scatter(num_samples, model_sample_likelihood[3, :], label='ct=.75')
-    plt.scatter(num_samples, model_sample_likelihood[2, :], label='ct=.5')
-    plt.scatter(num_samples, model_sample_likelihood[1, :], label='ct=.25')
-    plt.scatter(num_samples, model_sample_likelihood[0, :], label='ct=.1')
-    plt.axis([0, num_samples[-1], 0, 1])
-    plt.xlabel('number of samples')
-    plt.ylabel('likelihood of collision')
-    plt.grid(True)
-    plt.legend()
+    # paths = ['safeGAN_RL_CT.1/zara_1_12_ct_.1_with_model.pt', 'safeGAN_RL_CT.25/zara_1_12_ct_.25_with_model.pt', 'safeGAN_RL_CT.5/zara_1_12_ct_.5_with_model.pt', 'safeGAN_RL_CT.75/zara_1_12_ct_.75_with_model.pt', 'safeGAN_RL_CT1/zara_1_12_ct_1.0_with_model.pt']
+    # paths = ['safeGAN_RL_OT.10/zara_1_12_ot_.1_with_model.pt', 'safeGAN_RL_OT.075/zara_1_12_ot_.075_with_model.pt',
+    #          'safeGAN_RL_OT.05/zara_1_12_ot_.05_with_model.pt', 'safeGAN_RL_OT.01/zara_1_12_ot_.01_with_model.pt',
+    #          'safeGAN_RL_OT.00/zara_1_12_ot_.00_with_model.pt']
+
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(9, 9), tight_layout=True, num=1)
+
+    names = [1, .75, .25, .1]
+    for p, path in enumerate(paths):
+        model_path = prefix + path
+        args, generator, discriminator, loader, path, checkpoint = get_generator_oracle_discriminator_loader(model_path, False)
+        fde = []
+        ade = []
+        fde_var = []
+        ade_var = []
+        epochs = []
+        length = len(checkpoint['metrics_train']['cols'])
+        total_epochs = checkpoint['counters']['epoch']
+        steps_per_epoch = length // samples
+        fde = checkpoint['metrics_train']['fde'][:-10]
+        print(np.asarray(fde).mean())
+        #
+        # for i in range(0, total_epochs, steps_per_epoch):
+        #     fde.append(np.mean(np.asarray(checkpoint['metrics_val']['cols'][i:i + steps_per_epoch])))
+        #     ade.append(np.mean(np.asarray(checkpoint['metrics_val']['fde'][i:i + steps_per_epoch])))
+        #     fde_var.append(np.std(np.asarray(checkpoint['metrics_val']['cols'][i:i + steps_per_epoch])))
+        #     ade_var.append(np.std(np.asarray(checkpoint['metrics_val']['fde'][i:i + steps_per_epoch])))
+        #     epochs.append(i *(total_epochs/steps_per_epoch))
+        #
+        # fde = np.asarray(fde) # + np.random.rand(np.asarray(fde).shape[0]) / downsample
+        # ade = np.asarray(ade) # + np.random.rand(np.asarray(ade).shape[0]) / downsample
+        # print(fde[-1])
+        # fde_var = np.asarray(fde_var)
+        # ade_var = np.asarray(ade_var)
+        # max = 0
+        # ax1.fill_between(epochs, fde - fde_var - max, fde + fde_var-max, color=colors[p, :], alpha=.5)
+        # ax1.scatter(epochs, fde-max, label='$\lambda$={:.2f}'.format(names[p]), c=colors[p, :])
+        # ax1.set_ylabel('cols dynamic')
+        # ax1.set_xlabel('epochs')
+        # ax1.legend()
+        # ax1.grid(True)
+        #
+        # ax2.fill_between(epochs, ade - ade_var, ade + ade_var, color=colors[p, :], alpha=.5)
+        # ax2.scatter(epochs, ade, label='$\lambda$={:.2f}'.format(names[p]), c=colors[p, :])
+        # ax2.set_ylabel('fde')
+        # ax2.set_xlabel('epochs')
+        # ax2.legend()
+        # ax2.grid(True)
+        #
+        # ax3.scatter(np.arange(0, len(checkpoint['G_losses']['G_l2_loss_rel'])), checkpoint['G_losses']['G_l2_loss_rel'], label='l2 loss $\lambda$={:.2f}'.format(names[p]), c=colors[p, :], marker="+")
+        # ax3.scatter(np.arange(0, len(checkpoint['G_losses']['G_oracle_loss'])), checkpoint['G_losses']['G_oracle_loss'], label='oracle $\lambda$={:.2f}'.format(names[p]), c=colors[p, :], marker=".")
+        # ax3.scatter(np.arange(0, len(checkpoint['G_losses']['G_discriminator_loss'])), checkpoint['G_losses']['G_discriminator_loss'],label='$disc \lambda$={:.2f}'.format(names[p]), c=colors[p, :], marker="x")
+        # ax3.set_ylabel('generator losses')
+        # ax3.set_xlabel('epochs')
+        # ax3.legend()
+        # ax3.grid(True)
+        #
+        # ax4.scatter(np.arange(0, len(checkpoint['metrics_val']['fde'])), checkpoint['metrics_val']['fde'], label='val \lambda$={:.2f}'.format(names[p]), c=colors[p, :], marker="+")
+        # ax4.scatter(np.arange(0, len(checkpoint['metrics_train']['fde'])), checkpoint['metrics_train']['fde'], label='train \lambda$={:.2f}'.format(names[p]), c=colors[p, :], marker="x")
+        # ax3.legend()
+        # ax4.set_ylabel('fde')
+        # ax4.set_xlabel('epochs')
+        # ax4.grid(True)
+
+
+        plt.draw()
+        plt.pause(0.001)
+    plt.pause(0.001)
     plt.show()
+
+    #     for n, n_samp in enumerate(num_samples):
+    #         likelihood = 0
+    #         counter = 0
+    #         with torch.no_grad():
+    #             for b, batch in enumerate(loader):
+    #                 batch = [tensor.cuda() for tensor in batch]
+    #                 (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+    #                  non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
+    #                 mean_scores = torch.zeros(n_samp)
+    #                 all_scores = []
+    #                 for i in range(n_samp):
+    #                     pred_traj_fake, pred_traj_fake_rel = get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids)
+    #                     scores_pred_fake = get_scores(oracle, obs_traj, pred_traj_fake, obs_traj_rel, pred_traj_fake_rel, seq_start_end)
+    #                     mean_scores[i] = scores_pred_fake.mean()
+    #                     all_scores.append(scores_pred_fake)
+    #                 likelihood += (1-mean_scores.mean())
+    #                 counter += 1
+    #                 # print(mean_scores.mean() / n_samp)
+    #         likelihood /= counter
+    #         variance = torch.cat(all_scores, dim=0).std()
+    #         model_sample_likelihood[p][n] = likelihood
+    #         model_sample_variance[p][n] = variance
+    #         print('likelihood={:.3f} and variance={:.3f} for {} samples'.format(likelihood, variance, n_samp))
+    #
+    # plt.scatter(num_samples, model_sample_likelihood[4, :], label='ct=1.0')
+    # plt.scatter(num_samples, model_sample_likelihood[3, :], label='ct=.75')
+    # plt.scatter(num_samples, model_sample_likelihood[2, :], label='ct=.5')
+    # plt.scatter(num_samples, model_sample_likelihood[1, :], label='ct=.25')
+    # plt.scatter(num_samples, model_sample_likelihood[0, :], label='ct=.1')
+    # plt.axis([0, num_samples[-1], 0, 1])
+    # plt.xlabel('number of samples')
+    # plt.ylabel('likelihood of collision')
+
+
+
 
 
 def create_density_map(model_path):
@@ -240,18 +310,6 @@ def create_density_map(model_path):
     # coordinates = np.loadtxt('../datasets/safegan_dataset/UCY/{}/Training/test/{}.txt'.format(dataset_name, dataset_name))
 
     photo = reader.get_data(int(0))
-
-
-    # R, C, Z = f(pixels, photo)
-    # ax3.cla()
-    # plot_photo(ax3, photo, 'tmp')
-    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=10)
-    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=100)
-    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='black', alpha=.1, s=1, marker='+')
-    # ax3.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=100)
-    # ax3.axis('off')
-
-    # fig, ((ax1)) = plt.subplots(1, 1, figsize=(4, 4), num=1)
 
     plt.cla()
     plt.imshow(photo)
@@ -291,17 +349,6 @@ def create_density_map(model_path):
                         pixels = get_pixels_from_world(world, h)
                         plt.scatter(pixels[:, 0], pixels[:, 1], c='green', alpha=.01, s=10,  edgecolors='none')
 
-                # get photo and frame
-                # for i in range(pred_traj_fake.size(1)):
-                #
-                    # ax1.scatter(obs_traj.permute(1, 0, 2)[i][:, 0], obs_traj.permute(1, 0, 2)[i][:, 1], c='green', s=1)
-                    # if scores_pred_fake_o[i] > .5:
-
-                    # if scores_pred_real_o[i] > .5:
-                    #     ax1.scatter(pred_traj_gt.permute(1, 0, 2)[i][:, 0], pred_traj_gt.permute(1, 0, 2)[i][:, 1], c='green', s=1)
-                # ax2.scatter(annotated_points[::downsampling, 0], annotated_points[::downsampling, 1], c='black',
-                #             marker='.', s=10)
-                #
     plt.axis([0, photo.shape[1], photo.shape[0], 0])
     plt.axis('off')
     plt.tight_layout()
@@ -539,19 +586,18 @@ def get_generator_oracle_discriminator_loader(model_path, oracle_load=True):
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, path, shuffle=False)
     if oracle_load:
-        oracle, _ = get_oracle(checkpoint)
-        oracle.set_dset_list(path)
-        return args, generator, oracle, discriminator, loader, path
+        oracle, _ = get_oracle(checkpoint, generator)
+        return args, generator, oracle, discriminator, loader, path, checkpoint
     else:
-        return args, generator, discriminator, loader, path
+        return args, generator, discriminator, loader, path, checkpoint
 
 
 def main():
     # check_loss(model_path)
     # evaluate_accuracy(args, generator, oracle, loader)
 
-    create_density_map(model_path)
-    # evaluate_likelihood()
+    # create_density_map(model_path)
+    evaluate_likelihood()
     # evaluate_latent_space(model_path)
 if __name__ == '__main__':
     main()
