@@ -98,7 +98,7 @@ def get_argument_parser():
     parser.add_argument('--c_type', default='global', type=str)
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--c_steps', default=1, type=int)
+    parser.add_argument('--c_steps', default=0, type=int)
     parser.add_argument('--clipping_threshold_c', default=0, type=float)
     parser.add_argument('--collision_threshold', default=.25, type=float)
     parser.add_argument('--occupancy_threshold', default=.25, type=float)
