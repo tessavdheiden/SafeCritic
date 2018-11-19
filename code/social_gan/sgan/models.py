@@ -210,7 +210,7 @@ class TrajectoryGenerator(nn.Module):
         self.pool_static = pool_static
         self.noise_first_dim = 0
         self.pool_every_timestep = pool_every_timestep
-        self.bottleneck_dim = 1024
+        self.bottleneck_dim = bottleneck_dim
 
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
@@ -275,7 +275,8 @@ class TrajectoryGenerator(nn.Module):
                 mlp_dim=mlp_dim,
                 bottleneck_dim=bottleneck_dim,
                 activation=activation,
-                batch_norm=batch_norm
+                batch_norm=batch_norm,
+                neighborhood_size=neighborhood_size
             )
 
         if self.noise_dim[0] == 0:
@@ -501,7 +502,7 @@ class TrajectoryCritic(nn.Module):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, h_dim=64, mlp_dim=1024,
         num_layers=1, activation='relu', batch_norm=True, dropout=0.0,
-        d_type='local', collision_threshold=.25, occupancy_threshold=1.0
+        d_type='local', generator=None, collision_threshold=.25, occupancy_threshold=1.0
     ):
         super(TrajectoryCritic, self).__init__()
 
@@ -513,6 +514,7 @@ class TrajectoryCritic(nn.Module):
         self.d_type = d_type
         self.collision_threshold = collision_threshold
         self.occupancy_threshold = occupancy_threshold
+        self.generator = generator
 
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
@@ -522,13 +524,6 @@ class TrajectoryCritic(nn.Module):
             dropout=dropout
         )
 
-        real_classifier_dims = [h_dim, mlp_dim, 1]
-        self.real_classifier = make_mlp(
-            real_classifier_dims,
-            activation=activation,
-            batch_norm=batch_norm,
-            dropout=dropout
-        )
         if d_type == 'global':
             mlp_pool_dims = [h_dim + embedding_dim, mlp_dim, h_dim]
             self.pool_net = PoolHiddenNet(
@@ -539,33 +534,29 @@ class TrajectoryCritic(nn.Module):
                 activation=activation,
                 batch_norm=batch_norm
             )
-        if self.d_type == 'static' or self.d_type == 'dynamic':
-            self.spatial_embedding = nn.Linear(1, 1)
-        if self.d_type == 'static_and_dynamic' or self.d_type == 'dynamic_and_static':
-            self.spatial_embedding = nn.Linear(2, 1)
-
-        self.scene_information = {}
-
-    def get_map(self, dset, down_sampling=True):
-        _dir = os.path.dirname(os.path.realpath(__file__))
-        _dir = _dir.split("/")[:-1]
-        _dir = "/".join(_dir)
-        directory = _dir + '/datasets/safegan_dataset/'
-        path_group = os.path.join(directory, get_dset_group_name(dset))
-        path = os.path.join(path_group, dset)
-        map = np.load(path + "/world_points_boundary.npy")
-        if down_sampling:
-            down_sampling = (map.shape[0] // 100)
-            return map[::down_sampling]
+            real_classifier_dims = [generator.bottleneck_dim, mlp_dim, 1]
+            self.real_classifier = make_mlp(
+                real_classifier_dims,
+                activation=activation,
+                batch_norm=batch_norm,
+                dropout=dropout
+            )
         else:
-            return map
+            real_classifier_dims = [h_dim, mlp_dim, 1]
+            self.real_classifier = make_mlp(
+                real_classifier_dims,
+                activation=activation,
+                batch_norm=batch_norm,
+                dropout=dropout
+            )
 
-    def set_dset_list(self, data_dir):
-        self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
-        for name in self.list_data_files:
-            map = self.get_map(name)
-            map = torch.from_numpy(map).type(torch.float).cuda()
-            self.scene_information[name] = map
+        # we always minimize dynamic collisions
+        # if generator.pool_static:
+        #     self.scene_information = generator.static_net.scene_information
+        #     self.spatial_embedding = nn.Linear(2, 1)
+
+        # else:
+        self.spatial_embedding = nn.Linear(1, 1)
 
     def repeat(self, tensor, num_reps):
         """
@@ -609,40 +600,55 @@ class TrajectoryCritic(nn.Module):
         Output:
         - scores: Tensor of shape (batch,) with real/fake scores
         """
-        seq_len = traj.size(0)
-        scores = []
-
-        if self.d_type == 'local':
-            for i, (start, end) in enumerate(seq_start_end):
-                start = start.item()
-                end = end.item()
-                num_ped = end - start
-
-                encoder_input = traj.view(-1, 2)[start*seq_len:end*seq_len]
-                encoder_input = encoder_input.view(seq_len, num_ped, 2)
-                final_h = self.encoder(encoder_input)
-                scores.append(self.real_classifier(final_h.squeeze()))
-            scores = torch.cat(scores, dim=0)
-        elif self.d_type == 'global':
-            final_h = self.encoder(traj_rel)
-            classifier_input = self.pool_net(
-                final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
+        final_h = self.encoder(traj_rel)
+        # Note: In case of 'global' option we are using start_pos as opposed to
+        # end_pos. The intution being that hidden state has the whole
+        # trajectory and relative postion at the start when combined with
+        # trajectory information should help in discriminative behavior.
+        rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
+                                       mode='binary').unsqueeze(1) + 1
+        if self.generator.pool_static:
+            classifier_input_static = self.generator.static_net(
+                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0], seq_scene_ids
             )
-            scores = self.real_classifier(classifier_input)
-        if self.d_type == 'dynamic':
-            cols = collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold, mode='binary')
-            rewards = -1 * cols.unsqueeze(1)
-            rewards += 1
-            scores = self.spatial_embedding(rewards)
-        if self.d_type == 'static':
-            seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
-            cols = occupancy_error(traj, seq_start_end, self.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary')
-            rewards = -1 * cols.unsqueeze(1) + 1
-            scores = self.spatial_embedding(rewards)
-        # if self.d_type == 'dynamic_and_static' or self.d_type == 'static_and_dynamic':
-        #     seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
-        #     cols_static = occupancy_error(traj, seq_start_end, self.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary')
-        #     cols_dynamic = collision_error(traj, seq_start_end, self.collision_threshold)
-        #     rewards = -1 * (cols_static.unsqueeze(1) + cols_dynamic.unsqueeze(1)) / 2
-        #     scores = self.spatial_embedding(rewards)
+            classifier_input_dynamic = self.generator.pool_net(
+                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
+            )
+            classifier_input = torch.cat([classifier_input_static, classifier_input_dynamic], dim=1)
+        else:
+            classifier_input = self.generator.pool_net(
+                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
+            )
+        scores = self.real_classifier(classifier_input)
+        rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
+                                       mode='binary').unsqueeze(1) + 1
+
         return scores, rewards
+
+        #
+        # rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold, mode='binary').unsqueeze(1) + 1
+        # if self.generator.pool_static:
+        #     seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
+        #     rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
+        #     rewards += rewards_occs
+        #     rewards /= 2
+        #
+        # scores = self.spatial_embedding(rewards)
+        #
+        # return scores, rewards
+
+
+        # seq_len = traj.size(0)
+        # scores = []
+        #
+        # if self.d_type == 'local':
+        #     for i, (start, end) in enumerate(seq_start_end):
+        #         start = start.item()
+        #         end = end.item()
+        #         num_ped = end - start
+        #
+        #         encoder_input = traj.view(-1, 2)[start*seq_len:end*seq_len]
+        #         encoder_input = encoder_input.view(seq_len, num_ped, 2)
+        #         final_h = self.encoder(encoder_input)
+        #         scores.append(self.real_classifier(final_h.squeeze()))
+        #     scores = torch.cat(scores, dim=0)

@@ -27,7 +27,7 @@ def bce_loss(input, target):
     return loss.mean()
 
 
-def gan_g_loss(scores_fake):
+def gan_g_loss(scores_fake, loss='bce'):
     """
     Input:
     - scores_fake: Tensor of shape (N,) containing scores for fake samples
@@ -35,11 +35,15 @@ def gan_g_loss(scores_fake):
     Output:
     - loss: Tensor of shape (,) giving GAN generator loss
     """
-    y_fake = torch.ones_like(scores_fake) * random.uniform(0.7, 1.2)
-    return bce_loss(scores_fake, y_fake)
+    y_fake = torch.ones_like(scores_fake)  # * random.uniform(0.7, 1.2)
+    if loss == 'bce':
+        return bce_loss(scores_fake, y_fake)
+    else:
+        loss_fake = torch.sqrt((y_fake - scores_fake) ** 2)
+        return loss_fake.mean()
 
 
-def gan_d_loss(scores_real, scores_fake):
+def gan_d_loss(scores_real, scores_fake, loss='bce'):
     """
     Input:
     - scores_real: Tensor of shape (N,) giving scores for real samples
@@ -48,32 +52,35 @@ def gan_d_loss(scores_real, scores_fake):
     Output:
     - loss: Tensor of shape (,) giving GAN discriminator loss
     """
-    y_real = torch.ones_like(scores_real) * random.uniform(0.7, 1.2)
-    y_fake = torch.zeros_like(scores_fake) * random.uniform(0, 0.3)
-    loss_real = bce_loss(scores_real, y_real)
-    loss_fake = bce_loss(scores_fake, y_fake)
-    return loss_real + loss_fake
-
-
-def critic_loss(scores_real, y_real, loss='squared_error'):
-    """
-    Input:
-    - scores_real: Tensor of shape (N,) giving scores for real samples
-    - scores_fake: Tensor of shape (N,) giving scores for fake samples
-
-    Output:
-    - loss: Tensor of shape (,) giving GAN discriminator loss
-    """
-    # loss_real = bce_loss(scores_real, y_real)
-    # loss_fake = bce_loss(scores_fake, y_fake)
-    if loss == 'squared_error':
-        loss_real = torch.sqrt((scores_real - y_real) ** 2)
-        # loss_fake = (scores_fake - y_fake) ** 2
-        return loss_real.mean()# + loss_fake.mean()
+    y_real = torch.ones_like(scores_real)  # * random.uniform(0.7, 1.2)
+    y_fake = torch.zeros_like(scores_fake)  # * random.uniform(0, 0.3)
+    if loss == 'mse':
+        loss_real = torch.sqrt((y_real - scores_real) ** 2)
+        loss_fake = torch.sqrt((y_fake - scores_fake) ** 2)
+        return (loss_real.mean() + loss_fake.mean()) / 2
     elif loss == 'bce':
         loss_real = bce_loss(scores_real, y_real)
-        # loss_fake = bce_loss(scores_fake, y_fake)
-        return loss_real# + loss_fake
+        loss_fake = bce_loss(scores_fake, y_fake)
+        return loss_real + loss_fake
+
+
+def critic_loss(scores_real, y_real, scores_fake, y_fake, loss='mse'):
+    """
+    Input:
+    - scores_real: Tensor of shape (N,) giving scores for real samples
+    - scores_fake: Tensor of shape (N,) giving scores for fake samples
+
+    Output:
+    - loss: Tensor of shape (,) giving GAN discriminator loss
+    """
+    if loss == 'mse':
+        loss_real = torch.sqrt((scores_real - y_real) ** 2)
+        loss_fake = torch.sqrt((scores_fake - y_fake) ** 2)
+        return (loss_real.mean() + loss_fake.mean()) / 2
+    elif loss == 'bce':
+        loss_real = bce_loss(scores_real, y_real)
+        loss_fake = bce_loss(scores_fake, y_fake)
+        return loss_real + loss_fake
 
 
 def l2_loss(pred_traj, pred_traj_gt, loss_mask, random=0, mode='average'):
