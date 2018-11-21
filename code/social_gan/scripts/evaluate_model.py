@@ -21,12 +21,19 @@ from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from datasets.calculate_static_scene_new import get_coordinates_traj
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../results/benchmark6/', type=str)
+parser.add_argument('--model_path', default='../results/final_2/', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
 MAKE_MP4 = True
 FOUR_PLOTS = True
+
+colors = np.asarray(
+                    [[.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
+                     [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
+                     [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
+                     [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
+                     [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0]])
 
 def get_generator(checkpoint_in, pretrained=False):
     args = AttrDict(checkpoint_in['args'])
@@ -52,8 +59,9 @@ def get_generator(checkpoint_in, pretrained=False):
         bottleneck_dim=args.bottleneck_dim,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim,
-        batch_norm=args.batch_norm)
+        batch_norm=args.batch_norm,
+        pooling_dim=args.pooling_dim
+        )
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
     generator.train()
@@ -61,7 +69,7 @@ def get_generator(checkpoint_in, pretrained=False):
 
 
 
-def evaluate_helper(error, seq_start_end):
+def evaluate_helper(error, seq_start_end, min=True):
     sum_ = 0
     error = torch.stack(error, dim=1)
 
@@ -70,8 +78,11 @@ def evaluate_helper(error, seq_start_end):
         end = end.item()
         _error = error[start:end] # size = [numPeds, pred_len]
         _error = torch.sum(_error, dim=0)  # size = [pred_len]
-        _error = torch.min(_error)
-        sum_ += _error
+        if min:
+            _error = torch.min(_error)
+        else:
+            _error = torch.mean(_error)
+        sum_ += _error.mean()
     return sum_
 
 
@@ -156,7 +167,7 @@ def plot_photo(ax, photo, title):
     ax.set_xticklabels([])
 
 
-def plot_pixel(ax, trajectory, person, h, a=1, last=False, first=False, size=10, colors=None):
+def plot_pixel(ax, trajectory, person, h, a=1, last=False, first=False, size=10, colors=None, label=False):
     if colors is None:
         colors = np.random.rand(trajectory.size(0), 3)
     pixels_obs = get_pixels_from_world(trajectory[person], h)
@@ -267,29 +278,45 @@ def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
 
 # ------------------------------- PLOT OCCUPANCIES -------------------------------
 
-def plot_occ_pix(ax, static_map, pixels):
+def plot_occ_pix(ax, pixels):
     #ax.cla()
-    ax.scatter(pixels[0], pixels[1], marker='*', color='red', s=100)
+    ax.scatter(pixels[0], pixels[1], marker='*', color='red', s=100, edgecolors='black')
     return True
 
 
-def plot_occs(static_map, photo, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs1, occs2):
+def on_occupied(traj1, ii, static_map, num_points, seq_length, minimum_distance=.25):
+    img = torch.tensor(static_map).float().cuda()
+    overlap = torch.norm(traj1[ii].repeat(num_points, 1) - img.repeat(seq_length, 1), dim=1)
+    cols1 = torch.sum(overlap < minimum_distance, dim=0)
+    if cols1 > 0:
+        index = (overlap).min(0)[1]
+        index = divmod(int(index.data.cpu()), seq_length)[1]
+    else:
+        index = None
+    return cols1, index
+
+
+def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs1, occs2):
+    num_points = static_map.shape[0]
+    seq_length = 12
     for ii, ped in enumerate(traj_gt):
+
+        cols1, index1 = on_occupied(traj1, ii, static_map, num_points, seq_length, minimum_distance=.25)
+        cols2, index2 = on_occupied(traj2, ii, static_map, num_points, seq_length, minimum_distance=.25)
+
         pixels1 = get_pixels_from_world(traj1[ii], h)
         pixels2 = get_pixels_from_world(traj2[ii], h)
-        pixels_gt = get_pixels_from_world(traj_gt[ii], h)
-        for index, pix in enumerate(ped):
-            if on_occupied(pixels_gt[index], static_map):
-                plot_occ_pix(ax1, photo, pixels_gt[index])
-                occs_gt += 1
 
-            if on_occupied(pixels1[index], static_map):
-                plot_occ_pix(ax2, photo, pixels1[index])
-                occs1 += 1
+        if cols1 > 0:
 
-            if on_occupied(pixels2[index], static_map):
-                plot_occ_pix(ax3, photo, pixels2[index])
-                occs2 += 1
+            plot_occ_pix(ax2, pixels1[index1])
+            occs1 += 1
+
+        if cols2 > 1:
+            plot_occ_pix(ax3, pixels2[index2])
+            occs2 += 1
+
+
     return occs_gt, occs1, occs2
 
 
@@ -328,7 +355,7 @@ def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
                 traj_obs = obs_traj[start:end]
 
                 plot_trajectories_pixels_photo(traj_gt, traj_obs, traj1, traj2, name1, name2,ax1, ax2, ax3, ax4, photo, h, 1)
-                occs_gt, occs1, occs2 = plot_occs(annotated_points, photo, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
+                occs_gt, occs1, occs2 = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
 
                 plt.savefig(save_dir + 'tmp.png')
                 writer.append_data(plt.imread(save_dir + 'tmp.png'))
@@ -345,7 +372,14 @@ def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
 
 
 def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
+
     path = "/".join(data_dir.split('/')[:-1])
+    if generator1.pool_static:
+        generator1.static_net.set_dset_list(path)
+
+    if generator2.pool_static:
+        generator2.static_net.set_dset_list(path)
+
     _, loader = data_loader(args, path, shuffle=False)
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     cols_gt, cols1, cols2, cols1prev = 0, 0, 0, 0
@@ -353,15 +387,19 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
 
     path = get_path(args.dataset_name)
     writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
-    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
-    annotated_points, h = get_homography_and_map(args.dataset_name, "/annotated.jpg")
-
+    if args.dataset_name != 'sdd':
+        reader = imageio.get_reader(path + "/{}_video.mov".format(args.dataset_name), 'ffmpeg')
+        annotated_points, h = get_homography_and_map(args.dataset_name, "/annotated.jpg")
+    selection = True
     total_traj = 0
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
+
+            if args.dataset_name == 'sdd':
+                seq_scenes = [generator1.static_net.list_data_files[num] for num in seq_scene_ids]
             total_traj += pred_traj_gt.size(1)
             list_trajectories1 = []
             list_trajectories2 = []
@@ -377,6 +415,16 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
             for i, (start, end) in enumerate(seq_start_end):
+                # if b * len(seq_start_end) + i < 100:
+                #     continue
+                if args.dataset_name == 'sdd' and generator1.pool_static:
+                    dataset_name = seq_scenes[i]
+                    path = get_path(dataset_name)
+                    reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
+                    annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
+                    if annotated_points.shape[0] > 200:
+                        down_sampling = (annotated_points.shape[0] // 200)
+                        annotated_points = annotated_points[::down_sampling]
                 start = start.item()
                 end = end.item()
                 num_peds = end - start
@@ -390,41 +438,64 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
 
                 plot_photo(ax3, photo, name1)
                 plot_photo(ax4, photo, name2)
-                colors = np.random.rand(num_peds, 3)
+                # colors = np.random.rand(num_peds, 3)
+
+                # if b * len(seq_start_end) + i == 93:
+                #     selection = True
+
+                #
+                # else:
+                #     continue
 
                 for sample in range(args.best_k):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
                     traj2 = list_trajectories2[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
 
                     for p in range(num_peds):
-                        plot_pixel(ax1, traj_obs, p, h, a=1)
-                        plot_pixel(ax2, traj_gt, p, h, a=1)
-                        plot_pixel(ax3, traj1, p, h, a=.2)
-                        plot_pixel(ax4, traj2, p, h, a=.2)
+                        plot_pixel(ax1, traj_obs, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax2, traj_gt, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax3, traj1, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax4, traj2, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                     cols_gt, cols1, cols2 = plot_cols(ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2, h)
-                if True: #cols1 > cols1prev:
-                    plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
-                    cols1prev = cols1
+                if selection: #cols1 > cols1prev:
+                    ax4.scatter(-100, -100, marker='*', color='red', s=100, label='collision agent 1')
+                    ax4.scatter(-100, -100, marker='*', color='green', s=100, label='collision agent 2')
+                    plt.legend()
+                    plt.savefig(save_dir + '/selection/selection_frame_{}.png'.format(b * len(seq_start_end) + i))
+                # else:
+                #     plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
+                #     cols1prev = cols1
 
     return cols1, cols2, total_traj
 
 
-def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
+def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, path, shuffle=False)
+    if generator1.pool_static:
+        generator1.static_net.set_dset_list(path)
+
+    if generator2.pool_static:
+        generator2.static_net.set_dset_list(path)
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
-    occs1, occs2, occs_gt, occs1prev = 0, 0, 0, 0
-    ade1, ade2, fde1, fde2 = [], [], [], []
-
-    path = get_path(args.dataset_name)
-
-    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
-    annotated_points, h = get_homography_and_map(args.dataset_name, "/annotated.jpg")
+    occs1, occs2, occs_gt, occs1prev,occs2prev = 0, 0, 0, 0, 0
+    if args.dataset_name != 'sdd':
+        path = get_path(args.dataset_name)
+        reader = imageio.get_reader(path + "/{}_video.mov".format(args.dataset_name), 'ffmpeg')
+        annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
+        down_sampling = (annotated_points.shape[0] // 50)
+        annotated_points = annotated_points[::down_sampling]
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
+
+            if b % skip == 0:
+                continue
+
+            if args.dataset_name == 'sdd':
+                seq_scenes = [generator2.static_net.list_data_files[num] for num in seq_scene_ids]
 
             list_trajectories1 = []
             list_trajectories2 = []
@@ -441,6 +512,15 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
             for i, (start, end) in enumerate(seq_start_end):
+                if args.dataset_name == 'sdd' and generator1.pool_static:
+                    dataset_name = seq_scenes[i]
+                    path = get_path(dataset_name)
+                    reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
+                    annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
+                    if annotated_points.shape[0] > 200:
+                        down_sampling = (annotated_points.shape[0] // 200)
+                        annotated_points = annotated_points[::down_sampling]
+
                 start = start.item()
                 end = end.item()
                 num_peds = end - start
@@ -454,21 +534,25 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
 
                 plot_photo(ax3, photo, name1)
                 plot_photo(ax4, photo, name2)
-                colors = np.random.rand(num_peds, 3)
+                # colors = np.random.rand(num_peds, 3)
+
 
                 for sample in range(args.best_k):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
                     traj2 = list_trajectories2[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
 
                     for p in range(num_peds):
-                        plot_pixel(ax1, traj_obs, p, h, a=1)
-                        plot_pixel(ax2, traj_gt, p, h, a=1)
-                        plot_pixel(ax3, traj1, p, h, a=.2)
-                        plot_pixel(ax4, traj2, p, h, a=.2)
-                    occs_gt, occs1, occs2 = plot_occs(annotated_points, photo, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
-                if occs1 > occs1prev:
+                        plot_pixel(ax1, traj_obs, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax2, traj_gt, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax3, traj1, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax4, traj2, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                    occs_gt, occs1, occs2 = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
+                if True:#(occs1 > occs1prev and occs2 == occs2prev) or  (occs1 == occs1prev and occs2 > occs2prev) :
+                    ax4.scatter(-100, -100, marker='*', color='red', s=100, edgecolors='black', label='collision obstacle')
+                    plt.legend()
                     plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
                     occs1prev = occs1
+                    occs2prev = occs2
 
     return occs1, occs2
 
@@ -539,7 +623,7 @@ def move_figure(f, x, y):
 
 
 def main(args):
-    test_case = 3
+    test_case = 4
 
     if os.path.isdir(os.path.join(args.model_path)):
         filenames = os.listdir(args.model_path)

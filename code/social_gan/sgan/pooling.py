@@ -7,7 +7,7 @@ import pandas as pd
 
 from sgan.utils import get_dset_group_name, get_dset_name
 
-use_boundary_subsampling = False         # Switch to False if you want to use pandas implementation of polar grid
+use_boundary_subsampling = True         # Switch to False if you want to use pandas implementation of polar grid
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
@@ -60,6 +60,7 @@ class PoolHiddenNet(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
+
     def forward(self, h_states, seq_start_end, end_pos, rel_pos):
         """
         Inputs:
@@ -83,11 +84,11 @@ class PoolHiddenNet(nn.Module):
             curr_end_pos_2 = self.repeat(curr_end_pos, num_ped)
             curr_rel_pos = curr_end_pos_1 - curr_end_pos_2
 
-            if self.pooling_dim == 4:
-                curr_rel_pos[curr_rel_pos > self.neighborhood_size / 2] = 0
-                curr_rel_pos[curr_rel_pos < -self.neighborhood_size / 2] = 0
-                curr_rel_pos /= (self.neighborhood_size / 2)
+            curr_rel_pos[curr_rel_pos > self.neighborhood_size / 2] = 0
+            curr_rel_pos[curr_rel_pos < -self.neighborhood_size / 2] = 0
+            curr_rel_pos /= (self.neighborhood_size / 2)
 
+            if self.pooling_dim == 4:
                 curr_disp = rel_pos[start:end]
                 curr_disp_1 = curr_disp.repeat(num_ped, 1)
                 # Repeat position -> P1, P1, P2, P2
@@ -140,8 +141,9 @@ class PhysicalPooling(nn.Module):
         path_group = os.path.join(directory, get_dset_group_name(dset))
         path = os.path.join(path_group, dset)
         map = np.load(path + "/world_points_boundary.npy")
-        if down_sampling:
-            down_sampling = (map.shape[0] // 100)
+        n_points = 200
+        if down_sampling and map.shape[0] > n_points:
+            down_sampling = (map.shape[0] // n_points)
             return map[::down_sampling]
         else:
             return map
