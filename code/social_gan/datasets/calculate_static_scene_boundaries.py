@@ -40,7 +40,9 @@ def get_coordinates(dataset_name, data, h_matrix, original_SDD_annotations):
             world = np.stack((data[:, 2], data[:, 3])).T
 
         elif dataset_name == 'SDD':
-            world = np.stack((data[:, 2], -data[:, 3])).T
+            # Use these arguments (data[:, 2], -data[:, 3])) if you use the homographies that have a consistent view in world and image coordinates,
+            # instead of world coordinates flipped on the y axes
+            world = np.stack((data[:, 2], data[:, 3])).T
 
         elif dataset_name == 'ETH':
             world = np.stack((data[:, 2], -data[:, 3])).T
@@ -81,6 +83,47 @@ def get_polar_coordinates(current_ped_pos, boundary_points):
     return polar_coordinates
 
 
+def get_raycast_grid_points(num_rays, vector_image, h_matrix, ped_position, annotated_image, radius_image):
+    if all(vector_image == 0):
+        return np.zeros((1, 2)), get_world_from_pixels(np.zeros((1, 2)), h_matrix, True)
+
+    if num_rays == 0:
+        print("The number of rays should be > 0!")
+        return None
+
+    # Compute the polar coordinates of the boundary points (thetas and radiuses), considering as origin the current pedestrian position
+    boundary_points = get_boundary_points(annotated_image)  # image coordinates of boundary points in annotated image
+    radiuses_boundary = np.linalg.norm(boundary_points - ped_position, axis=1)
+    # I round the theta value otherwise I will never take the boundary points because they can have a difference in the last digits
+    # (eg. 3.14159 is considered different from the possible ray angle of 3.14158). It would be difficult to find points that have the exact same angle of the rays.
+    thetas_boundary = np.round( np.arctan2(boundary_points[:, 1] - ped_position[1], boundary_points[:, 0] - ped_position[0]), 2)
+
+    # Build Dataframe with [pedestrians_ids, thetas_boundaries, radiuses_boundaries]
+    df = pd.DataFrame(columns=['radius_boundary', 'theta_boundary'], data=np.stack((radiuses_boundary, thetas_boundary)).T)
+
+    # Compute the angles of the rays and add "num_rays" points on these rays at a distance of "radius" so that there will be always "num_rays" points as output
+    rays_angles = np.round( np.reshape( np.linspace(-np.pi, np.pi - ((2 * np.pi) / num_rays), num_rays), (-1, 1) ), 2)
+    # Add these points to the boundary points dataframe
+    df_new_points = pd.DataFrame(columns=['radius_boundary', 'theta_boundary'],
+                                 data=np.concatenate((np.reshape( ([radius_image] * num_rays), (-1, 1) ), rays_angles), axis=1))
+    df = df.append(df_new_points, ignore_index=True)
+
+    # Select only the points ON he rays
+    df_selected = df.loc[df['theta_boundary'].isin(rays_angles[:, 0])]
+    # Select the closest point on each ray
+    polar_grids_points = df_selected.ix[df_selected.groupby(['theta_boundary'])['radius_boundary'].idxmin()]
+
+    # Convert the chosen points from polar to cartesian coordinates
+    x_boundaries_chosen = polar_grids_points['radius_boundary'].values \
+                              * np.cos(polar_grids_points['theta_boundary'].values) + ped_position[0]
+    y_boundaries_chosen = polar_grids_points['radius_boundary'].values \
+                              * np.sin(polar_grids_points['theta_boundary'].values) + ped_position[1]
+    image_grid_points = np.stack((x_boundaries_chosen, y_boundaries_chosen)).T
+    world_grid_points = get_world_from_pixels(image_grid_points, h_matrix, True)
+
+    return image_grid_points, world_grid_points
+
+
 def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_ped_pos, annotated_image, radius_image):
     if all(vector_image == 0):
         return np.zeros((1, 2)), get_world_from_pixels(np.zeros((1, 2)), h_matrix, True)
@@ -100,8 +143,8 @@ def get_static_obstacles_boundaries(n_buckets, vector_image, h_matrix, current_p
 
         if len(selected_points_indices) == 0:
             # if there are no points in the split of the polar grid chose the point at the extreme part of the current split of the polar grid
-            x = (radius_image+current_ped_pos[0])*np.cos(starting_angle + split_theta/2)
-            y = (radius_image+current_ped_pos[1])*np.sin(starting_angle + split_theta/2)
+            x = radius_image*np.cos(starting_angle + split_theta/2) + current_ped_pos[0]
+            y = radius_image*np.sin(starting_angle + split_theta/2) + current_ped_pos[1]
             image_beams[image_beams_index] = [x, y]
         else:
             selected_points = boundary_points[selected_points_indices.transpose()[0]]
@@ -131,7 +174,7 @@ def load_bin_map(path, file):
     return static_map
 
 
-def calculate_static_scene(directory, dataset, scene, annotated_image_file_name, original_SDD_annotations):
+def calculate_static_scene(directory, dataset, scene, annotated_image_file_name, original_SDD_annotations, use_raycast_pooling):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 10), num=1)
 
     for scene in scene:
@@ -175,8 +218,11 @@ def calculate_static_scene(directory, dataset, scene, annotated_image_file_name,
             for i, frame in enumerate(frames[0: -1]):
 
                 # get coordinates of points on boundaries of static obstacles
-                radius_image = np.linalg.norm(get_pixels_from_world(2 * np.ones((1, 2)), h_matrix, True))
-                image_beams, world_beams = get_static_obstacles_boundaries(n_buckets, vectors_image[i], h_matrix, image_current_ped[i], image, radius_image)
+                radius_image = 250
+                if use_raycast_pooling:
+                    image_beams, world_beams = get_raycast_grid_points(n_buckets, vectors_image[i], h_matrix, image_current_ped[i], image, radius_image)
+                else:
+                    image_beams, world_beams = get_static_obstacles_boundaries(n_buckets, vectors_image[i], h_matrix, image_current_ped[i], image, radius_image)
 
                 # get positions of other pedestrian that are in the same frame of the current pedestrian, in image and world coordinates
                 world_other_ped = world_coordinates[(data[:, 0] == frame) & (data[:, 1] != ped)]
@@ -191,7 +237,7 @@ def calculate_static_scene(directory, dataset, scene, annotated_image_file_name,
                                  image_beams, image_other_ped, world_current_ped[i], world_beams, world_other_ped, frame, ped)
 
                 plt.draw()
-                plt.pause(0.301)
+                plt.pause(0.801)
                 break
 
         plt.show()
@@ -236,7 +282,8 @@ def main():
     scenes = ['bookstore_0']
     annotated_image_file_name = '/annotated_boundaries.jpg'
     original_SDD_annotations = False
-    calculate_static_scene(directory, dataset, scenes, annotated_image_file_name, original_SDD_annotations)
+    use_raycast_pooling = False
+    calculate_static_scene(directory, dataset, scenes, annotated_image_file_name, original_SDD_annotations, use_raycast_pooling)
     return True
 
 
