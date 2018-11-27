@@ -103,7 +103,8 @@ class Decoder(nn.Module):
                     batch_norm=batch_norm,
                     dropout=dropout,
                     pooling_dim=pooling_dim,
-                    neighborhood_size=neighborhood_size
+                    neighborhood_size=neighborhood_size,
+                    pool_every=pool_every_timestep
                 )
             elif pooling_type == 'spool':
                 self.pool_net = SocialPooling(
@@ -123,7 +124,8 @@ class Decoder(nn.Module):
                     bottleneck_dim=bottleneck_dim,
                     activation=activation,
                     batch_norm=batch_norm,
-                    dropout=dropout
+                    dropout=dropout,
+                    pool_every=pool_every_timestep
                 )
 
             self.mlp = make_mlp(
@@ -255,7 +257,8 @@ class TrajectoryGenerator(nn.Module):
                 activation=activation,
                 batch_norm=batch_norm,
                 pooling_dim=pooling_dim,
-                neighborhood_size=neighborhood_size
+                neighborhood_size=neighborhood_size,
+                pool_every = pool_every_timestep
             )
         elif pooling_type == 'spool':
             self.pool_net = SocialPooling(
@@ -276,7 +279,8 @@ class TrajectoryGenerator(nn.Module):
                 bottleneck_dim=bottleneck_dim,
                 activation=activation,
                 batch_norm=batch_norm,
-                neighborhood_size=neighborhood_size
+                neighborhood_size=neighborhood_size,
+                pool_every = pool_every_timestep
             )
 
         if self.noise_dim[0] == 0:
@@ -525,30 +529,37 @@ class TrajectoryCritic(nn.Module):
         )
 
         if d_type == 'global':
-            mlp_pool_dims = [h_dim + embedding_dim, mlp_dim, h_dim]
             self.pool_net = PoolHiddenNet(
-                embedding_dim=embedding_dim,
-                h_dim=h_dim,
-                mlp_dim=mlp_pool_dims,
-                bottleneck_dim=h_dim,
-                activation=activation,
-                batch_norm=batch_norm
-            )
-            real_classifier_dims = [generator.bottleneck_dim, mlp_dim, 1]
-            self.real_classifier = make_mlp(
-                real_classifier_dims,
-                activation=activation,
-                batch_norm=batch_norm,
-                dropout=dropout
-            )
+                    embedding_dim=embedding_dim,
+                    h_dim=h_dim,
+                    mlp_dim=mlp_dim,
+                    bottleneck_dim=h_dim,
+                    activation=activation,
+                    batch_norm=batch_norm,
+                    pooling_dim=2,
+                    neighborhood_size=generator.pool_net.neighborhood_size
+                )
+
+            if generator.pool_static:
+                self.static_net = PhysicalPooling(
+                    embedding_dim=embedding_dim,
+                    h_dim=h_dim,
+                    mlp_dim=mlp_dim,
+                    bottleneck_dim=h_dim,
+                    activation=activation,
+                    batch_norm=batch_norm,
+                    neighborhood_size=generator.static_net.neighborhood_size
+                )
+                real_classifier_dims = [h_dim * 2, mlp_dim, 1]
+            else:
+                real_classifier_dims = [h_dim, mlp_dim, 1]
         else:
             real_classifier_dims = [h_dim, mlp_dim, 1]
-            self.real_classifier = make_mlp(
+        self.real_classifier = make_mlp(
                 real_classifier_dims,
                 activation=activation,
                 batch_norm=batch_norm,
-                dropout=dropout
-            )
+                dropout=dropout)
 
         # we always minimize dynamic collisions
         # if generator.pool_static:
@@ -576,12 +587,14 @@ class TrajectoryCritic(nn.Module):
         out[prob > self.collision_threshold] = 1
         return out
 
-    # def get_min_distance(self, seq_start_end):
-    #     for i, (start, end) in enumerate(seq_start_end):
-    #         start = start.item()
-    #         end = end.item()
-    #         num_ped = end - start
-    #         delta = torch.zeros(seq_len, num_ped ** 2).cuda()
+    def get_min_distance(self, seq_start_end):
+        for i, (start, end) in enumerate(seq_start_end):
+            start = start.item()
+            end = end.item()
+            num_ped = end - start
+            delta = torch.zeros(self.seq_len, num_ped ** 2).cuda()
+            print(delta.size())
+
     #         for t in range(seq_len):
     #             x1 = traj[t][start:end].repeat(num_ped, 1)
     #             x2 = self.repeat(traj[t][start:end], num_ped)
@@ -607,36 +620,36 @@ class TrajectoryCritic(nn.Module):
         # trajectory information should help in discriminative behavior.
         rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
                                        mode='binary').unsqueeze(1) + 1
-        if self.generator.pool_static:
-            classifier_input_static = self.generator.static_net(
-                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0], seq_scene_ids
-            )
-            classifier_input_dynamic = self.generator.pool_net(
-                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
-            )
-            classifier_input = torch.cat([classifier_input_static, classifier_input_dynamic], dim=1)
+
+        if self.d_type == 'pooling':
+            if self.generator.pool_static:
+                classifier_input_static = self.static_net(
+                    final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids
+                )
+                classifier_input_dynamic = self.pool_net(
+                    final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
+                )
+                classifier_input = torch.cat([classifier_input_static, classifier_input_dynamic], dim=1)
+
+            else:
+                classifier_input = self.pool_net(
+                    final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
+                )
+            scores = self.real_classifier(classifier_input)
+
+        elif self.d_type == 'minimum':
+            classifier_input = self.get_min_distance(self, seq_start_end)
         else:
-            classifier_input = self.generator.pool_net(
-                final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
-            )
-        scores = self.real_classifier(classifier_input)
-        rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
-                                       mode='binary').unsqueeze(1) + 1
+            if self.generator.pool_static:
+                seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
+                rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
+                rewards += rewards_occs
+                # rewards /= 2
+                rewards[rewards < 2] = 0
+                rewards[rewards == 2] = 1
+            scores = self.spatial_embedding(rewards)
 
         return scores, rewards
-
-        #
-        # rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold, mode='binary').unsqueeze(1) + 1
-        # if self.generator.pool_static:
-        #     seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
-        #     rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
-        #     rewards += rewards_occs
-        #     rewards /= 2
-        #
-        # scores = self.spatial_embedding(rewards)
-        #
-        # return scores, rewards
-
 
         # seq_len = traj.size(0)
         # scores = []
