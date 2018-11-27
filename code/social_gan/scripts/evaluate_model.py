@@ -21,7 +21,7 @@ from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from datasets.calculate_static_scene_new import get_coordinates_traj
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../results/final_2/', type=str)
+parser.add_argument('--model_path', default='../results/0_Minimize_occs/', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
@@ -57,9 +57,10 @@ def get_generator(checkpoint_in, pretrained=False):
         pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
+        activation='relu',
+        batch_norm=args.batch_norm,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        batch_norm=args.batch_norm,
         pooling_dim=args.pooling_dim
         )
     generator.load_state_dict(checkpoint_in['g_state'])
@@ -372,7 +373,7 @@ def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, s
 
 
 def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-
+    selection = 69
     path = "/".join(data_dir.split('/')[:-1])
     if generator1.pool_static:
         generator1.static_net.set_dset_list(path)
@@ -386,11 +387,13 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
     ade1, ade2, fde1, fde2 = [], [], [], []
 
     path = get_path(args.dataset_name)
-    writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
     if args.dataset_name != 'sdd':
+        path = get_path(args.dataset_name)
         reader = imageio.get_reader(path + "/{}_video.mov".format(args.dataset_name), 'ffmpeg')
-        annotated_points, h = get_homography_and_map(args.dataset_name, "/annotated.jpg")
-    selection = True
+        annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
+        down_sampling = (annotated_points.shape[0] // 50)
+        annotated_points = annotated_points[::down_sampling]
+
     total_traj = 0
     with torch.no_grad():
         for b, batch in enumerate(loader):
@@ -399,7 +402,7 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
             if args.dataset_name == 'sdd':
-                seq_scenes = [generator1.static_net.list_data_files[num] for num in seq_scene_ids]
+                seq_scenes = [generator2.static_net.list_data_files[num] for num in seq_scene_ids]
             total_traj += pred_traj_gt.size(1)
             list_trajectories1 = []
             list_trajectories2 = []
@@ -415,9 +418,12 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
             for i, (start, end) in enumerate(seq_start_end):
-                # if b * len(seq_start_end) + i < 100:
-                #     continue
-                if args.dataset_name == 'sdd' and generator1.pool_static:
+                if selection == -1 or b * len(seq_start_end) + i == selection:
+                    print(b * len(seq_start_end) + i)
+                else:
+                    continue
+
+                if args.dataset_name == 'sdd' and generator2.pool_static:
                     dataset_name = seq_scenes[i]
                     path = get_path(dataset_name)
                     reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
@@ -425,6 +431,7 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
                     if annotated_points.shape[0] > 200:
                         down_sampling = (annotated_points.shape[0] // 200)
                         annotated_points = annotated_points[::down_sampling]
+
                 start = start.item()
                 end = end.item()
                 num_peds = end - start
@@ -438,14 +445,6 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
 
                 plot_photo(ax3, photo, name1)
                 plot_photo(ax4, photo, name2)
-                # colors = np.random.rand(num_peds, 3)
-
-                # if b * len(seq_start_end) + i == 93:
-                #     selection = True
-
-                #
-                # else:
-                #     continue
 
                 for sample in range(args.best_k):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
@@ -457,26 +456,42 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
                         plot_pixel(ax3, traj1, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                         plot_pixel(ax4, traj2, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                     cols_gt, cols1, cols2 = plot_cols(ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2, h)
-                if selection: #cols1 > cols1prev:
+                if True: #cols1 > cols1prev:
                     ax4.scatter(-100, -100, marker='*', color='red', s=100, label='collision agent 1')
                     ax4.scatter(-100, -100, marker='*', color='green', s=100, label='collision agent 2')
                     plt.legend()
+
                     plt.savefig(save_dir + '/selection/selection_frame_{}.png'.format(b * len(seq_start_end) + i))
-                # else:
-                #     plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
-                #     cols1prev = cols1
+
+                if b * len(seq_start_end) + i == selection:
+                    # Save just the portion _inside_ the second axis's boundaries
+                    extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                    fig.savefig(save_dir + '/selection/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
+
+                    extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                    fig.savefig(save_dir + '/selection/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+
+                    extent = ax4.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                    fig.savefig(save_dir + '/selection/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
 
     return cols1, cols2, total_traj
 
 
 def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
+    selection = -1
+
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, path, shuffle=False)
     if generator1.pool_static:
         generator1.static_net.set_dset_list(path)
+        if generator1.pool_every_timestep:
+            generator1.decoder.static_net.set_dset_list(path)
 
     if generator2.pool_static:
         generator2.static_net.set_dset_list(path)
+        if generator2.pool_every_timestep:
+            generator2.decoder.static_net.set_dset_list(path)
+
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     occs1, occs2, occs_gt, occs1prev,occs2prev = 0, 0, 0, 0, 0
     if args.dataset_name != 'sdd':
@@ -512,7 +527,13 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
             for i, (start, end) in enumerate(seq_start_end):
-                if args.dataset_name == 'sdd' and generator1.pool_static:
+
+                if selection == -1 or b * len(seq_start_end) + i == selection:
+                    print(b * len(seq_start_end) + i)
+                else:
+                    continue
+
+                if args.dataset_name == 'sdd' and generator2.pool_static:
                     dataset_name = seq_scenes[i]
                     path = get_path(dataset_name)
                     reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
@@ -520,7 +541,6 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                     if annotated_points.shape[0] > 200:
                         down_sampling = (annotated_points.shape[0] // 200)
                         annotated_points = annotated_points[::down_sampling]
-
                 start = start.item()
                 end = end.item()
                 num_peds = end - start
@@ -547,12 +567,30 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                         plot_pixel(ax3, traj1, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                         plot_pixel(ax4, traj2, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                     occs_gt, occs1, occs2 = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
+                    pixels_annotated_points = get_pixels_from_world(annotated_points, h)
+                    ax1.scatter(pixels_annotated_points[:, 0], pixels_annotated_points[:, 1], marker='.', color='red',
+                                s=1)
                 if True:#(occs1 > occs1prev and occs2 == occs2prev) or  (occs1 == occs1prev and occs2 > occs2prev) :
                     ax4.scatter(-100, -100, marker='*', color='red', s=100, edgecolors='black', label='collision obstacle')
                     plt.legend()
+                    plt.draw()
+                    plt.pause(0.01)
                     plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
                     occs1prev = occs1
                     occs2prev = occs2
+
+                if b*len(seq_start_end)+i == selection:
+                    # Save just the portion _inside_ the second axis's boundaries
+                    extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                    fig.savefig(save_dir + '/selection/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
+
+                    extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                    fig.savefig(save_dir + '/selection/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+
+                    extent = ax4.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                    fig.savefig(save_dir + '/selection/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+
+
 
     return occs1, occs2
 

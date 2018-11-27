@@ -80,7 +80,7 @@ def get_argument_parser():
     parser.add_argument('--pool_static', default=1, type=bool_flag)
 
     # Pool Net Option
-    parser.add_argument('--bottleneck_dim', default=32, type=int)
+    parser.add_argument('--bottleneck_dim', default=8, type=int)
     parser.add_argument('--pooling_dim', default=2, type=int)
 
     # Social Pooling Options
@@ -120,7 +120,7 @@ def get_argument_parser():
     parser.add_argument('--num_samples_check', default=500, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
-    parser.add_argument('--sanity_check_dir', default="../results/temp")
+    parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -180,6 +180,17 @@ def reset_plot(args):
         ax6.imshow(plt.imread('../datasets/safegan_dataset/SDD/deathCircle_1/reference.jpg'), origin='lower')
 
 def main(args):
+    if args.pool_every_timestep == 1:
+        args.batch_norm = 0
+        args.batch_size = 1
+        args.encoder_h_dim_g = 8
+        args.decoder_h_dim_g = 8
+        args.noise_dim = (4, )
+        args.embedding_dim = 8
+        args.mlp_dim = 8
+        print('INFO: batch_norm = 0')
+
+
     if args.pooling_type == 'spool':
         print('INFO: Discriminator loss disabled')
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
@@ -222,9 +233,10 @@ def main(args):
         pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
+        activation='relu',
+        batch_norm=args.batch_norm,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        batch_norm=args.batch_norm,
         pooling_dim=args.pooling_dim
         )
 
@@ -344,6 +356,8 @@ def main(args):
         generator.static_net.set_dset_list(train_path)
         if args.pool_every_timestep:
             generator.decoder.static_net.set_dset_list(train_path)
+        if args.c_steps > 0 and args.c_type == 'global  ':
+            critic.static_net.set_dset_list(train_path)
 
     t0 = None
 
@@ -588,10 +602,12 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
         labels_occs_real = -1 * cal_occs(traj_real, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
 
         labels_real += labels_occs_real
-        labels_real /= 2
+        labels_real[labels_real < 2] = 0
+        labels_real[labels_real == 2] = 1
 
         labels_fake += labels_occs_fake
-        labels_fake /= 2
+        labels_fake[labels_fake < 2] = 0
+        labels_fake[labels_fake == 2] = 1
 
     # Compute loss with optional loss function
     data_loss = c_loss_fn(scores_real, labels_real, scores_fake, labels_fake)
@@ -660,7 +676,7 @@ def generator_step(
         losses['G_discriminator_loss'] = discriminator_loss.item()
 
     if args.lamb > 0.0:
-        values_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
+        _, values_fake = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
         oracle_loss = torch.mean(-1 * (values_fake - torch.ones_like(values_fake)))
         losses['G_oracle_loss'] = oracle_loss.item()
 
@@ -775,7 +791,7 @@ def check_accuracy(string, epoch,
             total_traj_l += torch.sum(linear_ped).item()
             total_traj_nl += torch.sum(non_linear_ped).item()
 
-            if args.sanity_check and b == len(loader)-1: #not checking all trajectories
+            if args.sanity_check and (b == len(loader)-1 or (limit and total_traj >= args.num_samples_check)): #not checking all trajectories
                 if args.pool_static:
                     seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
                     sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string,
