@@ -18,7 +18,6 @@ from sgan.models_static_scene import get_homography_and_map
 from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs, get_dset_path, get_dataset_path,  get_dset_group_name
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
-from datasets.calculate_static_scene_new import get_coordinates_traj
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_path', default='../results/0_Minimize_occs/', type=str)
@@ -34,6 +33,16 @@ colors = np.asarray(
                      [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
                      [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
                      [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0]])
+
+
+def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
+    if dataset_name == 'UCY':
+        world = np.stack((data[:, 0], data[:, 1])).T
+        pixels = get_pixels_from_world(world, h_matrix, True)
+        pixels = np.stack((annotated_image.shape[1]/2+pixels[:, 0], annotated_image.shape[0]/2-pixels[:, 1])).T
+
+    return pixels
+
 
 def get_generator(checkpoint_in, pretrained=False):
     args = AttrDict(checkpoint_in['args'])
