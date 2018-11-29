@@ -180,6 +180,20 @@ def reset_plot(args):
         ax6.imshow(plt.imread('../datasets/safegan_dataset/SDD/deathCircle_1/reference.jpg'), origin='lower')
 
 def main(args):
+    args.output_dir = '../models_sdd/safeGAN_DP4_SP'
+    args.restore_from_checkpoint = 1
+    args.checkpoint_name = 'pretrain_oracle_pool_every'
+    args.dataset_name = 'sdd'
+    args.num_epochs = 201
+    args.pool_static = 1
+
+    args.lamb = 0
+    args.c_type = 'local'
+    args.c_steps = 1
+    args.g_steps = 0
+
+    args.pool_every_timestep = 1
+
     if args.pool_every_timestep == 1:
         args.batch_norm = 0
         args.batch_size = 1
@@ -208,7 +222,10 @@ def main(args):
     else:
         _, val_loader = data_loader(args, val_path, shuffle=True)
 
-    iterations_per_epoch = len(train_dset) / args.batch_size / args.g_steps
+    if args.g_steps > 0:
+        iterations_per_epoch = len(train_dset) / args.batch_size / args.g_steps
+    else:
+        iterations_per_epoch = len(train_dset) / args.batch_size / args.c_steps
     if args.num_epochs:
         args.num_iterations = int(iterations_per_epoch * args.num_epochs)
 
@@ -233,7 +250,7 @@ def main(args):
         pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
-        activation='relu',
+        activation='leakyrelu',
         batch_norm=args.batch_norm,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
@@ -356,7 +373,7 @@ def main(args):
         generator.static_net.set_dset_list(train_path)
         if args.pool_every_timestep:
             generator.decoder.static_net.set_dset_list(train_path)
-        if args.c_steps > 0 and args.c_type == 'global  ':
+        if args.c_steps > 0 and args.c_type == 'global':
             critic.static_net.set_dset_list(train_path)
 
     t0 = None
@@ -436,9 +453,10 @@ def main(args):
                     for k, v in sorted(losses_d.items()):
                         logger.info('  [D] {}: {:.3f}'.format(k, v))
                         checkpoint['D_losses'][k].append(v)
-                for k, v in sorted(losses_g.items()):
-                    logger.info('  [G] {}: {:.3f}'.format(k, v))
-                    checkpoint['G_losses'][k].append(v)
+                if args.g_steps > 0:
+                    for k, v in sorted(losses_g.items()):
+                        logger.info('  [G] {}: {:.3f}'.format(k, v))
+                        checkpoint['G_losses'][k].append(v)
                 if args.c_steps > 0:
                     for k, v in sorted(losses_c.items()):
                         logger.info('  [C] {}: {:.3f}'.format(k, v))
@@ -583,7 +601,7 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
     traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
     traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
 
-    scores_real, rewards = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
+    scores_real, rewards_real = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
     labels_real = -1 * cal_cols(traj_real, seq_start_end, minimum_distance=critic.collision_threshold).unsqueeze(1) + 1
 
     # generated trajectories
@@ -593,22 +611,18 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
     traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
-    scores_fake, rewards = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
+    scores_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
     labels_fake = -1 * cal_cols(traj_fake, seq_start_end, minimum_distance=critic.collision_threshold).unsqueeze(1) + 1
 
     if generator.pool_static:
         seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
         labels_occs_fake = -1 * cal_occs(traj_fake, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
         labels_occs_real = -1 * cal_occs(traj_real, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
+        labels_real[labels_occs_real < 1] = 0
+        labels_fake[labels_occs_fake < 1] = 0
 
-        labels_real += labels_occs_real
-        labels_real[labels_real < 2] = 0
-        labels_real[labels_real == 2] = 1
-
-        labels_fake += labels_occs_fake
-        labels_fake[labels_fake < 2] = 0
-        labels_fake[labels_fake == 2] = 1
-
+    # print(labels_real)
+    # print(rewards_real)
     # Compute loss with optional loss function
     data_loss = c_loss_fn(scores_real, labels_real, scores_fake, labels_fake)
     losses['C_data_loss'] = data_loss.item()

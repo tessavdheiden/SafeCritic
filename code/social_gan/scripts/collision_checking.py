@@ -11,7 +11,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
     - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
     """
     pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
-
+    seq_length = pred_pos.size(0)
     collisions = []
     for i, (start, end) in enumerate(seq_start_end):
         start = start.item()
@@ -19,24 +19,18 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
         num_ped = end - start
         curr_seqs = pred_pos_perm[start:end]
 
-        curr_cols = torch.zeros(num_ped)
-        for ii in range(num_ped):
-            ped1 = curr_seqs[ii]
-            for iii in range(num_ped):
-                if ii <= iii:
-                    continue
-                ped2 = curr_seqs[iii]
-                overlap = torch.norm(ped1 - ped2, dim=1)
-                cols = torch.sum(overlap < minimum_distance, dim=0)
-                if cols > 0:
-                    if mode == 'binary':
-                        curr_cols[ii] = 1
-                        curr_cols[iii] = 1
-                    else:
-                        curr_cols[ii] = cols
-                        curr_cols[iii] = cols
+        curr_seqs_switch = curr_seqs.transpose(0, 1)
+        X_cols_rep = curr_seqs_switch.repeat(1, 1, num_ped)  # repeat cols x1(t1) x1(t1) x2(t1) x2(t1) x1(t2) x1(t2) x2(t2) x2(t2)
+        X_rows_rep = curr_seqs_switch.repeat(1, num_ped, 1)  # repeat rows x1(t1) x2(t1) x1(t1) x2(t1)
+        distance = torch.norm(X_rows_rep.view(seq_length, num_ped, num_ped, 2) - X_cols_rep.view(seq_length, num_ped, num_ped, 2), dim=3)
+        distance = distance.clone().view(seq_length, num_ped, num_ped)
 
-        collisions.append(curr_cols.float())
+        distance[distance == 0] = minimum_distance  # exclude distance between people and themself
+        min_distance = distance.min(1)[0]  # [t X ped]
+        min_distance_all = min_distance.min(0)[0]
+        cols = torch.zeros_like(min_distance_all)
+        cols[min_distance_all < minimum_distance] = 1
+        collisions.append(cols)
 
     return torch.cat(collisions, dim=0).cuda()
 
@@ -63,17 +57,17 @@ def occupancy_error(pred_pos, seq_start_end, scene_information, seq_scene, minim
         scene = scene_information[seq_scene[i]]
         num_points = scene.size(0)
 
-        curr_cols = torch.zeros(num_ped)
-        for ii in range(num_ped):
-            ped = curr_seqs[ii]
-            overlap = torch.norm(ped.repeat(num_points, 1) - scene.repeat(seq_length, 1), dim=1)
-            cols = torch.sum(overlap < minimum_distance, dim=0)
-            if cols > 0:
-                if mode == 'binary':
-                    curr_cols[ii] = 1
-                else:
-                    curr_cols[ii] = cols
+        curr_seqs_switch = curr_seqs.transpose(0, 1)
+        X_cols_rep = curr_seqs_switch.repeat(1, num_points, 1).view(-1, num_points, 2)
+        scene_rows_rep = scene.repeat(1, num_ped * seq_length).view(num_ped * seq_length, -1, 2)
 
-        collisions.append(curr_cols.float())
+        distance = torch.norm(scene_rows_rep - X_cols_rep, dim=2, p=2).view(seq_length, num_points, num_ped)
+        min_distance = distance.min(1)[0]
+        min_distance_all = min_distance.min(0)[0]
+
+        cols = torch.zeros_like(min_distance_all)
+        cols[min_distance_all < minimum_distance] = 1
+        collisions.append(cols)
 
     return torch.cat(collisions, dim=0).cuda()
+
