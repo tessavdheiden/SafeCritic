@@ -60,7 +60,7 @@ def get_argument_parser():
     parser.add_argument('--embedding_dim', default=16, type=int)
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout', default=0, type=float)
-    parser.add_argument('--batch_norm', default=1, type=bool_flag)
+    parser.add_argument('--batch_norm', default=0, type=bool_flag)
     parser.add_argument('--mlp_dim', default=64, type=int)
 
     # Generator Options
@@ -78,13 +78,15 @@ def get_argument_parser():
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
     parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
     parser.add_argument('--pool_static', default=1, type=bool_flag)
+    parser.add_argument('--pool_static_type', default='raycast', type=str) # random, polar, raycast
+    parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
     parser.add_argument('--pooling_dim', default=2, type=int)
 
     # Social Pooling Options
-    parser.add_argument('--neighborhood_size', default=16.0, type=float)
+    parser.add_argument('--neighborhood_size', default=3.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
     # Discriminator Options
@@ -179,29 +181,31 @@ def reset_plot(args):
         ax6.cla()
         ax6.imshow(plt.imread('../datasets/safegan_dataset/SDD/deathCircle_1/reference.jpg'), origin='lower')
 
+
 def main(args):
-    args.output_dir = '../models_sdd/safeGAN_DP4_SP'
-    args.restore_from_checkpoint = 1
-    args.checkpoint_name = 'pretrain_oracle_pool_every'
-    args.dataset_name = 'sdd'
-    args.num_epochs = 201
-    args.pool_static = 1
-
-    args.lamb = 0
-    args.c_type = 'local'
-    args.c_steps = 1
-    args.g_steps = 0
-
+    args.batch_size = 16
+    # args.output_dir = '../models_sdd/safeGAN_DP4_SP'
+    # args.restore_from_checkpoint = 1
+    # args.checkpoint_name = 'pretrain_oracle_pool_every'
+    # args.dataset_name = 'sdd'
+    # args.num_epochs = 201
+    # args.pool_static = 1
+    #
+    # args.lamb = 0
+    # args.c_type = 'minimum'
+    # args.c_steps = 1
+    # args.g_steps = 0
+    #
     args.pool_every_timestep = 1
 
     if args.pool_every_timestep == 1:
         args.batch_norm = 0
-        args.batch_size = 1
-        args.encoder_h_dim_g = 8
-        args.decoder_h_dim_g = 8
-        args.noise_dim = (4, )
-        args.embedding_dim = 8
-        args.mlp_dim = 8
+        # args.batch_size = 1
+        # args.encoder_h_dim_g = 8
+        # args.decoder_h_dim_g = 8
+        # args.noise_dim = (4, )
+        # args.embedding_dim = 8
+        # args.mlp_dim = 8
         print('INFO: batch_norm = 0')
 
 
@@ -233,7 +237,6 @@ def main(args):
         'There are {} iterations per epoch, prints {} plots {}'.format(iterations_per_epoch, args.print_every, args.checkpoint_every)
     )
 
-
     generator = TrajectoryGenerator(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
@@ -254,7 +257,10 @@ def main(args):
         batch_norm=args.batch_norm,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim
+        pooling_dim=args.pooling_dim,
+        pool_static_type=args.pool_static_type,
+        down_samples=args.down_samples
+
         )
 
     generator.apply(init_weights)
@@ -272,6 +278,7 @@ def main(args):
         mlp_dim=args.mlp_dim,
         num_layers=args.num_layers,
         dropout=args.dropout,
+        activation='leakyrelu',
         batch_norm=args.batch_norm,
         d_type=args.d_type)
 
@@ -351,6 +358,7 @@ def main(args):
             mlp_dim=args.mlp_dim,
             num_layers=args.num_layers,
             dropout=args.dropout,
+            activation='leakyrelu',
             batch_norm=args.batch_norm,
             d_type=args.c_type,
             generator=generator,
@@ -628,8 +636,11 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
     losses['C_data_loss'] = data_loss.item()
     loss += data_loss
     losses['C_total_loss'] = loss.item()
-    losses['C_scores_real_min'] = torch.min(scores_real)
-    losses['C_scores_real_max'] = torch.max(scores_real)
+    if labels_real[labels_real < 0.5].size(0) > 0:
+        print(scores_real)
+        print(labels_real)
+    losses['C_scores_0_perc'] = scores_real[scores_real < 0.5].size(0) / scores_real.size(0) *100
+    losses['C_labels_0_perc'] = labels_real[labels_real < 0.5].size(0) / labels_real.size(0) *100
 
     optimizer_c.zero_grad()
     loss.backward()
@@ -679,7 +690,7 @@ def generator_step(
                 loss_mask[start:end])
             g_l2_loss_sum_rel += _g_l2_loss_rel
         losses['G_l2_loss_rel'] = g_l2_loss_sum_rel.item()
-        loss += g_l2_loss_sum_rel
+        loss += (1 - args.d_loss_weight) * g_l2_loss_sum_rel
 
     traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
@@ -695,7 +706,7 @@ def generator_step(
         losses['G_oracle_loss'] = oracle_loss.item()
 
     if args.model_type != 'socialLSTM' and args.d_loss_weight > 0:
-        loss += (1-args.lamb) * discriminator_loss + args.lamb * oracle_loss
+        loss += args.d_loss_weight * ((1-args.lamb) * discriminator_loss + args.lamb * oracle_loss)
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()
