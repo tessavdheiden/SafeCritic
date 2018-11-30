@@ -70,7 +70,8 @@ class Decoder(nn.Module):
         self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1,
         pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, pooling_type='pool_net',
-        neighborhood_size=2.0, grid_size=8, pool_static=True, pooling_dim=2
+        neighborhood_size=2.0, grid_size=8, pool_static=True, pooling_dim=2,
+        pool_static_type='random', down_samples=200
     ):
         super(Decoder, self).__init__()
 
@@ -125,7 +126,8 @@ class Decoder(nn.Module):
                     activation=activation,
                     batch_norm=batch_norm,
                     dropout=dropout,
-                    pool_every=pool_every_timestep
+                    pool_static_type=pool_static_type,
+                    down_samples=down_samples
                 )
 
             self.mlp = make_mlp(
@@ -191,7 +193,8 @@ class TrajectoryGenerator(nn.Module):
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
         noise_type='gaussian', noise_mix_type='ped', pooling_type=None,
         pool_every_timestep=True, pool_static=False, dropout=0.0, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2
+        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
+        pool_static_type='random', down_samples=200
     ):
         super(TrajectoryGenerator, self).__init__()
 
@@ -210,6 +213,7 @@ class TrajectoryGenerator(nn.Module):
         self.noise_mix_type = noise_mix_type
         self.pooling_type = pooling_type
         self.pool_static = pool_static
+        self.pool_static_type = pool_static_type
         self.noise_first_dim = 0
         self.pool_every_timestep = pool_every_timestep
         self.bottleneck_dim = bottleneck_dim
@@ -238,6 +242,7 @@ class TrajectoryGenerator(nn.Module):
             neighborhood_size=neighborhood_size,
             pool_static=pool_static,
             pooling_dim=pooling_dim,
+            pool_static_type=pool_static_type
         )
 
         if (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and pool_static:
@@ -258,7 +263,7 @@ class TrajectoryGenerator(nn.Module):
                 batch_norm=batch_norm,
                 pooling_dim=pooling_dim,
                 neighborhood_size=neighborhood_size,
-                pool_every = pool_every_timestep
+                pool_every=pool_every_timestep
             )
         elif pooling_type == 'spool':
             self.pool_net = SocialPooling(
@@ -280,7 +285,8 @@ class TrajectoryGenerator(nn.Module):
                 activation=activation,
                 batch_norm=batch_norm,
                 neighborhood_size=neighborhood_size,
-                pool_every = pool_every_timestep
+                pool_static_type=pool_static_type,
+                down_samples=down_samples
             )
 
         if self.noise_dim[0] == 0:
@@ -551,10 +557,25 @@ class TrajectoryCritic(nn.Module):
                     neighborhood_size=generator.static_net.neighborhood_size
                 )
                 real_classifier_dims = [h_dim * 2, mlp_dim, 1]
+
             else:
                 real_classifier_dims = [h_dim, mlp_dim, 1]
-        else:
-            real_classifier_dims = [h_dim, mlp_dim, 1]
+            self.spatial_embedding = nn.Linear(1, 1)
+        elif self.d_type == 'minimum':
+            real_classifier_dims = [1, mlp_dim, 1]
+            self.spatial_embedding_scene = make_mlp(
+                real_classifier_dims,
+                activation=activation,
+                batch_norm=batch_norm,
+                dropout=dropout)
+            self.spatial_embedding_agent = make_mlp(
+                real_classifier_dims,
+                activation=activation,
+                batch_norm=batch_norm,
+                dropout=dropout)
+        elif self.d_type == 'local':
+            real_classifier_dims = [1, mlp_dim, 1]
+            self.spatial_embedding = nn.Linear(1, 1)
         self.real_classifier = make_mlp(
                 real_classifier_dims,
                 activation=activation,
@@ -567,7 +588,7 @@ class TrajectoryCritic(nn.Module):
         #     self.spatial_embedding = nn.Linear(2, 1)
 
         # else:
-        self.spatial_embedding = nn.Linear(1, 1)
+
 
     def repeat(self, tensor, num_reps):
         """
@@ -587,22 +608,77 @@ class TrajectoryCritic(nn.Module):
         out[prob > self.collision_threshold] = 1
         return out
 
-    def get_min_distance(self, seq_start_end):
+    def get_min_distance_agents(self, pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'):
+        """
+        Input:
+        - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+        - minimum_distance: Minimum between people
+        last pos
+        Output:
+        - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
+        """
+        pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+        seq_length = pred_pos.size(0)
+        collisions = []
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
             end = end.item()
             num_ped = end - start
-            delta = torch.zeros(self.seq_len, num_ped ** 2).cuda()
-            print(delta.size())
+            curr_seqs = pred_pos_perm[start:end]
 
-    #         for t in range(seq_len):
-    #             x1 = traj[t][start:end].repeat(num_ped, 1)
-    #             x2 = self.repeat(traj[t][start:end], num_ped)
-    #             delta[t] = torch.norm(x1 - x2, dim=1)
-    #             delta[t][delta[t] == 0] = delta[t].max(0)[0]
-    #         values = delta.view(num_ped, num_ped, -1).min(1)[0]
-    #         encoder_in = values.min(1)[0]
-    #         encoder_in = self.to_binary(encoder_in)
+            curr_seqs_switch = curr_seqs.transpose(0, 1)
+            X_cols_rep = curr_seqs_switch.repeat(1, 1, num_ped)  # repeat cols x1(t1) x1(t1) x2(t1) x2(t1) x1(t2) x1(t2) x2(t2) x2(t2)
+            X_rows_rep = curr_seqs_switch.repeat(1, num_ped, 1)  # repeat rows x1(t1) x2(t1) x1(t1) x2(t1)
+            distance = torch.norm(X_rows_rep.view(seq_length, num_ped, num_ped, 2) - X_cols_rep.view(seq_length, num_ped, num_ped, 2), dim=3)
+            distance = distance.clone().view(seq_length, num_ped, num_ped)
+
+            distance[distance == 0] = minimum_distance  # exclude distance between people and themself
+            min_distance = distance.min(1)[0]  # [t X ped]
+            min_distance_all = min_distance.min(0)[0]
+
+            cols = self.spatial_embedding_agent(min_distance_all.unsqueeze(1))
+            # cols = torch.zeros_like(min_distance_all)
+            # cols[min_distance_all < minimum_distance] = 1
+            collisions.append(cols)
+
+        return torch.cat(collisions, dim=0).cuda()
+
+    def get_min_distance_scene(self, pred_pos, seq_start_end, scene_information, seq_scene, minimum_distance=0.2, mode='binary'):
+        """
+        Input:
+        - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+        - minimum_distance: Minimum between people
+        last pos
+        Output:
+        - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
+        """
+        seq_length = pred_pos.size(0)
+        pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
+        collisions = []
+        for i, (start, end) in enumerate(seq_start_end):
+            start = start.item()
+            end = end.item()
+            num_ped = end - start
+
+            curr_seqs = pred_pos_perm[start:end]
+
+            scene = scene_information[seq_scene[i]]
+            num_points = scene.size(0)
+
+            curr_seqs_switch = curr_seqs.transpose(0, 1)
+            X_cols_rep = curr_seqs_switch.repeat(1, num_points, 1).view(-1, num_points, 2)
+            scene_rows_rep = scene.repeat(1, num_ped * seq_length).view(num_ped * seq_length, -1, 2)
+
+            distance = torch.norm(scene_rows_rep - X_cols_rep, dim=2, p=2).view(seq_length, num_points, num_ped)
+            min_distance = distance.min(1)[0]
+            min_distance_all = min_distance.min(0)[0]
+
+            cols = self.spatial_embedding_scene(min_distance_all.unsqueeze(1))
+            # cols = torch.zeros_like(min_distance_all)
+            # cols[min_distance_all < minimum_distance] = 1
+            collisions.append(cols.squeeze())
+
+        return torch.cat(collisions, dim=0).cuda()
 
     def forward(self, traj, traj_rel, seq_start_end=None, seq_scene_ids=None):
         """
@@ -620,8 +696,7 @@ class TrajectoryCritic(nn.Module):
         # trajectory information should help in discriminative behavior.
         rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
                                        mode='binary').unsqueeze(1) + 1
-
-        if self.d_type == 'pooling':
+        if self.d_type == 'global':
             if self.generator.pool_static:
                 classifier_input_static = self.static_net(
                     final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids
@@ -630,24 +705,28 @@ class TrajectoryCritic(nn.Module):
                     final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
                 )
                 classifier_input = torch.cat([classifier_input_static, classifier_input_dynamic], dim=1)
-
             else:
                 classifier_input = self.pool_net(
                     final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
                 )
+
             scores = self.real_classifier(classifier_input)
 
         elif self.d_type == 'minimum':
-            classifier_input = self.get_min_distance(self, seq_start_end)
-        else:
+            if self.generator.pool_static:
+                seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
+                rewards_occs = -1 * self.get_min_distance_scene(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
+                rewards[rewards_occs < 1] = 0
+            scores = self.real_classifier(rewards)
+
+        elif self.d_type == 'local':
             if self.generator.pool_static:
                 seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
                 rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
-                rewards += rewards_occs
-                # rewards /= 2
-                rewards[rewards < 2] = 0
-                rewards[rewards == 2] = 1
-            scores = self.spatial_embedding(rewards)
+                rewards[rewards_occs < 1] = 0
+
+            scores = self.real_classifier(rewards)
+            # scores = self.spatial_embedding(rewards)
 
         return scores, rewards
 
