@@ -7,7 +7,6 @@ import pandas as pd
 
 from sgan.utils import get_dset_group_name, get_dset_name
 
-use_boundary_subsampling = True         # Switch to False if you want to use pandas implementation of polar grid
 
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
     layers = []
@@ -172,11 +171,11 @@ class PhysicalPooling(nn.Module):
         tensor = tensor.view(-1, col_len)
         return tensor
 
-    def check(self, curr_end_pos, curr_rel_pos, annotated_points):
+    def check(self, curr_end_pos, annotated_points):
         import matplotlib.pyplot as plt
         plt.scatter(annotated_points[:, 0], annotated_points[:, 1])
-        plt.scatter(curr_end_pos[:, 0], curr_end_pos[:, 1])
-        plt.quiver(curr_end_pos[:, 0], curr_end_pos[:, 1], curr_rel_pos[:, 0], curr_rel_pos[:, 1])
+        plt.scatter(curr_end_pos[0], curr_end_pos[1])
+        plt.axis('equal')
         plt.show()
 
     def get_raycast_grid_points(self, ped_positions, boundary_points, num_rays, radius):
@@ -193,54 +192,42 @@ class PhysicalPooling(nn.Module):
         boundary_points_repeated = boundary_points.repeat(ped_positions.size(0), 1)
 
         # Compute the polar coordinates of the boundary points (thetas and radiuses), considering as origin the current pedestrian position
-        boundary_points_repeated_polar = boundary_points_repeated - ped_positions_repeated  # Coordinates after considering as origin the current pedestrian position
+        boundary_points_repeated_polar = boundary_points_repeated - ped_positions_repeated      # Coordinates after considering as origin the current pedestrian position
         radiuses_boundary_points = torch.norm(boundary_points_repeated_polar, dim=1)
         # I round the theta values otherwise I will never take the boundary points because they can have a difference in the last digits
         # (eg. 3.14159 is considered different from the possible ray angle of 3.14158). It would be difficult to find points that have the exact same angle of the rays.
-        thetas_boundary_points = torch.round(
-            torch.atan2(boundary_points_repeated_polar[:, 1], boundary_points_repeated_polar[:, 0]) * torch.tensor(
-                10 ^ round_decimal_digit).float().cuda()) \
-                                 / torch.tensor(10 ^ round_decimal_digit).float().cuda()
+        thetas_boundary_points = torch.round( torch.atan2(boundary_points_repeated_polar[:, 1], boundary_points_repeated_polar[:, 0]) * torch.tensor( 10^round_decimal_digit ).float().cuda())\
+                                 / torch.tensor( 10^round_decimal_digit ).float().cuda()
 
-        print("********************", thetas_boundary_points.view(-1, 1).size())
         # Build Dataframe with [pedestrians_ids, thetas_boundaries, radiuses_boundaries]
         df = pd.DataFrame(columns=['ped_id', 'theta_boundary', 'radius_boundary'],
-                          data=np.concatenate((ped_ids_repeated, thetas_boundary_points.view(-1, 1),
-                                               radiuses_boundary_points.view(-1, 1)), axis=1))
+                          data=np.concatenate((ped_ids_repeated, thetas_boundary_points.view(-1, 1), radiuses_boundary_points.view(-1, 1)), axis=1))
 
         # Compute the angles of the rays and add "num_rays" points on these rays at a distance of "radius" so that there will be always "num_rays" points as output
-        rays_angles = torch.tensor(
-            np.round(np.linspace(-np.pi, np.pi - ((2 * np.pi) / num_rays), num_rays), round_decimal_digit)).unsqueeze(
-            1).cuda()
+        rays_angles = torch.tensor(np.round( np.linspace(-np.pi, np.pi - ((2 * np.pi) / num_rays), num_rays), round_decimal_digit )).unsqueeze(1).cuda()
         rays_angles_repeated = rays_angles.repeat(ped_positions.size(0), 1)
         # Add these points to the boundary points dataframe
         df_new_points = pd.DataFrame(columns=['ped_id', 'theta_boundary', 'radius_boundary'],
-                                     data=np.concatenate((self.repeat(
-                                         torch.from_numpy(np.arange(ped_positions.size(0))).unsqueeze(1),
-                                         rays_angles.size(0)),
-                                                          rays_angles_repeated,
-                                                          torch.tensor(
-                                                              [radius] * rays_angles_repeated.size(0)).unsqueeze(1)),
-                                                         axis=1))
+                                     data=np.concatenate((self.repeat(torch.from_numpy(np.arange(ped_positions.size(0))).unsqueeze(1), rays_angles.size(0)),
+                                                         rays_angles_repeated,
+                                                         torch.tensor([radius] * rays_angles_repeated.size(0)).unsqueeze(1)), axis=1))
         df = df.append(df_new_points, ignore_index=True)
 
         # Select only the points ON he rays
         df_selected = df.loc[df['theta_boundary'].isin(rays_angles.cpu().numpy()[:, 0])]
         # Select the closest point on each ray
-        polar_grids_points = df_selected.ix[
-            df_selected.groupby(['ped_id', 'theta_boundary'])['radius_boundary'].idxmin()]
+        polar_grids_points = df_selected.ix[df_selected.groupby(['ped_id', 'theta_boundary'])['radius_boundary'].idxmin()]
 
         # Convert the chosen points from polar to cartesian coordinates
         ped_positions_repeated = self.repeat(ped_positions, num_rays)
         x_boundaries_chosen = torch.tensor(polar_grids_points['radius_boundary'].values).cuda().float() \
-                              * torch.cos(
-            torch.tensor(polar_grids_points['theta_boundary'].values).cuda()).float() + ped_positions_repeated[:, 0]
+                                  * torch.cos(torch.tensor(polar_grids_points['theta_boundary'].values).cuda()).float() + ped_positions_repeated[:, 0]
         y_boundaries_chosen = torch.tensor(polar_grids_points['radius_boundary'].values).cuda().float() \
-                              * torch.sin(
-            torch.tensor(polar_grids_points['theta_boundary'].values).cuda()).float() + ped_positions_repeated[:, 1]
+                                  * torch.sin(torch.tensor(polar_grids_points['theta_boundary'].values).cuda()).float() + ped_positions_repeated[:, 1]
         cartesian_grid_points = torch.stack((x_boundaries_chosen, y_boundaries_chosen)).transpose(0, 1)
 
         return cartesian_grid_points
+
 
     def get_polar_grid_points(self, ped_positions, ped_directions, boundary_points, num_beams, radius):
         # It returns num_beams boundary points for each pedestrian
@@ -253,44 +240,33 @@ class PhysicalPooling(nn.Module):
         boundary_points_repeated = boundary_points.repeat(ped_positions.size(0), 1)
 
         # Compute the new coordinates with respect to the pedestrians (the origin is the pedestrian position, the positive x semiaxes correspond to the pedestrians directions)
-        new_x_boundaries = (boundary_points_repeated[:, 0] - ped_positions_repeated[:, 0]) * torch.cos(
-            thetas_peds_repeated[:, 0]) \
-                           + (boundary_points_repeated[:, 1] - ped_positions_repeated[:, 1]) * torch.sin(
-            thetas_peds_repeated[:, 0])
-        new_y_boundaries = -(boundary_points_repeated[:, 0] - ped_positions_repeated[:, 0]) * torch.sin(
-            thetas_peds_repeated[:, 0]) \
-                           + (boundary_points_repeated[:, 1] - ped_positions_repeated[:, 1]) * torch.cos(
-            thetas_peds_repeated[:, 0])
+        new_x_boundaries = (boundary_points_repeated[:, 0] - ped_positions_repeated[:, 0]) * torch.cos(thetas_peds_repeated[:, 0]) \
+                           + (boundary_points_repeated[:, 1] - ped_positions_repeated[:, 1]) * torch.sin(thetas_peds_repeated[:, 0])
+        new_y_boundaries = -(boundary_points_repeated[:, 0] - ped_positions_repeated[:, 0]) * torch.sin(thetas_peds_repeated[:, 0]) \
+                           + (boundary_points_repeated[:, 1] - ped_positions_repeated[:, 1]) * torch.cos(thetas_peds_repeated[:, 0])
         boundary_points_repeated = torch.stack((new_x_boundaries, new_y_boundaries)).transpose(0, 1)
 
         # Compute polar coordinates of boundary points after conversion to the pedestrian reference systems
         radiuses_boundary_points = torch.norm(boundary_points_repeated, dim=1).unsqueeze(1)
-        thetas_boundary_points = torch.atan2(boundary_points_repeated[:, 1], boundary_points_repeated[:, 0]).unsqueeze(
-            1)
+        thetas_boundary_points = torch.atan2(boundary_points_repeated[:, 1], boundary_points_repeated[:, 0]).unsqueeze(1)
 
         # Build Dataframe with [pedestrians_ids, thetas_boundaries, radiuses_boundaries]
         df = pd.DataFrame(columns=['ped_id', 'theta_boundary', 'radius_boundary'],
-                          data=np.concatenate((ped_ids_repeated, thetas_boundary_points, radiuses_boundary_points),
-                                              axis=1))
+                          data=np.concatenate( (ped_ids_repeated, thetas_boundary_points, radiuses_boundary_points), axis=1 ))
 
         # Add num_beams equidistant points for each pedestrian so that, if there are no other points in that polar grid beams, there will be always num_beams points
-        thetas_new_boundaries = torch.from_numpy(
-            np.linspace(-np.pi / 2 + (np.pi / num_beams) / 2, np.pi / 2 - (np.pi / num_beams) / 2,
-                        num_beams)).unsqueeze(1).cuda()
+        thetas_new_boundaries = torch.from_numpy(np.linspace(-np.pi/2+(np.pi/num_beams)/2, np.pi/2-(np.pi/num_beams)/2, num_beams)).unsqueeze(1).cuda()
         thetas_new_boundaries_repeated = thetas_new_boundaries.repeat(ped_positions.size(0), 1)
         df_new_thetas = pd.DataFrame(columns=['ped_id', 'theta_boundary', 'radius_boundary'],
-                                     data=np.concatenate((self.repeat(
-                                         torch.from_numpy(np.arange(ped_positions.size(0))).unsqueeze(1),
-                                         thetas_new_boundaries.size(0))[:, 0].unsqueeze(1),
-                                                          thetas_new_boundaries_repeated,
-                                                          torch.tensor([radius] * thetas_new_boundaries_repeated.size(
-                                                              0)).unsqueeze(1)), axis=1))
+                                     data=np.concatenate( (self.repeat(torch.from_numpy(np.arange(ped_positions.size(0))).unsqueeze(1), thetas_new_boundaries.size(0))[:, 0].unsqueeze(1),
+                                                           thetas_new_boundaries_repeated,
+                                                           torch.tensor([radius] * thetas_new_boundaries_repeated.size(0)).unsqueeze(1)), axis=1 ))
         df = df.append(df_new_thetas, ignore_index=True)
 
         # Assign a categorical label to boundary points according to the bin they belong to
-        df_categorized = pd.cut(df["theta_boundary"], np.linspace(-np.pi / 2, np.pi / 2, num_beams + 1))
+        df_categorized = pd.cut(df["theta_boundary"], np.linspace(-np.pi/2, np.pi/2, num_beams+1))
         # For each pedestrian and each polar grid beam, choose the closest boundary point
-        polar_grids_points = df.ix[df.groupby(['ped_id', df_categorized])['radius_boundary'].idxmin()]
+        polar_grids_points = df.ix[ df.groupby(['ped_id', df_categorized])['radius_boundary'].idxmin() ]
 
         # Convert back the polar coordinates of the chosen boundary points in cartesian coordinates
         ped_positions_repeated = self.repeat(ped_positions, num_beams)
@@ -300,11 +276,9 @@ class PhysicalPooling(nn.Module):
         new_y_boundaries_chosen = torch.tensor(polar_grids_points['radius_boundary'].values).cuda().float() \
                                   * torch.sin(torch.tensor(polar_grids_points['theta_boundary'].values).cuda()).float()
         x_boundaries_chosen = new_x_boundaries_chosen * torch.cos(thetas_peds_repeated[:, 0]) \
-                              - new_y_boundaries_chosen * torch.sin(
-            thetas_peds_repeated[:, 0]) + ped_positions_repeated[:, 0]
+                              - new_y_boundaries_chosen * torch.sin(thetas_peds_repeated[:, 0]) + ped_positions_repeated[:, 0]
         y_boundaries_chosen = new_x_boundaries_chosen * torch.sin(thetas_peds_repeated[:, 0]) \
-                              + new_y_boundaries_chosen * torch.cos(
-            thetas_peds_repeated[:, 0]) + ped_positions_repeated[:, 1]
+                              + new_y_boundaries_chosen * torch.cos(thetas_peds_repeated[:, 0]) + ped_positions_repeated[:, 1]
         cartesian_grid_points = torch.stack((x_boundaries_chosen, y_boundaries_chosen)).transpose(0, 1)
 
         return cartesian_grid_points
@@ -334,12 +308,14 @@ class PhysicalPooling(nn.Module):
 
             # Repeat -> H1, H1, H2, H2
             curr_hidden_1 = self.repeat(curr_hidden, self.num_cells)
-            curr_ped_pos_repeated = self.repeat(curr_end_pos, self.num_cells) # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
+            # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
+            curr_ped_pos_repeated = self.repeat(curr_end_pos, self.num_cells)
 
             if self.pool_static_type == "random":
                 boundary_points_per_ped = annotated_points.repeat(num_ped, 1)
                 curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated
                 curr_rel_pos = torch.clamp(curr_rel_pos, -self.neighborhood_size, self.neighborhood_size)
+                self.check(curr_end_pos[0], boundary_points_per_ped[:self.num_cells])
 
             elif self.pool_static_type == "polar":
                 ''' New code with pandas implementation of polar grid pooling(Giuseppe)'''

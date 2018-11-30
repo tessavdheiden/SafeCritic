@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import numpy as np
+from tensorboardX import SummaryWriter
 
 from collections import defaultdict
 
@@ -123,6 +124,7 @@ def get_argument_parser():
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
+    parser.add_argument('--summary_writer_name', default=None, type=str)
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -183,29 +185,16 @@ def reset_plot(args):
 
 
 def main(args):
-    args.batch_size = 16
-    # args.output_dir = '../models_sdd/safeGAN_DP4_SP'
-    # args.restore_from_checkpoint = 1
-    # args.checkpoint_name = 'pretrain_oracle_pool_every'
-    # args.dataset_name = 'sdd'
-    # args.num_epochs = 201
-    # args.pool_static = 1
-    #
-    # args.lamb = 0
-    # args.c_type = 'minimum'
-    # args.c_steps = 1
-    # args.g_steps = 0
-    #
-    args.pool_every_timestep = 1
+    writer = SummaryWriter(args.summary_writer_name)
 
     if args.pool_every_timestep == 1:
         args.batch_norm = 0
-        # args.batch_size = 1
-        # args.encoder_h_dim_g = 8
-        # args.decoder_h_dim_g = 8
-        # args.noise_dim = (4, )
-        # args.embedding_dim = 8
-        # args.mlp_dim = 8
+        args.batch_size = 1
+        args.encoder_h_dim_g = 8
+        args.decoder_h_dim_g = 8
+        args.noise_dim = (4, )
+        args.embedding_dim = 8
+        args.mlp_dim = 8
         print('INFO: batch_norm = 0')
 
 
@@ -312,11 +301,10 @@ def main(args):
         t = checkpoint['counters']['t']
         epoch = checkpoint['counters']['epoch']
         checkpoint['restore_ts'].append(t)
-        t, epoch = 0, 0
 
     else:
         # Starting from scratch, so initialize checkpoint data structure
-        t, epoch = 0, 0
+        t, epoch = 0, -1
         checkpoint = {
             'args': args.__dict__,
             'G_losses': defaultdict(list),
@@ -386,6 +374,11 @@ def main(args):
 
     t0 = None
 
+    # Number of times a generator, discriminator and critic steps are done in 1 epoch
+    num_d_steps = ((len(train_dset) / args.batch_size) / (args.g_steps + args.d_steps + args.c_steps)) * args.d_steps
+    num_c_steps = ((len(train_dset) / args.batch_size) / (args.g_steps + args.d_steps + args.c_steps)) * args.c_steps
+    num_g_steps = ((len(train_dset) / args.batch_size) / (args.g_steps + args.d_steps + args.c_steps)) * args.g_steps
+
     while t < args.num_iterations:
         if epoch == args.num_epochs:
             break
@@ -394,9 +387,14 @@ def main(args):
         g_steps_left = args.g_steps
         c_steps_left = args.c_steps
         epoch += 1
+        # Average losses over all batches in the training set for 1 epoch
+        avg_losses_d = {}
+        avg_losses_c = {}
+        avg_losses_g = {}
+
         if args.sanity_check:
             reset_plot(args)
-        logger.info('Starting epoch {}'.format(epoch))
+        logger.info('Starting epoch {}  -  [{}]'.format(epoch, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         for batch in train_loader:
             if args.timing == 1:
                 torch.cuda.synchronize()
@@ -407,36 +405,43 @@ def main(args):
             # discriminator followed by args.g_steps steps on the generator.
             if d_steps_left > 0:
                 step_type = 'd'
-                losses_d = discriminator_step(args, batch, generator,
-                                              discriminator, d_loss_fn,
-                                              optimizer_d)
-                checkpoint['norm_d'].append(
-                    get_total_norm(discriminator.parameters()))
+                losses_d = discriminator_step(args, batch, generator, discriminator, d_loss_fn, optimizer_d)
+                checkpoint['norm_d'].append(get_total_norm(discriminator.parameters()))
                 d_steps_left -= 1
+                if len(avg_losses_d) == 0:
+                    for k, v in sorted(losses_d.items()):
+                        avg_losses_d[k] = v / num_d_steps
+                else:
+                    for k, v in sorted(losses_d.items()):
+                        avg_losses_d[k] += v / num_d_steps
+
             elif c_steps_left > 0:
                 step_type = 'c'
-                losses_c = critic_step(args, batch, generator,
-                                              critic, c_loss_fn,
-                                              optimizer_c)
-                checkpoint['norm_c'].append(
-                    get_total_norm(critic.parameters()))
+                losses_c = critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c)
+                checkpoint['norm_c'].append(get_total_norm(critic.parameters()))
                 c_steps_left -= 1
+                if len(avg_losses_c) == 0:
+                    for k, v in sorted(losses_c.items()):
+                        avg_losses_c[k] = v / num_c_steps
+                else:
+                    for k, v in sorted(losses_c.items()):
+                        avg_losses_c[k] += v / num_c_steps
 
             elif g_steps_left > 0:
                 step_type = 'g'
                 if args.lamb > 0:
-                    losses_g = generator_step(args, batch, generator,
-                                                  discriminator, g_loss_fn,
-                                                  optimizer_g, critic)
+                    losses_g = generator_step(args, batch, generator, discriminator, g_loss_fn, optimizer_g, critic)
                 else:
-                    losses_g = generator_step(args, batch, generator,
-                                              discriminator, g_loss_fn,
-                                              optimizer_g)
+                    losses_g = generator_step(args, batch, generator, discriminator, g_loss_fn, optimizer_g)
 
-                checkpoint['norm_g'].append(
-                    get_total_norm(generator.parameters())
-                )
+                checkpoint['norm_g'].append(get_total_norm(generator.parameters()))
                 g_steps_left -= 1
+                if len(avg_losses_g) == 0:
+                    for k, v in sorted(losses_g.items()):
+                        avg_losses_g[k] = v / num_g_steps
+                else:
+                    for k, v in sorted(losses_g.items()):
+                        avg_losses_g[k] += v / num_g_steps
 
             if args.timing == 1:
                 torch.cuda.synchronize()
@@ -449,102 +454,10 @@ def main(args):
 
             if args.timing == 1:
                 if t0 is not None:
-                    logger.info('Interation {} took {}'.format(
+                    logger.info('Iteration {} took {}'.format(
                         t - 1, time.time() - t0
                     ))
                 t0 = time.time()
-
-            # Maybe save loss
-            if t % args.print_every == 0:
-                logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
-                if args.d_steps > 0:
-                    for k, v in sorted(losses_d.items()):
-                        logger.info('  [D] {}: {:.3f}'.format(k, v))
-                        checkpoint['D_losses'][k].append(v)
-                if args.g_steps > 0:
-                    for k, v in sorted(losses_g.items()):
-                        logger.info('  [G] {}: {:.3f}'.format(k, v))
-                        checkpoint['G_losses'][k].append(v)
-                if args.c_steps > 0:
-                    for k, v in sorted(losses_c.items()):
-                        logger.info('  [C] {}: {:.3f}'.format(k, v))
-                        checkpoint['C_losses'][k].append(v)
-                checkpoint['losses_ts'].append(t)
-
-            # Maybe save a checkpoint
-            if t > 0 and t % args.checkpoint_every == 0:
-                checkpoint['counters']['t'] = t
-                checkpoint['counters']['epoch'] = epoch
-                checkpoint['sample_ts'].append(t)
-
-                logger.info('Checking stats on train ...')
-                metrics_train = check_accuracy('train', epoch,
-                        args, train_loader, generator, discriminator,
-                        d_loss_fn, eval_discriminator=eval_discriminator, limit=True, eval_critic=eval_critic, critic=critic, c_loss_fn=c_loss_fn)
-
-                logger.info('Checking stats on val ...')
-                metrics_val = check_accuracy('val', epoch,
-                    args, val_loader, generator, discriminator,
-                    d_loss_fn, eval_discriminator=eval_discriminator, limit=True, eval_critic=eval_critic, critic=critic,c_loss_fn=c_loss_fn)
-
-                for k, v in sorted(metrics_val.items()):
-                    logger.info('  [val] {}: {:.3f}'.format(k, v))
-                    checkpoint['metrics_val'][k].append(v)
-                for k, v in sorted(metrics_train.items()):
-                    logger.info('  [train] {}: {:.3f}'.format(k, v))
-                    checkpoint['metrics_train'][k].append(v)
-
-                min_ade = min(checkpoint['metrics_val']['ade'])
-                min_ade_nl = min(checkpoint['metrics_val']['ade_nl'])
-
-                if metrics_val['ade'] == min_ade:
-                    logger.info('New low for avg_disp_error')
-                    checkpoint['best_t'] = t
-                    checkpoint['g_best_state'] = generator.state_dict()
-                    checkpoint['d_best_state'] = discriminator.state_dict()
-                    if args.c_steps > 0:
-                        checkpoint['c_best_state'] = critic.state_dict()
-
-                if metrics_val['ade_nl'] == min_ade_nl:
-                    logger.info('New low for avg_disp_error_nl')
-                    checkpoint['best_t_nl'] = t
-                    checkpoint['g_best_nl_state'] = generator.state_dict()
-                    checkpoint['d_best_nl_state'] = discriminator.state_dict()
-
-                # Save another checkpoint with model weights and
-                # optimizer state
-                checkpoint['g_state'] = generator.state_dict()
-                checkpoint['g_optim_state'] = optimizer_g.state_dict()
-                checkpoint['d_state'] = discriminator.state_dict()
-                checkpoint['d_optim_state'] = optimizer_d.state_dict()
-                if args.c_steps > 0:
-                    checkpoint['c_state'] = critic.state_dict()
-                    checkpoint['c_optim_state'] = optimizer_c.state_dict()
-                checkpoint_path = os.path.join(
-                    args.output_dir, model_name % args.checkpoint_name
-                )
-                logger.info('Saving checkpoint to {}'.format(checkpoint_path))
-                torch.save(checkpoint, checkpoint_path)
-                logger.info('Done.')
-
-                # Save a checkpoint with no model weights by making a shallow
-                # copy of the checkpoint excluding some items
-                checkpoint_path = os.path.join(
-                    args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
-                logger.info('Saving checkpoint to {}'.format(checkpoint_path))
-                key_blacklist = [
-                    'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
-                    'g_optim_state', 'd_optim_state', 'd_best_state',
-                    'd_best_nl_state', 'c_optim_state', 'c_best_state'
-                ]
-                small_checkpoint = {}
-                for k, v in checkpoint.items():
-                    if k not in key_blacklist:
-                        small_checkpoint[k] = v
-                torch.save(small_checkpoint, checkpoint_path)
-
-                logger.info('Done.')
-
 
             t += 1
             d_steps_left = args.d_steps
@@ -552,6 +465,104 @@ def main(args):
             c_steps_left = args.c_steps
             if t >= args.num_iterations:
                 break
+
+        # Save losses
+        logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
+        if args.d_steps > 0:
+            for k, v in sorted(avg_losses_d.items()):
+                logger.info('  [D] {}: {:.3f}'.format(k, v))
+                checkpoint['D_losses'][k].append(v)
+                writer.add_scalar('Train/' + k, v, epoch)
+        for k, v in sorted(avg_losses_g.items()):
+            logger.info('  [G] {}: {:.3f}'.format(k, v))
+            checkpoint['G_losses'][k].append(v)
+            writer.add_scalar('Train/' + k, v, epoch)
+        if args.c_steps > 0:
+            for k, v in sorted(avg_losses_c.items()):
+                logger.info('  [C] {}: {:.3f}'.format(k, v))
+                checkpoint['C_losses'][k].append(v)
+                writer.add_scalar('Train/' + k, v, epoch)
+        checkpoint['losses_ts'].append(t)
+
+        # Maybe save a checkpoint
+        if t > 0:
+            checkpoint['counters']['t'] = t
+            checkpoint['counters']['epoch'] = epoch
+            checkpoint['sample_ts'].append(t)
+
+            logger.info('Checking stats on train ...')
+            metrics_train = check_accuracy('train', epoch,
+                                           args, train_loader, generator, discriminator,
+                                           d_loss_fn, eval_discriminator=eval_discriminator, limit=True,
+                                           eval_critic=eval_critic, critic=critic, c_loss_fn=c_loss_fn)
+
+            logger.info('Checking stats on val ...')
+            metrics_val = check_accuracy('val', epoch,
+                                         args, val_loader, generator, discriminator,
+                                         d_loss_fn, eval_discriminator=eval_discriminator, limit=True,
+                                         eval_critic=eval_critic, critic=critic, c_loss_fn=c_loss_fn)
+
+            for k, v in sorted(metrics_val.items()):
+                logger.info('  [val] {}: {:.3f}'.format(k, v))
+                checkpoint['metrics_val'][k].append(v)
+                writer.add_scalar('Validation/' + k, v, epoch)
+            for k, v in sorted(metrics_train.items()):
+                logger.info('  [train] {}: {:.3f}'.format(k, v))
+                checkpoint['metrics_train'][k].append(v)
+                writer.add_scalar('Train/' + k, v, epoch)
+
+            min_ade = min(checkpoint['metrics_val']['ade'])
+            min_ade_nl = min(checkpoint['metrics_val']['ade_nl'])
+
+            if metrics_val['ade'] == min_ade:
+                logger.info('New low for avg_disp_error')
+                checkpoint['best_t'] = t
+                checkpoint['g_best_state'] = generator.state_dict()
+                checkpoint['d_best_state'] = discriminator.state_dict()
+                if args.c_steps > 0:
+                    checkpoint['c_best_state'] = critic.state_dict()
+
+            if metrics_val['ade_nl'] == min_ade_nl:
+                logger.info('New low for avg_disp_error_nl')
+                checkpoint['best_t_nl'] = t
+                checkpoint['g_best_nl_state'] = generator.state_dict()
+                checkpoint['d_best_nl_state'] = discriminator.state_dict()
+
+            # Save another checkpoint with model weights and
+            # optimizer state
+            checkpoint['g_state'] = generator.state_dict()
+            checkpoint['g_optim_state'] = optimizer_g.state_dict()
+            checkpoint['d_state'] = discriminator.state_dict()
+            checkpoint['d_optim_state'] = optimizer_d.state_dict()
+            if args.c_steps > 0:
+                checkpoint['c_state'] = critic.state_dict()
+                checkpoint['c_optim_state'] = optimizer_c.state_dict()
+            checkpoint_path = os.path.join(
+                args.output_dir, model_name % args.checkpoint_name
+            )
+            logger.info('Saving checkpoint to {}'.format(checkpoint_path))
+            torch.save(checkpoint, checkpoint_path)
+            logger.info('Done.')
+
+            # Save a checkpoint with no model weights by making a shallow
+            # copy of the checkpoint excluding some items
+            checkpoint_path = os.path.join(
+                args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
+            logger.info('Saving checkpoint to {}'.format(checkpoint_path))
+            key_blacklist = [
+                'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
+                'g_optim_state', 'd_optim_state', 'd_best_state',
+                'd_best_nl_state', 'c_optim_state', 'c_best_state'
+            ]
+            small_checkpoint = {}
+            for k, v in checkpoint.items():
+                if k not in key_blacklist:
+                    small_checkpoint[k] = v
+            torch.save(small_checkpoint, checkpoint_path)
+
+            logger.info('Done.')
+
+    writer.close()
 
 
 def discriminator_step(
