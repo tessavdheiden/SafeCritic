@@ -315,7 +315,6 @@ class PhysicalPooling(nn.Module):
                 boundary_points_per_ped = annotated_points.repeat(num_ped, 1)
                 curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated
                 curr_rel_pos = torch.clamp(curr_rel_pos, -self.neighborhood_size, self.neighborhood_size)
-                self.check(curr_end_pos[0], boundary_points_per_ped[:self.num_cells])
 
             elif self.pool_static_type == "polar":
                 ''' New code with pandas implementation of polar grid pooling(Giuseppe)'''
