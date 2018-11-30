@@ -2,32 +2,31 @@ import pandas as pd
 import numpy as np
 import os
 import torch
+import time
 
 from sgan.data.loader import data_loader
 from sgan.utils import get_dset_group_name, get_dataset_path, get_dset_name
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
 from scripts.evaluate_model import get_generator, relative_to_abs, evaluate_helper
-from scripts.evaluate_oracle import get_oracle
-
 from scripts.train import get_argument_parser
 
 # benchmark collisions or displacement errors
 benchmark = "displacement"
 
 if benchmark == "collisions":
-    metrics = np.array(["COLS", "OCCS"])
+    metrics = np.array(["COLS", "OCCS", "TIMES"])
 elif benchmark == "displacement":
-    metrics = np.array(["ADE", "FDE"])
+    metrics = np.array(["ADE", "FDE", "TIMES"])
 
-dataset = "ucy"
+dataset = "sdd"
 
 if dataset == "ucy":
 
     table_column_names = np.array(["socialGAN_GP", "socialLSTM", "safeGAN_DP4_SP"])
     table_row_names = sorted(np.array(["students_3", "zara_1"]))
 elif dataset == "sdd":
-    table_column_names = np.array(["socialGAN", "socialLSTM", "safeGAN_DP4_SP", "safeGAN_DP4_SP_l.1", "safeGAN_DP4_SP_l1"])
+    table_column_names = np.array(["safeGAN_DP4_SP", "safeGAN_DP4_SP_ann"])
     table_row_names = sorted(np.array(["bookstore_3", "coupa_3", "deathCircle_4", "gates_8", "hyang_7", "nexus_9"]))
 
 dataset_group = get_dset_group_name(table_row_names[0])
@@ -113,6 +112,7 @@ def get_map_here(dset, down_sampling=True):
     else:
         return map
 
+
 def set_dset_list(list_data_files):
     scene_information = {}
     for name in list_data_files:
@@ -121,8 +121,9 @@ def set_dset_list(list_data_files):
         scene_information[name] = map
     return scene_information
 
+
 def evaluate(args, loader, generator, num_samples, data_dir, dataset=dataset):
-    ade_outer, fde_outer, cols_outer, occs_outer = [], [], [], []
+    ade_outer, fde_outer, cols_outer, occs_outer, time_outer = [], [], [], [], []
     total_traj = 0
     cols_all, occs_all = 0, 0
     num_samples = 20
@@ -132,14 +133,13 @@ def evaluate(args, loader, generator, num_samples, data_dir, dataset=dataset):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, _, seq_start_end, seq_scene_ids) = batch
-            ade, fde, cols, occs = [], [], [], []
+            ade, fde, cols, occs, times = [], [], [], [], []
             total_traj += pred_traj_gt.size(1)
 
             for _ in range(num_samples):
+                t1 = time.time()
                 if args.pool_static:
                     generator.static_net.set_dset_list(data_dir)
-                    seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
-
                     pred_traj_fake_rel = generator(
                         obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids
                     )
@@ -150,6 +150,7 @@ def evaluate(args, loader, generator, num_samples, data_dir, dataset=dataset):
                 pred_traj_fake = relative_to_abs(
                     pred_traj_fake_rel, obs_traj[-1]
                 )
+
                 if benchmark == "displacement":
                     ade.append(displacement_error(
                         pred_traj_fake, pred_traj_gt, mode='raw'
@@ -164,6 +165,7 @@ def evaluate(args, loader, generator, num_samples, data_dir, dataset=dataset):
                     occs.append(occupancy_error(pred_pos=pred_traj_fake, seq_start_end=seq_start_end,
                                             scene_information=scene_infomation,
                                             seq_scene=seq_scenes, minimum_distance=.25, mode='binary'))
+                times.append(time.time() - t1)
 
             if benchmark == "displacement":
                 ade_sum = evaluate_helper(ade, seq_start_end)
@@ -178,6 +180,10 @@ def evaluate(args, loader, generator, num_samples, data_dir, dataset=dataset):
                 occs_all += torch.sum(torch.sum(torch.stack(occs, dim=1)), dim=0)
                 occs_sum = evaluate_helper(occs, seq_start_end, False)
                 occs_outer.append(occs_sum)
+
+            error = torch.FloatTensor(times)
+            time_outer.append(torch.min(error))
+
         if benchmark == "displacement":
             ade = sum(ade_outer) / (total_traj * args.pred_len)
             fde = sum(fde_outer) / total_traj
@@ -190,7 +196,9 @@ def evaluate(args, loader, generator, num_samples, data_dir, dataset=dataset):
             occs_ = (occs_all /total_traj/ num_samples)
             print('occupancies via helper =', occs.item(), ', occupancies = ', occs_.item(), 'occs_all = ', occs_all.item())
 
-        return ade, fde, cols, occs, total_traj
+        times = sum(time_outer) / total_traj
+
+        return ade, fde, cols, occs, times, total_traj
 
 
 parser = get_argument_parser()
@@ -200,6 +208,7 @@ table = Table(table_column_names, table_row_names, metrics)
 # plt.cla()
 # plt.scatter(np.arange(0, len(model['metrics_val']['ade'])), model['metrics_val']['ade'])
 # plt.show()
+
 
 def get_map(dset, down_sampling=True):
     _dir = os.path.dirname(os.path.realpath(__file__))
@@ -214,6 +223,7 @@ def get_map(dset, down_sampling=True):
         return map[::down_sampling]
     else:
         return map
+
 
 for model_idx, model_name in enumerate(table_column_names):
     print(model_name)
@@ -238,9 +248,9 @@ for model_idx, model_name in enumerate(table_column_names):
                     generator.decoder.static_net.set_dset_list(dataset_path)
 
             _, loader = data_loader(args, dataset_path, shuffle=False)
-            ADE_value, FDE_value, COLS_value, OCCS_value, total_traj = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path, dataset=dataset)
+            ADE_value, FDE_value, COLS_value, OCCS_value, TIMES_value, total_traj = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path, dataset=dataset)
         else:
-            ADE_value, FDE_value, COLS_value, OCCS_value, total_traj = 0, 0, 0, 0, 0
+            ADE_value, FDE_value, COLS_value, OCCS_value, TIMES_value, total_traj = 0, 0, 0, 0, 0, 0
         print('dataset = {}, total_traj = {}'.format(dataset, total_traj))
         if benchmark == "displacement":
             table.set_value(model_idx, dataset, "FDE", FDE_value)
@@ -248,6 +258,8 @@ for model_idx, model_name in enumerate(table_column_names):
         elif benchmark == "collisions":
             table.set_value(model_idx, dataset, "COLS", COLS_value)
             table.set_value(model_idx, dataset, "OCCS", OCCS_value)
+
+        table.set_value(model_idx, dataset, "TIMES", TIMES_value)
 
     table.print(model_idx)
 table.save('../results/')
