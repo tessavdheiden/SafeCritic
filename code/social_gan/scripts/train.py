@@ -466,6 +466,20 @@ def main(args):
             if t >= args.num_iterations:
                 break
 
+        # Save weights and biases for visualization:
+        if 'cnn' in args.pool_static_type:
+            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.0.weight'].squeeze().cpu().numpy(), epoch)
+            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.0.bias'].squeeze().cpu().numpy(), epoch)
+        else:
+            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.weight'].cpu().numpy(), epoch)
+            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.bias'].cpu().numpy(), epoch)
+
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_weight', generator.state_dict()['static_net.mlp_pre_pool.0.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_bias', generator.state_dict()['static_net.mlp_pre_pool.0.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_weight', generator.state_dict()['static_net.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias', generator.state_dict()['static_net.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
+
+        #print("*****EPOCH:", epoch, "  -  ITERATION:", t)
         # Save losses
         logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
         if args.d_steps > 0:
