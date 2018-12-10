@@ -20,7 +20,7 @@ from sgan.utils import relative_to_abs, get_dset_path, get_dataset_path,  get_ds
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../results/0_Minimize_occs/', type=str)
+parser.add_argument('--model_path', default='../results/final_1/', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
@@ -66,12 +66,15 @@ def get_generator(checkpoint_in, pretrained=False):
         pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
-        activation='relu',
+        activation='leakyrelu',
         batch_norm=args.batch_norm,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim
-        )
+        pooling_dim=args.pooling_dim,
+        pool_static_type=args.pool_static_type,
+        down_samples=args.down_samples
+    )
+
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
     generator.train()
@@ -398,7 +401,7 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
     path = get_path(args.dataset_name)
     if args.dataset_name != 'sdd':
         path = get_path(args.dataset_name)
-        reader = imageio.get_reader(path + "/{}_video.mov".format(args.dataset_name), 'ffmpeg')
+        reader = imageio.get_reader(path + "/video.mov".format(args.dataset_name), 'ffmpeg')
         annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
         down_sampling = (annotated_points.shape[0] // 50)
         annotated_points = annotated_points[::down_sampling]
@@ -435,7 +438,7 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
                 if args.dataset_name == 'sdd' and generator2.pool_static:
                     dataset_name = seq_scenes[i]
                     path = get_path(dataset_name)
-                    reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
+                    reader = imageio.get_reader(path + "/video.mov".format(dataset_name), 'ffmpeg')
                     annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
                     if annotated_points.shape[0] > 200:
                         down_sampling = (annotated_points.shape[0] // 200)
@@ -505,7 +508,7 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
     occs1, occs2, occs_gt, occs1prev,occs2prev = 0, 0, 0, 0, 0
     if args.dataset_name != 'sdd':
         path = get_path(args.dataset_name)
-        reader = imageio.get_reader(path + "/{}_video.mov".format(args.dataset_name), 'ffmpeg')
+        reader = imageio.get_reader(path + "/video.mov".format(args.dataset_name), 'ffmpeg')
         annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
         down_sampling = (annotated_points.shape[0] // 50)
         annotated_points = annotated_points[::down_sampling]
@@ -545,7 +548,7 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                 if args.dataset_name == 'sdd' and generator2.pool_static:
                     dataset_name = seq_scenes[i]
                     path = get_path(dataset_name)
-                    reader = imageio.get_reader(path + "/{}_video.mov".format(dataset_name), 'ffmpeg')
+                    reader = imageio.get_reader(path + "/video.mov".format(dataset_name), 'ffmpeg')
                     annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
                     if annotated_points.shape[0] > 200:
                         down_sampling = (annotated_points.shape[0] // 200)
