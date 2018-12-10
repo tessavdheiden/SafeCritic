@@ -154,12 +154,12 @@ class Decoder(nn.Module):
         decoder_input = self.spatial_embedding(last_pos_rel)
         decoder_input = decoder_input.view(1, batch, self.embedding_dim) # [1, ped, h_dim]
 
-        for _ in range(self.seq_len):
+        for counter in range(self.seq_len):
             output, state_tuple = self.decoder(decoder_input, state_tuple)
             rel_pos = self.hidden2pos(output.view(-1, self.h_dim))
             curr_pos = rel_pos + last_pos
 
-            if self.pool_every_timestep:
+            if self.pool_every_timestep and counter%6 == 0:
                 decoder_h = state_tuple[0]
                 if (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and not self.pool_static:
                     pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
