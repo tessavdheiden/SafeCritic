@@ -22,11 +22,10 @@ elif benchmark == "displacement":
 dataset = "sdd"
 
 if dataset == "ucy":
-
     table_column_names = np.array(["socialGAN_GP", "socialLSTM", "safeGAN_DP4_SP"])
     table_row_names = sorted(np.array(["students_3", "zara_1"]))
 elif dataset == "sdd":
-    table_column_names = np.array(["safeGAN_DP4_SP", "safeGAN_DP4_SP_ann"])
+    table_column_names = np.array(["safeGAN_DP2_SP_RANDOM_SPATIAL_EMB_CNN_POOLEVERY"])
     table_row_names = sorted(np.array(["bookstore_3", "coupa_3", "deathCircle_4", "gates_8", "hyang_7", "nexus_9"]))
 
 dataset_group = get_dset_group_name(table_row_names[0])
@@ -35,7 +34,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Table:
     def __init__(self, cols, rows, subcols):
         self.cols = cols
-        self.rows = np.append(rows, ["avarage"])
+        self.rows = np.append(rows, ["average"])
         self.subcols = subcols
         self.make()
         self.avarage = {}
@@ -77,7 +76,7 @@ class Table:
 
     def calc_avarage(self, model):
         for col in self.subcols:
-            self.cells[model][col]["avarage"] = sum(self.cells[model][col]) / (self.cells[model][col].shape[0]-1)
+            self.cells[model][col]["average"] = sum(self.cells[model][col]) / (self.cells[model][col].shape[0]-1)
 
 
 def get_model_path(model, num):
@@ -228,18 +227,18 @@ def get_map(dset, down_sampling=True):
 for model_idx, model_name in enumerate(table_column_names):
     print(model_name)
     model_parameter_file_path = get_model_path(model_name, '12')
-    for dataset, model_file_name in zip(table_row_names, model_parameter_file_path):
+    for test_dataset, model_file_name in zip(table_row_names, model_parameter_file_path*len(table_row_names)):
         model = torch.load(model_file_name)
         if table_column_names[model_idx] == 'socialGAN_pretrained':
             model['args']['pretrained'] = True
             # dataset_path = get_dataset_path(dataset, 'test', 'sgan_datasets')
-        dataset_path = get_dataset_path(dataset, 'test')
+        dataset_path = get_dataset_path(test_dataset, 'test')
         dataset_path = "/".join(dataset_path.split('/')[:-1])
-        print(get_dset_name(model['args']['dataset_name']))
-        print(dataset)
+        print("test dataset path:", dataset_path)
+        print("test dataset:", test_dataset)
         if True or get_dset_name(model['args']['dataset_name']) == 'sdd':
             generator, args = get_generator(model)
-            args.dataset_name = dataset
+            args.dataset_name = test_dataset
             # if model['args']['c_type'] == 'static':
             #     oracle, _ = get_oracle(model)
             if args.pool_static:
@@ -248,26 +247,18 @@ for model_idx, model_name in enumerate(table_column_names):
                     generator.decoder.static_net.set_dset_list(dataset_path)
 
             _, loader = data_loader(args, dataset_path, shuffle=False)
-            ADE_value, FDE_value, COLS_value, OCCS_value, TIMES_value, total_traj = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path, dataset=dataset)
+            ADE_value, FDE_value, COLS_value, OCCS_value, TIMES_value, total_traj = evaluate(args=args, loader=loader, generator=generator, num_samples=args.best_k, data_dir=dataset_path, dataset=test_dataset)
         else:
             ADE_value, FDE_value, COLS_value, OCCS_value, TIMES_value, total_traj = 0, 0, 0, 0, 0, 0
-        print('dataset = {}, total_traj = {}'.format(dataset, total_traj))
+        print('dataset = {}, total_traj = {}'.format(test_dataset, total_traj))
         if benchmark == "displacement":
-            table.set_value(model_idx, dataset, "FDE", FDE_value)
-            table.set_value(model_idx, dataset, "ADE", ADE_value)
+            table.set_value(model_idx, test_dataset, "FDE", FDE_value)
+            table.set_value(model_idx, test_dataset, "ADE", ADE_value)
         elif benchmark == "collisions":
-            table.set_value(model_idx, dataset, "COLS", COLS_value)
-            table.set_value(model_idx, dataset, "OCCS", OCCS_value)
+            table.set_value(model_idx, test_dataset, "COLS", COLS_value)
+            table.set_value(model_idx, test_dataset, "OCCS", OCCS_value)
 
-        table.set_value(model_idx, dataset, "TIMES", TIMES_value)
+        table.set_value(model_idx, test_dataset, "TIMES", TIMES_value)
 
     table.print(model_idx)
 table.save('../results/')
-
-
-
-
-
-
-
-
