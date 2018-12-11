@@ -4,7 +4,7 @@ import logging
 import os
 import sys
 import time
-import numpy as np
+import math
 from tensorboardX import SummaryWriter
 
 from collections import defaultdict
@@ -216,9 +216,9 @@ def main(args):
         _, val_loader = data_loader(args, val_path, shuffle=True)
 
     if args.g_steps > 0:
-        iterations_per_epoch = len(train_dset) / args.batch_size / args.g_steps
+        iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.g_steps)
     else:
-        iterations_per_epoch = len(train_dset) / args.batch_size / args.c_steps
+        iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.c_steps)
     if args.num_epochs:
         args.num_iterations = int(iterations_per_epoch * args.num_epochs)
 
