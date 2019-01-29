@@ -13,5 +13,5 @@ FLORA: Future prediction of obstacle locations in traffic scenes for collision a
 - [ ] Check collision checking of oracle
 
 ## Model 
-[safeGAN](http://github.com/tessavdheiden/images/architecture.png)
+![safeGAN](images/architecture.png)
 For complete details of the dataset, preprocessing, network architecture and implementation, refer to the [Wiki](https://github.com/tessavdheiden/FLORA/wiki) of this repository.
