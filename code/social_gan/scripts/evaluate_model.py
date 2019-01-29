@@ -20,7 +20,7 @@ from sgan.utils import relative_to_abs, get_dset_path, get_dataset_path,  get_ds
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../results/final_1/', type=str)
+parser.add_argument('--model_path', default='../results/version8_1/', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
@@ -238,55 +238,7 @@ def plot_cols(ax1, ax2, ax3, traj_gt, traj1, traj2, cols_gt, cols1, cols2, h, mi
     return cols_gt, cols1, cols2
 
 
-def compare_cols_pred_gt(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-    path = "/".join(data_dir.split('/')[:-1])
-    _, loader = data_loader(args, path, shuffle=False)
-    fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
-    cols1, cols2, cols_gt, cols1prev = 0, 0, 0, 0
-    ade1, ade2, fde1, fde2 = [], [], [], []
 
-    path = get_path(args.dataset_name)
-    writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
-    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
-    annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
-
-    with torch.no_grad():
-        for b, batch in enumerate(loader):
-            batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
-
-            pred_traj_fake1,  _ = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, data_dir)
-            pred_traj_fake2, _ = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, data_dir)
-            pred_traj_fake_gt = pred_traj_gt.permute(1, 0, 2)  # batch, seq, 2
-            obs_traj = obs_traj.permute(1, 0, 2)
-            pred_traj_fake1 = pred_traj_fake1.permute(1, 0, 2)  # batch, seq, 2
-            pred_traj_fake2 = pred_traj_fake2.permute(1, 0, 2)  # batch, seq, 2
-            for i, (start, end) in enumerate(seq_start_end):
-                start = start.item()
-                end = end.item()
-                frame = traj_frames[args.obs_len][start][0].item()
-                photo = reader.get_data(int(frame))
-
-                traj1 = pred_traj_fake1[start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
-                traj2 = pred_traj_fake2[start:end]
-                traj_gt = pred_traj_fake_gt[start:end]
-                traj_obs = obs_traj[start:end]
-
-                plot_trajectories_pixels_photo(traj_gt, traj_obs, traj1, traj2, name1, name2, ax1, ax2, ax3, ax4, photo, h, 1)
-                cols_gt, cols1, cols2 = plot_cols(ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2, h)
-
-                plt.savefig(save_dir + 'tmp.png')
-                im = plt.imread(save_dir + 'tmp.png')
-                writer.append_data(im)
-                if cols1 > cols1prev:
-                    plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
-                    cols1prev = cols1
-                plt.draw()
-                plt.pause(0.001)
-    writer.close()
-
-    return cols1, cols2
 
 
 # ------------------------------- PLOT OCCUPANCIES -------------------------------
@@ -332,53 +284,6 @@ def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs
 
     return occs_gt, occs1, occs2
 
-
-def compare_occs_pred_gt(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-    path = "/".join(data_dir.split('/')[:-1])
-    _, loader = data_loader(args, path, shuffle=False)
-    fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
-    occs1, occs2, occs_gt, occs1prev = 0, 0, 0, 0
-    ade1, ade2, fde1, fde2 = [], [], [], []
-
-    path = get_path(args.dataset_name)
-    writer = imageio.get_writer(save_dir + 'dataset_{}_model1_{}_model2_{}.mp4'.format(args.dataset_name, name1, name2))
-    reader = imageio.get_reader(path + "/seq.avi", 'ffmpeg')
-    annotated_points, h = get_homography_and_map(args.dataset_name, "/annotated.jpg")
-    with torch.no_grad():
-        for b, batch in enumerate(loader):
-            batch = [tensor.cuda() for tensor in batch]
-            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
-             non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
-
-            pred_traj_fake1, _ = get_trajectories(generator1, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, data_dir)
-            pred_traj_fake2, _ = get_trajectories(generator2, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, data_dir)
-            pred_traj_fake_gt = pred_traj_gt.permute(1, 0, 2)  # batch, seq, 2
-            obs_traj = obs_traj.permute(1, 0, 2)
-            pred_traj_fake1 = pred_traj_fake1.permute(1, 0, 2)  # batch, seq, 2
-            pred_traj_fake2 = pred_traj_fake2.permute(1, 0, 2)  # batch, seq, 2
-            for i, (start, end) in enumerate(seq_start_end):
-                start = start.item()
-                end = end.item()
-                frame = traj_frames[args.obs_len][start][0].item()
-                photo = reader.get_data(int(frame))
-
-                traj1 = pred_traj_fake1[start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
-                traj2 = pred_traj_fake2[start:end]
-                traj_gt = pred_traj_fake_gt[start:end]
-                traj_obs = obs_traj[start:end]
-
-                plot_trajectories_pixels_photo(traj_gt, traj_obs, traj1, traj2, name1, name2,ax1, ax2, ax3, ax4, photo, h, 1)
-                occs_gt, occs1, occs2 = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
-
-                plt.savefig(save_dir + 'tmp.png')
-                writer.append_data(plt.imread(save_dir + 'tmp.png'))
-                if occs1 > occs1prev:
-                    plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
-                    occs1prev = occs1
-
-    writer.close()
-
-    return occs1, occs2
 
 
 # ------------------------------- PLOT SAMPLING -------------------------------
@@ -673,7 +578,7 @@ def move_figure(f, x, y):
 
 
 def main(args):
-    test_case = 4
+    test_case = 2
 
     if os.path.isdir(os.path.join(args.model_path)):
         filenames = os.listdir(args.model_path)
@@ -689,16 +594,10 @@ def main(args):
         generator2, _ = get_generator(checkpoint2)
         data_dir = get_dataset_path(_args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
         if test_case == 1:
-            cols1, cols2 = compare_cols_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
-            print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(cols1, cols2))
-        elif test_case == 2:
-            occs1, occs2 = compare_occs_pred_gt(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
-            print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-        elif test_case == 3:
             occs1, occs2, total_traj = compare_sampling_cols(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
             print('Num samples {:.2f} total_traj: {:.2f}'.format(_args.best_k, total_traj))
-        elif test_case == 4:
+        elif test_case == 2:
             occs1, occs2 = compare_sampling_occs(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
             print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
 
