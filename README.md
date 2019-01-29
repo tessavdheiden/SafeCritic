@@ -9,6 +9,9 @@ FLORA: Future prediction of obstacle locations in traffic scenes for collision a
 - [ ] Refactor train.py (too long)
 - [ ] Commit attention model in pooling and physical pooling, maybe remove if statements
 
+## Cluster computing
+- [ ] Make kubernetis work
+
 ## Improve model performance
 - [ ] Check collision checking of oracle
 
