@@ -14,4 +14,4 @@ FLORA: Future prediction of obstacle locations in traffic scenes for collision a
 
 ## Model 
 ![safeGAN](images/architecture.png)
-For complete details of the dataset, preprocessing, network architecture and implementation, refer to the [Wiki](https://github.com/tessavdheiden/FLORA/wiki) of this repository.
+
