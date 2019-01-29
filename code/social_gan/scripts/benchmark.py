@@ -25,7 +25,7 @@ if dataset == "ucy":
     table_column_names = np.array(["socialGAN_GP", "socialLSTM", "safeGAN_DP4_SP"])
     table_row_names = sorted(np.array(["students_3", "zara_1"]))
 elif dataset == "sdd":
-    table_column_names = np.array(["safeGAN_DP2_SP_RANDOM_SPATIAL_EMB_CNN_POOLEVERY"])
+    table_column_names = np.array(["safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_SEGMENTATION_FEATURES"])
     table_row_names = sorted(np.array(["bookstore_3", "coupa_3", "deathCircle_4", "gates_8", "hyang_7", "nexus_9"]))
 
 dataset_group = get_dset_group_name(table_row_names[0])

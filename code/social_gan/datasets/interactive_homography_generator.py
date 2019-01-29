@@ -6,7 +6,6 @@ import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
-from scripts.collision_checking import load_bin_map
 from tkinter import messagebox, Tk, Label, Button, Radiobutton, IntVar
 
 parser = argparse.ArgumentParser()
@@ -239,6 +238,20 @@ def get_pixels_from_world(pts_wrd, h, divide_depth=False):
     # print('world_in = \n{},\nimage_out = \n{}'.format(pts_wrd, pts_img_back))
     return pts_img_back
 
+
+def rgb2gray(rgb):
+    return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
+
+def grey2bin(grey):
+    grey[grey > 0.5] = 1
+    grey[grey <= 0.5] = 0
+    return grey
+
+def load_bin_map(path, file):
+    static_map = plt.imread(path + file)
+    static_map = rgb2gray(static_map)
+    static_map = grey2bin(static_map)
+    return static_map
 
 
 def main(args):
