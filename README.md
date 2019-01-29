@@ -11,6 +11,7 @@ FLORA: Future prediction of obstacle locations in traffic scenes for collision a
 - [ ] Make kubernetis work
 
 ## Improve model performance
+- [ ] Make graph network
 - [ ] Check collision checking of oracle
 
 ## Model 
