@@ -1,0 +1,12 @@
+configparser
+argparse
+numpy
+pandas
+matplotlib
+scipy
+sklearn
+keras
+imageio
+torch
+torchvision
+
