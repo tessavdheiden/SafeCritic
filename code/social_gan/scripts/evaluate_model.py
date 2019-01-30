@@ -1,6 +1,7 @@
 import argparse
 import os
 import torch
+import sys
 
 import matplotlib.pyplot as plt
 import matplotlib
@@ -12,6 +13,9 @@ import cv2
 
 from attrdict import AttrDict
 
+current_path = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(current_path, os.path.pardir))
+
 from sgan.data.loader import data_loader
 from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator
 from sgan.models_static_scene import get_homography_and_map
@@ -20,15 +24,15 @@ from sgan.utils import relative_to_abs, get_dset_path, get_dataset_path,  get_ds
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='../results/version8_1/', type=str)
+parser.add_argument('--model_path', default='results/models/SDD/safeGAN_SP', type=str)
+parser.add_argument('--plots_path', default='results/plots/SDD/safeGAN_SP', type=str)
 parser.add_argument('--num_samples', default=20, type=int)
 parser.add_argument('--dset_type', default='test', type=str)
 
 MAKE_MP4 = True
 FOUR_PLOTS = True
 
-colors = np.asarray(
-                    [[.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
+colors = np.asarray([[.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
                      [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
                      [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
                      [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.75, 0, 0], [0, .75, 0], [0, 0, .75], [.1, 0, 0],
@@ -40,16 +44,11 @@ def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
         world = np.stack((data[:, 0], data[:, 1])).T
         pixels = get_pixels_from_world(world, h_matrix, True)
         pixels = np.stack((annotated_image.shape[1]/2+pixels[:, 0], annotated_image.shape[0]/2-pixels[:, 1])).T
-
     return pixels
 
 
 def get_generator(checkpoint_in, pretrained=False):
     args = AttrDict(checkpoint_in['args'])
-    # if checkpoint_in['args']['pretrained']:
-    #     args.pool_static = 0
-    #     args.pooling_dim = 2
-    #     args.delim = 'space'
     generator = TrajectoryGenerator(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
@@ -81,7 +80,6 @@ def get_generator(checkpoint_in, pretrained=False):
     return generator, args
 
 
-
 def evaluate_helper(error, seq_start_end, min=True):
     sum_ = 0
     error = torch.stack(error, dim=1)
@@ -98,7 +96,7 @@ def evaluate_helper(error, seq_start_end, min=True):
         sum_ += _error.mean()
     return sum_
 
-
+'''
 def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
     colors = np.random.rand(traj_gt.size(0), 3)
     ax1.cla()
@@ -140,7 +138,7 @@ def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1,
         pixels_obs = get_coordinates_traj('UCY',traj_obs[p], h, static_map)
         ax4.scatter(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[p, :], s=10)
     ax4.axis([0, photo.shape[1], photo.shape[0], 0])
-
+'''
 
 def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, path=None):
 
@@ -175,7 +173,7 @@ def plot_photo(ax, photo, title):
     ax.imshow(photo)
     # ax.set_title(title)
     ax.axis([0, photo.shape[1], photo.shape[0], 0])
-    ax.axis('off')
+    #ax.axis('off')
     ax.set_yticklabels([])
     ax.set_xticklabels([])
 
@@ -473,7 +471,6 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                 plot_photo(ax4, photo, name2)
                 # colors = np.random.rand(num_peds, 3)
 
-
                 for sample in range(args.best_k):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
                     traj2 = list_trajectories2[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
@@ -488,24 +485,25 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                     ax1.scatter(pixels_annotated_points[:, 0], pixels_annotated_points[:, 1], marker='.', color='red',
                                 s=1)
                 if True:#(occs1 > occs1prev and occs2 == occs2prev) or  (occs1 == occs1prev and occs2 > occs2prev) :
+                    # only on ax4 to make legend visible
                     ax4.scatter(-100, -100, marker='*', color='red', s=100, edgecolors='black', label='collision obstacle')
+                    ax3.set_xlabel('occs = {}'.format(occs1))
+                    ax4.set_xlabel('occs = {}'.format(occs2))
                     plt.legend()
-                    plt.draw()
-                    plt.pause(0.01)
-                    plt.savefig(save_dir + '/selection/frame_{}.png'.format(b*len(seq_start_end)+i))
+                    plt.savefig(save_dir + '/frame_{}.png'.format(b*len(seq_start_end)+i))
                     occs1prev = occs1
                     occs2prev = occs2
 
                 if b*len(seq_start_end)+i == selection:
                     # Save just the portion _inside_ the second axis's boundaries
                     extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-                    fig.savefig(save_dir + '/selection/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
+                    fig.savefig(save_dir + '/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
 
                     extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-                    fig.savefig(save_dir + '/selection/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+                    fig.savefig(save_dir + '/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
 
                     extent = ax4.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-                    fig.savefig(save_dir + '/selection/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+                    fig.savefig(save_dir + '/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
 
 
 
@@ -576,14 +574,13 @@ def move_figure(f, x, y):
 
     return f
 
-
 def main(args):
     test_case = 2
-
+    print(args.model_path)
     if os.path.isdir(os.path.join(args.model_path)):
         filenames = os.listdir(args.model_path)
         filenames.sort()
-        paths = [os.path.join(args.model_path, file_) for file_ in filenames]
+        paths = [os.path.join(args.model_path, file_) for file_ in filenames[::-1]]
 
         checkpoint1 = torch.load(paths[0])
         print('model_path = ' + paths[0])
@@ -592,17 +589,17 @@ def main(args):
         checkpoint2 = torch.load(paths[1])
         print('model_path = ' + paths[1])
         generator2, _ = get_generator(checkpoint2)
+
         data_dir = get_dataset_path(_args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
         if test_case == 1:
-            occs1, occs2, total_traj = compare_sampling_cols(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
+            occs1, occs2, total_traj = compare_sampling_cols(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, args.plots_path)
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
             print('Num samples {:.2f} total_traj: {:.2f}'.format(_args.best_k, total_traj))
         elif test_case == 2:
-            occs1, occs2 = compare_sampling_occs(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir)
+            occs1, occs2 = compare_sampling_occs(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, args.plots_path)
             print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
 
 
 if __name__ == '__main__':
-
     args = parser.parse_args()
     main(args)

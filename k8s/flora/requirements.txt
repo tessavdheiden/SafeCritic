@@ -5,8 +5,7 @@ pandas
 matplotlib
 scipy
 sklearn
-keras
 imageio
 torch
 torchvision
-
+scikit-image
