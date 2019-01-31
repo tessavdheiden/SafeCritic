@@ -90,7 +90,8 @@ class PhysicalPooling(nn.Module):
         self.down_samples = down_samples
         self.pool_static_type = pool_static_type
         self.static_scene_feature_extractor = StaticSceneFeatureExtractor(pool_static_type, down_samples, embedding_dim,
-                                                                          h_dim, bottleneck_dim, activation, batch_norm, dropout)
+                                                                          h_dim, bottleneck_dim, activation, batch_norm, dropout,
+                                                                          mlp_dim, num_cells, neighborhood_size)
 
     def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
         """
@@ -102,7 +103,7 @@ class PhysicalPooling(nn.Module):
         - pool_h: Tensor of shape (batch, bottleneck_dim)
         """
 
-        seq_scenes = [self.list_data_files[num] for num in seq_scene_ids]
+        seq_scenes = [self.static_scene_feature_extractor.list_data_files[num] for num in seq_scene_ids]
         pool_h = []
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()

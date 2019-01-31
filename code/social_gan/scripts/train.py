@@ -367,11 +367,11 @@ def main(args):
 
     # give the generator annotated points
     if args.pool_static:
-        generator.static_net.set_dset_list(train_path)
+        generator.static_net.static_scene_feature_extractor.set_dset_list(train_path)
         if args.pool_every_timestep:
-            generator.decoder.static_net.set_dset_list(train_path)
+            generator.decoder.static_net.static_scene_feature_extractor.set_dset_list(train_path)
         if args.c_steps > 0 and args.c_type == 'global':
-            critic.static_net.set_dset_list(train_path)
+            critic.static_net.static_scene_feature_extractor.set_dset_list(train_path)
 
     t0 = None
 
@@ -475,7 +475,7 @@ def main(args):
             writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_bias', generator.state_dict()['static_net.mlp_pre_pool.0.bias'].cpu().numpy(), epoch)
             writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_weight', generator.state_dict()['static_net.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
             writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias', generator.state_dict()['static_net.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
-        elif args.pool_static_type == 'physical_attention':
+        elif 'physical_attention' in args.pool_static_type:
             writer.add_histogram('PhysicalPooling_attention_decoder_attention_encoder_att_weight',
                                  generator.state_dict()['static_net.attention_decoder.attention.encoder_att.weight'].cpu().numpy(), epoch)
             writer.add_histogram('PhysicalPooling_attention_decoder_attention_encoder_att_bias',
@@ -488,10 +488,10 @@ def main(args):
                                  generator.state_dict()['static_net.attention_decoder.attention.full_att.weight'].cpu().numpy(), epoch)
             writer.add_histogram('PhysicalPooling_attention_decoder_attention_full_att_bias',
                                  generator.state_dict()['static_net.attention_decoder.attention.full_att.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_f_beta_weight',
-                                 generator.state_dict()['static_net.attention_decoder.f_beta.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_f_beta_bias',
-                                 generator.state_dict()['static_net.attention_decoder.f_beta.bias'].cpu().numpy(), epoch)
+            #writer.add_histogram('PhysicalPooling_attention_decoder_f_beta_weight',
+            #                     generator.state_dict()['static_net.attention_decoder.f_beta.weight'].cpu().numpy(), epoch)
+            #writer.add_histogram('PhysicalPooling_attention_decoder_f_beta_bias',
+            #                     generator.state_dict()['static_net.attention_decoder.f_beta.bias'].cpu().numpy(), epoch)
             writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_weight_ih',
                                  generator.state_dict()['static_net.attention_decoder.decode_step.weight_ih'].cpu().numpy(), epoch)
             writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_weight_hh',
@@ -718,9 +718,9 @@ def generator_step(
 
     loss_mask = loss_mask[:, args.obs_len:]
 
-    if args.pool_static_type == "physical_attention":
-        generator.static_net.attention_decoder.zero_grad()
-        generator.static_net.attention_decoder.hidden = generator.static_net.attention_decoder.init_hidden()
+    if "physical_attention" in args.pool_static_type:
+        generator.static_net.static_scene_feature_extractor.attention_decoder.zero_grad()
+        generator.static_net.static_scene_feature_extractor.attention_decoder.hidden = generator.static_net.static_scene_feature_extractor.attention_decoder.init_hidden()
 
     for _ in range(args.best_k):
         if args.pool_static:
