@@ -83,3 +83,52 @@ def sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b,
         else:
             my_plot(ax4, o, p, g, o)
         plt.savefig(file_name + "/{}_{}_{}".format(string, epoch, b*len(seq_start_end)+i))
+
+def plot_static_net_tensorboardX(writer, generator, pool_static_type, epoch):
+    if 'cnn' in pool_static_type:
+        writer.add_histogram('PhysicalPooling_spatial_embedding_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.spatial_embedding.0.weight'].squeeze().cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_spatial_embedding_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.spatial_embedding.0.bias'].squeeze().cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.0.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.0.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
+    elif 'physical_attention' in pool_static_type:
+        writer.add_histogram('PhysicalPooling_attention_decoder_attention_encoder_att_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.attention.encoder_att.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_attention_encoder_att_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.attention.encoder_att.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_attention_decoder_att_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.attention.decoder_att.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_attention_decoder_att_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.attention.decoder_att.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_attention_full_att_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.attention.full_att.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_attention_full_att_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.attention.full_att.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_weight_ih',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.decode_step.weight_ih'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_weight_hh',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.decode_step.weight_hh'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_bias_ih',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.decode_step.weight_ih'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_bias_hh',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.attention_decoder.decode_step.weight_hh'].cpu().numpy(), epoch)
+    else:
+        writer.add_histogram('PhysicalPooling_spatial_embedding_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.spatial_embedding.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_spatial_embedding_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.spatial_embedding.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.0.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.0.bias'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_weight',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
+        writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias',
+                             generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)

@@ -17,6 +17,7 @@ class StaticSceneFeatureExtractor(nn.Module):
 
         self.pool_static_type = pool_static_type
         self.down_samples = down_samples
+        self.embedding_dim = embedding_dim
         self.mlp_dim = mlp_dim
         self.num_cells = num_cells
         self.neighborhood_size = neighborhood_size
@@ -48,11 +49,12 @@ class StaticSceneFeatureExtractor(nn.Module):
             normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             self.transform = transforms.Compose([normalize])
             self.encoder_dim = 5
+            self.encoded_image_size = 32
 
             self.attention_encoder = Attention_Encoder(self.encoded_image_size)    # encoder to prepare the input for the attention module
             self.attention_decoder = Attention_Decoder(
                 attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim,
-                encoder_dim=self.encoder_dim, encoded_image_size=32)
+                encoder_dim=self.encoder_dim, encoded_image_size=self.encoded_image_size)
 
         elif self.pool_static_type == 'physical_attention_no_encoder':
             self.encoder_dim = 5
@@ -61,9 +63,12 @@ class StaticSceneFeatureExtractor(nn.Module):
                 encoder_dim=self.encoder_dim, encoded_image_size=None)
 
         else:
-            mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
             self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim)
+
+        if 'attention' not in self.pool_static_type:
+            mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
             self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
+
 
 
     def get_static_info(self, dset, path_group, down_sampling=True):
@@ -128,9 +133,13 @@ class StaticSceneFeatureExtractor(nn.Module):
             curr_pool_h, attention_weights = self.attention_decoder(encoder_out, curr_hidden_1,
                                                                     torch.cat([curr_end_pos, curr_disp_pos], dim=1))
         else:
+            if "random" in self.pool_static_type:
+                self.num_cells = scene_info.size(0)
+
+            # Repeat position -> P1, P1, P1, ....num_cells  P2, P2 #
+            curr_ped_pos_repeated = repeat(curr_end_pos, self.num_cells)
 
             if "random" in self.pool_static_type:
-                curr_ped_pos_repeated = repeat(curr_end_pos, self.num_cells)
                 boundary_points_per_ped = scene_info.repeat(num_ped, 1)
                 curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated
                 # Cast the values outside the range [-self.neighborhood_size, self.neighborhood_size] to
@@ -138,13 +147,11 @@ class StaticSceneFeatureExtractor(nn.Module):
                 curr_rel_pos = torch.clamp(curr_rel_pos, -self.neighborhood_size, self.neighborhood_size)
 
             elif "polar" in self.pool_static_type:
-                curr_ped_pos_repeated = repeat(curr_end_pos, self.num_cells)
                 boundary_points_per_ped = get_polar_grid_points(curr_end_pos, curr_disp_pos, scene_info, self.num_cells,
                                                                 self.neighborhood_size, return_true_points=(self.pool_static_type == "polar_true_points"))
                 curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated
 
             elif "raycast" in self.pool_static_type:
-                curr_ped_pos_repeated = repeat(curr_end_pos, self.num_cells)
                 boundary_points_per_ped = get_raycast_grid_points(curr_end_pos, scene_info, self.num_cells,
                                                                   self.neighborhood_size, return_true_points=(self.pool_static_type == "raycast_true_points"))
                 curr_rel_pos = boundary_points_per_ped.view(-1, 2) - curr_ped_pos_repeated

@@ -22,7 +22,7 @@ from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
-from visualization import initialize_plot, reset_plot, sanity_check
+from visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
 
 from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator, TrajectoryCritic
 
@@ -150,7 +150,8 @@ def get_dtypes(args):
 
 
 def main(args):
-    writer = SummaryWriter(args.summary_writer_name)
+    if args.summary_writer_name is not None:
+        writer = SummaryWriter(args.summary_writer_name)
 
     if args.pool_every_timestep == 1:
         args.batch_norm = 0
@@ -433,41 +434,8 @@ def main(args):
                 break
 
         # Save weights and biases for visualization:
-        if 'cnn' in args.pool_static_type:
-            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.0.weight'].squeeze().cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.0.bias'].squeeze().cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_weight', generator.state_dict()['static_net.mlp_pre_pool.0.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_bias', generator.state_dict()['static_net.mlp_pre_pool.0.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_weight', generator.state_dict()['static_net.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias', generator.state_dict()['static_net.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
-        elif 'physical_attention' in args.pool_static_type:
-            writer.add_histogram('PhysicalPooling_attention_decoder_attention_encoder_att_weight',
-                                 generator.state_dict()['static_net.attention_decoder.attention.encoder_att.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_attention_encoder_att_bias',
-                                 generator.state_dict()['static_net.attention_decoder.attention.encoder_att.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_attention_decoder_att_weight',
-                                 generator.state_dict()['static_net.attention_decoder.attention.decoder_att.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_attention_decoder_att_bias',
-                                 generator.state_dict()['static_net.attention_decoder.attention.decoder_att.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_attention_full_att_weight',
-                                 generator.state_dict()['static_net.attention_decoder.attention.full_att.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_attention_full_att_bias',
-                                 generator.state_dict()['static_net.attention_decoder.attention.full_att.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_weight_ih',
-                                 generator.state_dict()['static_net.attention_decoder.decode_step.weight_ih'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_weight_hh',
-                                 generator.state_dict()[ 'static_net.attention_decoder.decode_step.weight_hh'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_bias_ih',
-                                 generator.state_dict()['static_net.attention_decoder.decode_step.weight_ih'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_attention_decoder_decode_step_bias_hh',
-                                 generator.state_dict()['static_net.attention_decoder.decode_step.weight_hh'].cpu().numpy(), epoch)
-        else:
-            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_spatial_embedding_weight', generator.state_dict()['static_net.spatial_embedding.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_weight', generator.state_dict()['static_net.mlp_pre_pool.0.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l0_bias', generator.state_dict()['static_net.mlp_pre_pool.0.bias'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_weight', generator.state_dict()['static_net.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
-            writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias', generator.state_dict()['static_net.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
+        if args.summary_writer_name is not None:
+            plot_static_net_tensorboardX(writer, generator, args.pool_static_type, epoch)
 
         # Save losses
         logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
