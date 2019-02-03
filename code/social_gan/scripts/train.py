@@ -24,7 +24,8 @@ from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
 from visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
 
-from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator, TrajectoryCritic
+from sgan.models import TrajectoryDiscriminator
+from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder, TrajectoryCriticBuilder
 
 from sgan.utils import int_tuple, bool_flag, get_total_norm
 from sgan.utils import relative_to_abs, get_dset_path
@@ -77,7 +78,7 @@ def get_argument_parser():
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
     parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
     parser.add_argument('--pool_static', default=1, type=bool_flag)
-    parser.add_argument('--pool_static_type', default='raycast', type=str) # random, polar, raycast, physical_attention
+    parser.add_argument('--pool_static_type', default='polar', type=str) # random, polar, raycast, physical_attention
     parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
@@ -128,6 +129,9 @@ def get_argument_parser():
     parser.add_argument('--use_gpu', default=1, type=int)
     parser.add_argument('--timing', default=0, type=int)
     parser.add_argument('--gpu_num', default="0", type=str)
+    parser.add_argument('--static_pooling', default=1, type=bool_flag)
+    parser.add_argument('--dynamic_pooling', default=1, type=bool_flag)
+    parser.add_argument('--dynamic_pooling_type', default="pool_hidden_net", type=str)
     return parser
 
 
@@ -192,7 +196,8 @@ def main(args):
         'There are {} iterations per epoch, prints {} plots {}'.format(iterations_per_epoch, args.print_every, args.checkpoint_every)
     )
 
-    generator = TrajectoryGenerator(
+    # build trajectory
+    g_builder = TrajectoryGeneratorBuilder(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
         embedding_dim=args.embedding_dim,
@@ -203,29 +208,34 @@ def main(args):
         noise_dim=args.noise_dim,
         noise_type=args.noise_type,
         noise_mix_type=args.noise_mix_type,
-        pooling_type=args.pooling_type,
-        pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
         activation='leakyrelu',
         batch_norm=args.batch_norm,
+        pooling_type=args.pooling_type,
+        pool_every_timestep=args.pool_every_timestep,
+        pool_static=args.pool_static,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
         pool_static_type=args.pool_static_type,
         down_samples=args.down_samples
+    )
 
-        )
+    if args.static_pooling:
+        g_builder.with_static_pooling(train_path)
+    if args.dynamic_pooling:
+        g_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    generator = g_builder.build()
 
     generator.apply(init_weights)
     generator.type(float_dtype).train()
     logger.info('Here is the generator:')
     logger.info(generator)
     g_loss_fn = gan_g_loss
-
     optimizer_g = optim.Adam(filter(lambda x: x.requires_grad, generator.parameters()), lr=args.g_learning_rate)
 
+    # build trajectory
     discriminator = TrajectoryDiscriminator(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
@@ -244,10 +254,54 @@ def main(args):
     logger.info(discriminator)
     d_loss_fn = gan_d_loss
     optimizer_d = optim.Adam(discriminator.parameters(), lr=args.d_learning_rate)
+
     if args.d_steps == 0:
         eval_discriminator = False
     else:
         eval_discriminator = True
+
+    c_builder = TrajectoryCriticBuilder(
+            obs_len=args.obs_len,
+            pred_len=args.pred_len,
+            embedding_dim=args.embedding_dim,
+            h_dim=args.encoder_h_dim_c,
+            bottleneck_dim=args.bottleneck_dim,
+            mlp_dim=args.mlp_dim,
+            num_layers=args.num_layers,
+            dropout=args.dropout,
+            activation='leakyrelu',
+            batch_norm=args.batch_norm,
+            d_type=args.c_type,
+            generator=generator,
+            collision_threshold=args.collision_threshold,
+            occupancy_threshold=args.occupancy_threshold,
+            pooling_type=args.pooling_type,
+            pool_every_timestep=args.pool_every_timestep,
+            pool_static=args.pool_static,
+            neighborhood_size=args.neighborhood_size,
+            grid_size=args.grid_size,
+            pooling_dim=args.pooling_dim,
+            pool_static_type=args.pool_static_type,
+            down_samples=args.down_samples)
+
+    if args.static_pooling:
+        c_builder.with_static_pooling(train_path)
+    if args.dynamic_pooling:
+        c_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    critic = c_builder.build()
+
+
+    critic.apply(init_weights)
+    critic.type(float_dtype).train()
+    logger.info('Here is the critic:')
+    logger.info(critic)
+    c_loss_fn = critic_loss
+    optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
+    if args.c_steps == 0:
+        eval_critic = False
+    else:
+        eval_critic = True
+
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -305,6 +359,8 @@ def main(args):
         }
 
 
+<<<<<<< HEAD
+=======
     critic = TrajectoryCritic(
             obs_len=args.obs_len,
             pred_len=args.pred_len,
@@ -339,6 +395,7 @@ def main(args):
         if args.c_steps > 0 and args.c_type == 'global':
             critic.static_net.static_scene_feature_extractor.set_dset_list(train_path)
 
+>>>>>>> 81c919fe1de6ec1800cec505879f6d3e71bc3663
     t0 = None
 
     # Number of times a generator, discriminator and critic steps are done in 1 epoch
