@@ -11,8 +11,9 @@ FLORA: Future prediction of obstacle locations in traffic scenes for collision a
 - [ ] Make kubernetis work
 
 ## Improve model performance
+- [ ] Pool every
 - [ ] Make graph network
-- [ ] Check collision checking of oracle
+- [ ] Learn collision checking of oracle
 
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
