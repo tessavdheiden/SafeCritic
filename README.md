@@ -3,6 +3,7 @@
 FLORA: Future prediction of obstacle locations in traffic scenes for collision avoidances.
 
 ## Improve code
+- [ ] Remove in generator builder the devision by 2 for bottleneck dim
 - [ ] Organize code: Seperate dataset from model, delete simple lstm, seperate code in scripts, sgan into more folders (better naming)
 - [ ] Refactor train.py (too long)
 - [ ] Commit attention model in pooling and physical pooling, maybe remove if statements
