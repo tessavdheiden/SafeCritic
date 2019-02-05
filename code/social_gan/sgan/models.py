@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 import os
 import pandas as pd
-from sgan.utils import get_dset_group_name, get_dset_name
+
 from scripts.collision_checking import collision_error, occupancy_error
 from sgan.context.static_pooling import PhysicalPooling
 from sgan.context.dynamic_pooling import PoolHiddenNet, SocialPooling
@@ -141,7 +141,7 @@ class TrajectoryGenerator(nn.Module):
 
     def mlp_decoder_needed(self):
         if (
-            self.noise_dim or self.pooling_type or self.pool_static or
+            self.noise_dim or self.pooling.get_pooling_count() > 0 or
             self.encoder_h_dim != self.decoder_h_dim
         ):
             return True
@@ -167,20 +167,6 @@ class TrajectoryGenerator(nn.Module):
         rel_pos = obs_traj_rel[-1, :, :]
        
         context_information = self.pooling.aggregate_context(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
-        '''
-        if (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and not self.pool_static:
-            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
-            context_information = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h], dim=1)
-        elif (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
-            pool_h = self.pool_net(final_encoder_h, seq_start_end, end_pos, rel_pos)
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
-            context_information = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), pool_h, static_h], dim=1)
-        elif not (self.pooling_type == 'spool' or self.pooling_type == 'pool_net') and self.pool_static:
-            static_h = self.static_net(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
-            context_information = torch.cat([final_encoder_h.view(-1, self.encoder_h_dim), static_h], dim=1)
-        else:
-            context_information = final_encoder_h.view(-1, self.encoder_h_dim)
-        ''' 
 
         # Add Noise
         if self.mlp_decoder_needed():

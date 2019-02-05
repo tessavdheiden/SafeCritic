@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from sgan.models_static_scene import on_occupied, get_homography_and_map
-from sgan.utils import get_seq_dataset_and_path_names
 
 
 def bce_loss(input, target):

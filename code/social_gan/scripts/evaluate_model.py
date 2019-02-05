@@ -17,17 +17,13 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 from sgan.data.loader import data_loader
-from sgan.models import TrajectoryGenerator, TrajectoryDiscriminator
+from sgan.models import TrajectoryDiscriminator
+from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder
 from sgan.models_static_scene import get_homography_and_map
 from sgan.losses import displacement_error, final_displacement_error
-from sgan.utils import relative_to_abs, get_dset_path, get_dataset_path,  get_dset_group_name
+from sgan.utils import relative_to_abs
+from sgan.folder_utils import get_root_dir, get_test_data_path
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--model_path', default='results/models/SDD/safeGAN_SP', type=str)
-parser.add_argument('--plots_path', default='results/plots/SDD/safeGAN_SP', type=str)
-parser.add_argument('--num_samples', default=20, type=int)
-parser.add_argument('--dset_type', default='test', type=str)
 
 MAKE_MP4 = True
 FOUR_PLOTS = True
@@ -47,9 +43,8 @@ def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
     return pixels
 
 
-def get_generator(checkpoint_in, pretrained=False):
-    args = AttrDict(checkpoint_in['args'])
-    generator = TrajectoryGenerator(
+def get_generator(checkpoint_in, args):
+    builder = TrajectoryGeneratorBuilder(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
         embedding_dim=args.embedding_dim,
@@ -73,7 +68,13 @@ def get_generator(checkpoint_in, pretrained=False):
         pool_static_type=args.pool_static_type,
         down_samples=args.down_samples
     )
-
+    
+    data_dir = get_test_data_path(args.dataset_name)
+    if args.pool_static:
+        builder.with_static_pooling(data_dir)
+    if args.pooling_type:
+        builder.with_dynamic_pooling(args.pooling_type)
+    generator = builder.build()
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
     generator.train()
@@ -574,23 +575,26 @@ def move_figure(f, x, y):
 
     return f
 
-def main(args):
+def main():
     test_case = 2
-    print(args.model_path)
-    if os.path.isdir(os.path.join(args.model_path)):
-        filenames = os.listdir(args.model_path)
-        filenames.sort()
-        paths = [os.path.join(args.model_path, file_) for file_ in filenames[::-1]]
-
+    model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_SP')
+    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_SP')
+    if os.path.isdir(os.path.join(model_path)):
+        filenames = sorted(os.listdir(model_path))
+        paths = [os.path.join(model_path, file_) for file_ in filenames]
+        
+        # load checkpoint of first model and arguments
         checkpoint1 = torch.load(paths[0])
-        print('model_path = ' + paths[0])
-        generator1, _args = get_generator(checkpoint1)
+        args1 = AttrDict(checkpoint1['args'])
+        print('Loading model from path: ' + paths[0])
+        generator1 = get_generator(checkpoint1, args1)
 
+        # load checkpoing of second model
         checkpoint2 = torch.load(paths[1])
-        print('model_path = ' + paths[1])
-        generator2, _ = get_generator(checkpoint2)
+        args2 = AttrDict(checkpoint2['args'])
+        print('Loading model from path: ' + paths[1])
+        generator2 = get_generator(checkpoint2, args2)
 
-        data_dir = get_dataset_path(_args['dataset_name'], dset_type='test', data_set_model='safegan_dataset')
         if test_case == 1:
             occs1, occs2, total_traj = compare_sampling_cols(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, args.plots_path)
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
@@ -601,5 +605,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
-    main(args)
+    main()

@@ -3,7 +3,6 @@ import numpy as np
 import torch
 
 from sgan.context.pooling import Pooling
-from sgan.utils import get_dset_group_name, get_dset_name
 
 class CompositePooling(Pooling):
     def __init__(self):
@@ -15,6 +14,7 @@ class CompositePooling(Pooling):
 
     def add(self, pooling):
         self.pooling_list.append(pooling)        
+        print('\n pooling added')
 
     def forward(self):
         for pooling in self.pooling_list:

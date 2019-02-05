@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
-from sgan.utils import get_dset_group_name
+from sgan.folder_utils import get_dset_group_name
 
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])

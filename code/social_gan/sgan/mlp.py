@@ -5,8 +5,6 @@ import torchvision.transforms as transforms
 import os
 import numpy as np
 import pandas as pd
-
-from sgan.physical_attention import Attention_Encoder, Attention_Decoder
 import matplotlib.pyplot as plt
 
 import matplotlib.cm as cm
