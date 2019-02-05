@@ -2,8 +2,10 @@
 
 FLORA: Future prediction of obstacle locations in traffic scenes for collision avoidances.
 
-For training use: python -m scripts.train
-For evaluation use: python -m scripts.evaluate_model
+```bash
+python3 -m scripts.train               # Trains the model
+python3 -m scripts.evaluate_model      # Evaluates a trained model
+```
 
 ## Improve code
 - [ ] Remove in generator builder the devision by 2 for bottleneck dim
