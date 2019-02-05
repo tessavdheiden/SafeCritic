@@ -41,7 +41,7 @@ class StaticSceneFeatureExtractor(nn.Module):
             ).to(device)
 
         elif self.down_samples != -1 and self.pool_static_type == 'random':
-            self.spatial_embedding = nn.Linear(2 * self.down_samples, embedding_dim)
+            self.spatial_embedding = nn.Linear(2 * self.down_samples, embedding_dim).to(device)
 
         elif self.pool_static_type == 'physical_attention_with_encoder':
             # Pixel values must be in the range [0,1] and we must then normalize the image by the mean and standard deviation
@@ -63,11 +63,11 @@ class StaticSceneFeatureExtractor(nn.Module):
                 encoder_dim=self.encoder_dim, encoded_image_size=None)
 
         else:
-            self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim)
+            self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim).to(device)
 
         if 'attention' not in self.pool_static_type:
             mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
-            self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
+            self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout).to(device)
 
 
 

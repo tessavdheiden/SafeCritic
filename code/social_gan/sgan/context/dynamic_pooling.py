@@ -3,6 +3,8 @@ import torch.nn as nn
 
 from sgan.mlp import make_mlp
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
@@ -21,7 +23,7 @@ class PoolHiddenNet(nn.Module):
         mlp_pre_dim = embedding_dim + h_dim
 
         mlp_pre_pool_dims = [mlp_pre_dim, self.mlp_dim * 8, bottleneck_dim]
-        self.spatial_embedding = nn.Linear(pooling_dim, embedding_dim).cuda()
+        self.spatial_embedding = nn.Linear(pooling_dim, embedding_dim).to(device)
         self.mlp_pre_pool = make_mlp(
             mlp_pre_pool_dims,
             activation=activation,
@@ -42,7 +44,7 @@ class PoolHiddenNet(nn.Module):
         return tensor
 
 
-    def get_context_information(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids=None):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids=None):
         """
         Inputs:
         - h_states: Tensor of shape (num_layers, batch, h_dim)

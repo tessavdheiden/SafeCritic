@@ -10,7 +10,7 @@ from sgan.context.null_pooling import NullPooling
 from sgan.context.static_pooling import PhysicalPooling
 from sgan.context.dynamic_pooling import SocialPooling, PoolHiddenNet
 
-from sgan.folder_utils import get_static_information_path, get_dset_name
+from sgan.folder_utils import get_static_information_path, get_dset_name, get_dset_group_name
 
 class TrajectoryGeneratorBuilder(object):
     def __init__(
@@ -158,29 +158,7 @@ class TrajectoryCriticBuilder(object):
          self.pooling.add(NullPooling())
          self.pooling_output_dim = h_dim
 
-    def set_dset_list(self, pooling, data_dir):
-        def get_map(dset):
-            _dir = os.path.dirname(os.path.realpath(__file__))
-            _dir = _dir.split("/")[:-1]
-            _dir = "/".join(_dir)
-            directory = _dir + '/datasets/safegan_dataset/'
-            path_group = os.path.join(directory, get_dset_group_name(dset))
-            path = os.path.join(path_group, dset)
-            map = np.load(path + "/world_points_boundary.npy")
-            down_sampling = True if self.down_samples != -1 else False
-            if down_sampling and map.shape[0] > self.down_samples and self.down_samples != -1:
-                down_sampling = (map.shape[0] //  self.down_samples)
-                return map[::down_sampling]
-            else:
-                return map
-
-        pooling.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) \
-                                          for _path in os.listdir(data_dir)])
-        for name in pooling.list_data_files:
-            map = get_map(name)
-            map = torch.from_numpy(map).type(torch.float).cuda()
-            pooling.scene_information[name] = map
-
+ 
     def with_static_pooling(self, data_dir):
          physical_pooling = PhysicalPooling(
                 embedding_dim=self.embedding_dim,
@@ -193,9 +171,10 @@ class TrajectoryCriticBuilder(object):
                 pool_static_type=self.pool_static_type,
                 down_samples=self.down_samples)
          
-         self.set_dset_list(physical_pooling, data_dir)
+         physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
          self.pooling.add(physical_pooling)
          self.pooling_output_dim += self.bottleneck_dim
+         print('Static pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def with_dynamic_pooling(self, pooling_type):
          if pooling_type == 'pool_hidden_net': 
@@ -220,8 +199,10 @@ class TrajectoryCriticBuilder(object):
                 neighborhood_size=self.neighborhood_size,
                 grid_size=self.grid_size))
          self.pooling_output_dim += self.bottleneck_dim
+         print('Dynamic pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def build(self):
+        print('Building Critic with number of pooling modules: {} and pooling dim: {} and bottleneck dim: {}'.format(self.pooling.get_pooling_count(), self.pooling_output_dim, self.bottleneck_dim))
         return TrajectoryCritic(
             obs_len = self.obs_len,
             pred_len = self.pred_len,

@@ -22,13 +22,14 @@ from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
-from visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
+from scripts.visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
 
 from sgan.models import TrajectoryDiscriminator
 from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder, TrajectoryCriticBuilder
 
 from sgan.utils import int_tuple, bool_flag, get_total_norm
-from sgan.utils import relative_to_abs, get_dset_path
+from sgan.utils import relative_to_abs
+from sgan.folder_utils import get_dset_path
 
 
 torch.backends.cudnn.benchmark = True
@@ -78,7 +79,7 @@ def get_argument_parser():
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
     parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
     parser.add_argument('--pool_static', default=1, type=bool_flag)
-    parser.add_argument('--pool_static_type', default='polar', type=str) # random, polar, raycast, physical_attention
+    parser.add_argument('--pool_static_type', default='raycast', type=str) # random, polar, raycast, physical_attention
     parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
@@ -358,44 +359,6 @@ def main(args):
             'best_t_nl': None,
         }
 
-
-<<<<<<< HEAD
-=======
-    critic = TrajectoryCritic(
-            obs_len=args.obs_len,
-            pred_len=args.pred_len,
-            embedding_dim=args.embedding_dim,
-            h_dim=args.encoder_h_dim_c,
-            mlp_dim=args.mlp_dim,
-            num_layers=args.num_layers,
-            dropout=args.dropout,
-            activation='leakyrelu',
-            batch_norm=args.batch_norm,
-            d_type=args.c_type,
-            generator=generator,
-            collision_threshold=args.collision_threshold,
-            occupancy_threshold=args.occupancy_threshold)
-
-    critic.apply(init_weights)
-    critic.type(float_dtype).train()
-    logger.info('Here is the critic:')
-    logger.info(critic)
-    c_loss_fn = critic_loss
-    optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
-    if args.c_steps == 0:
-        eval_critic = False
-    else:
-        eval_critic = True
-
-    # give the generator annotated points
-    if args.pool_static:
-        generator.static_net.static_scene_feature_extractor.set_dset_list(train_path)
-        if args.pool_every_timestep:
-            generator.decoder.static_net.static_scene_feature_extractor.set_dset_list(train_path)
-        if args.c_steps > 0 and args.c_type == 'global':
-            critic.static_net.static_scene_feature_extractor.set_dset_list(train_path)
-
->>>>>>> 81c919fe1de6ec1800cec505879f6d3e71bc3663
     t0 = None
 
     # Number of times a generator, discriminator and critic steps are done in 1 epoch
