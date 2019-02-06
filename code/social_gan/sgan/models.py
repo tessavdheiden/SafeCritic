@@ -11,7 +11,6 @@ from sgan.mlp import make_mlp
 
 
 from sgan.encoder import Encoder
-from sgan.decoder import Decoder
 
 def get_noise(shape, noise_type):
     if noise_type == 'gaussian':
@@ -28,7 +27,7 @@ class TrajectoryGenerator(nn.Module):
         noise_type='gaussian', noise_mix_type='ped', pooling_type=None,
         pool_every_timestep=True, pool_static=False, dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        pool_static_type='random', down_samples=200, pooling=None, pooling_output_dim=64
+        pool_static_type='random', down_samples=200, pooling=None, pooling_output_dim=64, decoder=None
     ):
         super(TrajectoryGenerator, self).__init__()
 
@@ -45,12 +44,12 @@ class TrajectoryGenerator(nn.Module):
         self.num_layers = num_layers
         self.noise_type = noise_type
         self.noise_mix_type = noise_mix_type
+        self.noise_first_dim = 0
 
         # pooling options
         self.pooling_type = pooling_type
         self.pool_static = pool_static
         self.pool_static_type = pool_static_type
-        self.noise_first_dim = 0
         self.pool_every_timestep = pool_every_timestep
         self.bottleneck_dim = bottleneck_dim
         self.pooling = pooling
@@ -64,24 +63,7 @@ class TrajectoryGenerator(nn.Module):
             dropout=dropout
         )
 
-        self.decoder = Decoder(
-            pred_len,
-            embedding_dim=embedding_dim,
-            h_dim=decoder_h_dim,
-            mlp_dim=mlp_dim,
-            num_layers=num_layers,
-            pool_every_timestep=pool_every_timestep,
-            dropout=dropout,
-            bottleneck_dim=bottleneck_dim,
-            activation=activation,
-            batch_norm=batch_norm,
-            pooling_type=pooling_type,
-            grid_size=grid_size,
-            neighborhood_size=neighborhood_size,
-            pool_static=pool_static,
-            pooling_dim=pooling_dim,
-            pool_static_type=pool_static_type
-        )
+        self.decoder = decoder
 
         if self.noise_dim[0] == 0:
             self.noise_dim = None
@@ -185,22 +167,13 @@ class TrajectoryGenerator(nn.Module):
         last_pos_rel = obs_traj_rel[-1]
         # Predict Trajectory
 
-        if self.pool_static:
-            decoder_out = self.decoder(
+        decoder_out = self.decoder(
                 last_pos,
                 last_pos_rel,
                 state_tuple,
                 seq_start_end,
-                seq_scene_ids
-            )
-        else:
-            decoder_out = self.decoder(
-                	    last_pos,
-                last_pos_rel,
-                state_tuple,
-                seq_start_end
-            )
-
+                seq_scene_ids)
+        
         pred_traj_fake_rel, final_decoder_h = decoder_out
 
         return pred_traj_fake_rel

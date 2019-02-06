@@ -69,6 +69,7 @@ class TrajectoryGeneratorBuilder(object):
          print('Static pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def with_dynamic_pooling(self, pooling_type):
+         print(pooling_type)
          if pooling_type == 'pool_hidden_net': 
             self.pooling.add(PoolHiddenNet(
                 embedding_dim=self.embedding_dim,
@@ -93,8 +94,13 @@ class TrajectoryGeneratorBuilder(object):
          self.pooling_output_dim += self.bottleneck_dim
          print('Dynamic pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
+    def with_decoder(self, decoder):
+        self.decoder = decoder
+        
     def build(self):
-        print('Building Generator with number of pooling modules: {} and pooling dim: {} and bottleneck dim: {}'.format(self.pooling.get_pooling_count(), self.pooling_output_dim, self.bottleneck_dim))
+        print('Building Generator with number of pooling modules: {} and pooling dim: {} and bottleneck dim: {}'.format(self.pooling.get_pooling_count(), \
+			self.pooling_output_dim, self.bottleneck_dim))
+
         return TrajectoryGenerator(
             obs_len = self.obs_len,
             pred_len= self.pred_len,
@@ -119,7 +125,8 @@ class TrajectoryGeneratorBuilder(object):
             pool_static_type=self.pool_static_type,
             down_samples=self.down_samples,
             pooling=self.pooling,
-            pooling_output_dim=self.pooling_output_dim
+            pooling_output_dim=self.pooling_output_dim,
+            decoder=self.decoder
             )
 
 class TrajectoryCriticBuilder(object):

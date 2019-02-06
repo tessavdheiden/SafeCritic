@@ -1,14 +1,18 @@
 import torch
 import torch.nn as nn
 
+
+from sgan.context.dynamic_pooling import PoolHiddenNet, SocialPooling
+from sgan.context.static_pooling import PhysicalPooling 
+from sgan.mlp import make_mlp
+
 class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
         self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1,
-        pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, pooling_type='pool_net',
-        neighborhood_size=2.0, grid_size=8, pool_static=True, pooling_dim=2,
-        pool_static_type='random', down_samples=200
+        pooling_type=None, pool_every_timestep=True, pool_static=False, dropout=0.0, bottleneck_dim=1024,
+        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
+        pool_static_type='random', down_samples=200, pooling=None, pooling_output_dim=64
     ):
         super(Decoder, self).__init__()
 
@@ -16,63 +20,28 @@ class Decoder(nn.Module):
         self.mlp_dim = mlp_dim
         self.h_dim = h_dim
         self.embedding_dim = embedding_dim
-        self.pool_every_timestep = pool_every_timestep
-        self.pool_static = pool_static
+
+        # pooling options
         self.pooling_type = pooling_type
+        self.pool_static = pool_static
+        self.pool_static_type = pool_static_type
+        self.pool_every_timestep = pool_every_timestep
+        self.bottleneck_dim = bottleneck_dim
+        self.pooling = pooling
+        self.pooling_output_dim=pooling_output_dim
 
         self.decoder = nn.LSTM(
             embedding_dim, h_dim, num_layers, dropout=dropout
         )
-
+        
         if pool_every_timestep:
-            if (pooling_type == 'pool_net' or pooling_type == 'spool') and pool_static:
-                bottleneck_dim = bottleneck_dim // 2
-                mlp_dims = [h_dim + bottleneck_dim * 2, mlp_dim, h_dim]
-            else:
-                mlp_dims = [h_dim + bottleneck_dim, mlp_dim, h_dim]
-
-            if pooling_type == 'pool_net':
-                self.pool_net = PoolHiddenNet(
-                    embedding_dim=self.embedding_dim,
-                    h_dim=self.h_dim,
-                    mlp_dim=mlp_dim,
-                    bottleneck_dim=bottleneck_dim,
-                    activation=activation,
-                    batch_norm=batch_norm,
-                    dropout=dropout,
-                    pooling_dim=pooling_dim,
-                    neighborhood_size=neighborhood_size,
-                    pool_every=pool_every_timestep
-                )
-            elif pooling_type == 'spool':
-                self.pool_net = SocialPooling(
-                    h_dim=self.h_dim,
-                    activation=activation,
-                    batch_norm=batch_norm,
-                    dropout=dropout,
-                    neighborhood_size=neighborhood_size,
-                    grid_size=grid_size
-                )
-
-            if pool_static:
-                self.static_net = PhysicalPooling(
-                    embedding_dim=self.embedding_dim,
-                    h_dim=self.h_dim,
-                    mlp_dim=mlp_dim,
-                    bottleneck_dim=bottleneck_dim,
-                    activation=activation,
-                    batch_norm=batch_norm,
-                    dropout=dropout,
-                    pool_static_type=pool_static_type,
-                    down_samples=down_samples
-                )
-
+            mlp_dims = [self.pooling_output_dim, mlp_dim, h_dim]
             self.mlp = make_mlp(
                 mlp_dims,
                 activation=activation,
                 batch_norm=batch_norm,
-                dropout=dropout
-            )
+                dropout=dropout)
+
         self.spatial_embedding = nn.Linear(2, embedding_dim)
         self.hidden2pos = nn.Linear(h_dim, 2)
 
@@ -98,16 +67,8 @@ class Decoder(nn.Module):
 
             if self.pool_every_timestep and counter%6 == 0:
                 decoder_h = state_tuple[0]
-                if (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and not self.pool_static:
-                    pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
-                    decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
-                elif (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
-                    pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos, rel_pos)
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
-                    decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h, static_h], dim=1)
-                elif not (self.pooling_type == 'pool_net' or self.pooling_type == 'spool') and self.pool_static:
-                    static_h = self.static_net(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
-                    decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), static_h], dim=1)
+                context_information = self.pooling.aggregate_context(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
+                decoder_h = context_information
 
                 decoder_h = self.mlp(decoder_h)
                 decoder_h = torch.unsqueeze(decoder_h, 0)
