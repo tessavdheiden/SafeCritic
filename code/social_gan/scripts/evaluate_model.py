@@ -19,10 +19,11 @@ sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 from sgan.data.loader import data_loader
 from sgan.models import TrajectoryDiscriminator
 from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder
+from sgan.decoder_builder import DecoderBuilder
 from sgan.models_static_scene import get_homography_and_map
 from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs
-from sgan.folder_utils import get_root_dir, get_test_data_path
+from sgan.folder_utils import get_root_dir, get_test_data_path, get_dset_name, get_dset_group_name
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 
 MAKE_MP4 = True
@@ -44,7 +45,35 @@ def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
 
 
 def get_generator(checkpoint_in, args):
-    builder = TrajectoryGeneratorBuilder(
+    data_dir = get_test_data_path(args.dataset_name)
+    decoder_builder = DecoderBuilder(
+        seq_len=args.pred_len,
+        embedding_dim=args.embedding_dim,
+        h_dim=args.decoder_h_dim_g,
+        mlp_dim=args.mlp_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout,
+        bottleneck_dim=args.bottleneck_dim,
+        activation='leakyrelu',
+        batch_norm=args.batch_norm,
+        pooling_type=args.pooling_type,
+        pool_every_timestep=args.pool_every_timestep,
+        pool_static=args.pool_static,
+        neighborhood_size=args.neighborhood_size,
+        grid_size=args.grid_size,
+        pooling_dim=args.pooling_dim,
+        pool_static_type=args.pool_static_type,
+        down_samples=args.down_samples
+    )
+    if args.pool_every_timestep:
+    	if args.static_pooling:
+        	decoder_builder.with_static_pooling(data_dir)
+    	if args.dynamic_pooling:
+        	decoder_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    decoder = decoder_builder.build()
+
+        # build trajectory
+    g_builder = TrajectoryGeneratorBuilder(
         obs_len=args.obs_len,
         pred_len=args.pred_len,
         embedding_dim=args.embedding_dim,
@@ -55,30 +84,30 @@ def get_generator(checkpoint_in, args):
         noise_dim=args.noise_dim,
         noise_type=args.noise_type,
         noise_mix_type=args.noise_mix_type,
-        pooling_type=args.pooling_type,
-        pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
         activation='leakyrelu',
         batch_norm=args.batch_norm,
+        pooling_type=args.pooling_type,
+        pool_every_timestep=args.pool_every_timestep,
+        pool_static=args.pool_static,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
         pool_static_type=args.pool_static_type,
-        down_samples=args.down_samples
-    )
+        down_samples=args.down_samples)
     
-    data_dir = get_test_data_path(args.dataset_name)
-    if args.pool_static:
-        builder.with_static_pooling(data_dir)
-    if args.pooling_type:
-        builder.with_dynamic_pooling(args.pooling_type)
-    generator = builder.build()
+    g_builder.with_decoder(decoder)
+    if args.static_pooling:
+        g_builder.with_static_pooling(data_dir)
+    if args.dynamic_pooling:
+        g_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    generator = g_builder.build()
+
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
     generator.train()
-    return generator, args
+    return generator
 
 
 def evaluate_helper(error, seq_start_end, min=True):
@@ -144,12 +173,7 @@ def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1,
 def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj_gt, seq_scene_ids, path=None):
 
     (seq_len, batch_size, _) = pred_traj_gt.size()
-
-    if generator.pool_static:
-        generator.static_net.set_dset_list("/".join(path.split('/')[:-1]))
-        pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
-    else:
-        pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
+    pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
 
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
     return pred_traj_fake, pred_traj_fake_rel
@@ -288,7 +312,7 @@ def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs
 # ------------------------------- PLOT SAMPLING -------------------------------
 
 
-def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
+def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
     selection = 69
     path = "/".join(data_dir.split('/')[:-1])
     if generator1.pool_static:
@@ -393,20 +417,10 @@ def compare_sampling_cols(args, generator1, generator2, name1, name2, data_dir, 
     return cols1, cols2, total_traj
 
 
-def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
-    selection = -1
-
+def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
+    selection = 246
     path = "/".join(data_dir.split('/')[:-1])
-    _, loader = data_loader(args, path, shuffle=False)
-    if generator1.pool_static:
-        generator1.static_net.set_dset_list(path)
-        if generator1.pool_every_timestep:
-            generator1.decoder.static_net.set_dset_list(path)
-
-    if generator2.pool_static:
-        generator2.static_net.set_dset_list(path)
-        if generator2.pool_every_timestep:
-            generator2.decoder.static_net.set_dset_list(path)
+    _, loader = data_loader(args, data_dir, shuffle=False)
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     occs1, occs2, occs_gt, occs1prev,occs2prev = 0, 0, 0, 0, 0
@@ -426,7 +440,7 @@ def compare_sampling_occs(args, generator1, generator2, name1, name2, data_dir, 
                 continue
 
             if args.dataset_name == 'sdd':
-                seq_scenes = [generator2.static_net.list_data_files[num] for num in seq_scene_ids]
+                seq_scenes = [generator2.pooling.pooling_list[1].static_scene_feature_extractor.list_data_files[num] for num in seq_scene_ids]
 
             list_trajectories1 = []
             list_trajectories2 = []
@@ -577,7 +591,7 @@ def move_figure(f, x, y):
 
 def main():
     test_case = 2
-    model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_SP')
+    model_path = os.path.join(get_root_dir(), 'models_sdd/temp')
     plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_SP')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
@@ -595,12 +609,14 @@ def main():
         print('Loading model from path: ' + paths[1])
         generator2 = get_generator(checkpoint2, args2)
 
+        data_dir = get_test_data_path('sdd')
+
         if test_case == 1:
-            occs1, occs2, total_traj = compare_sampling_cols(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, args.plots_path)
+            occs1, occs2, total_traj = compare_sampling_cols(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-            print('Num samples {:.2f} total_traj: {:.2f}'.format(_args.best_k, total_traj))
+            print('Num samples {:.2f} total_traj: {:.2f}'.format(args.best_k, total_traj))
         elif test_case == 2:
-            occs1, occs2 = compare_sampling_occs(_args, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, args.plots_path)
+            occs1, occs2 = compare_sampling_occs(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
             print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
 
 

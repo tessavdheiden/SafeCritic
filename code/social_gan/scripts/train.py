@@ -26,10 +26,11 @@ from scripts.visualization import initialize_plot, reset_plot, sanity_check, plo
 
 from sgan.models import TrajectoryDiscriminator
 from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder, TrajectoryCriticBuilder
+from sgan.decoder_builder import DecoderBuilder
 
 from sgan.utils import int_tuple, bool_flag, get_total_norm
 from sgan.utils import relative_to_abs
-from sgan.folder_utils import get_dset_path
+from sgan.folder_utils import get_dset_path, get_root_dir
 
 
 torch.backends.cudnn.benchmark = True
@@ -45,7 +46,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='zara_2', type=str)
+    parser.add_argument('--dataset_name', default='sdd', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -77,10 +78,10 @@ def get_argument_parser():
     # Pooling Options
     parser.add_argument('--model_type', default='safeGAN')  # None, pool_net, spool
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
-    parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
+    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
     parser.add_argument('--pool_static', default=1, type=bool_flag)
-    parser.add_argument('--pool_static_type', default='raycast', type=str) # random, polar, raycast, physical_attention
-    parser.add_argument('--down_samples', default=-1, type=int)
+    parser.add_argument('--pool_static_type', default='random', type=str) # random, polar, raycast, physical_attention
+    parser.add_argument('--down_samples', default=200, type=int)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -114,7 +115,7 @@ def get_argument_parser():
     parser.add_argument('--loss_type', default='bce', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default="../models_sdd/temp")
+    parser.add_argument('--output_dir', default= "models_sdd/temp")
     parser.add_argument('--print_every', default=500, type=int)
     parser.add_argument('--checkpoint_every', default=500, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -124,7 +125,7 @@ def get_argument_parser():
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
-    parser.add_argument('--summary_writer_name', default=None, type=str)
+    parser.add_argument('--summary_writer_name', default="../runs", type=str)
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -157,7 +158,7 @@ def get_dtypes(args):
 def main(args):
     if args.summary_writer_name is not None:
         writer = SummaryWriter(args.summary_writer_name)
-
+    '''
     if args.pool_every_timestep == 1:
         args.batch_norm = 0
         args.batch_size = 1
@@ -167,7 +168,7 @@ def main(args):
         args.embedding_dim = 8
         args.mlp_dim = 8
         print('INFO: batch_norm = 0')
-
+    '''
 
     if args.pooling_type == 'spool':
         print('INFO: Discriminator loss disabled')
@@ -196,6 +197,32 @@ def main(args):
     logger.info(
         'There are {} iterations per epoch, prints {} plots {}'.format(iterations_per_epoch, args.print_every, args.checkpoint_every)
     )
+    # build decoder
+    decoder_builder = DecoderBuilder(
+        seq_len=args.pred_len,
+        embedding_dim=args.embedding_dim,
+        h_dim=args.decoder_h_dim_g,
+        mlp_dim=args.mlp_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout,
+        bottleneck_dim=args.bottleneck_dim,
+        activation='leakyrelu',
+        batch_norm=args.batch_norm,
+        pooling_type=args.pooling_type,
+        pool_every_timestep=args.pool_every_timestep,
+        pool_static=args.pool_static,
+        neighborhood_size=args.neighborhood_size,
+        grid_size=args.grid_size,
+        pooling_dim=args.pooling_dim,
+        pool_static_type=args.pool_static_type,
+        down_samples=args.down_samples
+    )
+    if args.pool_every_timestep:
+    	if args.static_pooling:
+        	decoder_builder.with_static_pooling(train_path)
+    	if args.dynamic_pooling:
+        	decoder_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    decoder = decoder_builder.build()
 
     # build trajectory
     g_builder = TrajectoryGeneratorBuilder(
@@ -220,9 +247,9 @@ def main(args):
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
         pool_static_type=args.pool_static_type,
-        down_samples=args.down_samples
-    )
-
+        down_samples=args.down_samples)
+    
+    g_builder.with_decoder(decoder)
     if args.static_pooling:
         g_builder.with_static_pooling(train_path)
     if args.dynamic_pooling:
@@ -309,7 +336,7 @@ def main(args):
     if args.checkpoint_start_from is not None:
         restore_path = args.checkpoint_start_from
     elif args.restore_from_checkpoint == 1:
-        restore_path = os.path.join(args.output_dir,'%s_with_model.pt' % args.checkpoint_name)
+        restore_path = os.path.join(get_root_dir(), args.output_dir,'%s_with_model.pt' % args.checkpoint_name)
 
     model_name = '%s_with_model.pt'
 
@@ -454,8 +481,8 @@ def main(args):
                 break
 
         # Save weights and biases for visualization:
-        if args.summary_writer_name is not None:
-            plot_static_net_tensorboardX(writer, generator, args.pool_static_type, epoch)
+        #if args.summary_writer_name is not None:
+        #    plot_static_net_tensorboardX(writer, generator, args.pool_static_type, epoch)
 
         # Save losses
         logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
@@ -528,9 +555,7 @@ def main(args):
             if args.c_steps > 0:
                 checkpoint['c_state'] = critic.state_dict()
                 checkpoint['c_optim_state'] = optimizer_c.state_dict()
-            checkpoint_path = os.path.join(
-                args.output_dir, model_name % args.checkpoint_name
-            )
+            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, model_name % args.checkpoint_name)
             logger.info('Saving checkpoint to {}'.format(checkpoint_path))
             torch.save(checkpoint, checkpoint_path)
             logger.info('Done.')
