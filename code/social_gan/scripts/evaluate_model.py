@@ -106,7 +106,7 @@ def get_generator(checkpoint_in, args):
 
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
-    generator.train()
+    generator.eval()
     return generator
 
 
@@ -125,6 +125,29 @@ def evaluate_helper(error, seq_start_end, min=True):
             _error = torch.mean(_error)
         sum_ += _error.mean()
     return sum_
+
+
+def comp_diversity_sampling(list_trajectories1, seq_start_end):
+    # list_trajectories1 = [sample][start:end][p]
+    ade_all_1 = 0
+    n_checks = 0
+    for sample1 in range(20):
+        for sample2 in range(20):
+            if sample1 <= sample2:
+                continue
+            
+            for i, (start, end) in enumerate(seq_start_end[0:1]):
+                start = 0 #start.item()
+                end = 1 #end.item()
+                num_peds = end - start
+                for p in range(1):
+                    s1 = list_trajectories1[sample1][start:end][p]
+                    s2 = list_trajectories1[sample2][start:end][p]
+                    ade_all_1 += torch.norm(s1-s2, dim=1).mean() # dim=1, each timestep
+                    n_checks += 1
+                    break
+    print(n_checks)
+    return ade_all_1/n_checks
 
 '''
 def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
@@ -424,6 +447,7 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     occs1, occs2, occs_gt, occs1prev,occs2prev = 0, 0, 0, 0, 0
+    batch_ade_list_traj1, batch_ade_list_traj2 = 0, 0
     if args.dataset_name != 'sdd':
         path = get_path(args.dataset_name)
         reader = imageio.get_reader(path + "/video.mov".format(args.dataset_name), 'ffmpeg')
@@ -456,6 +480,10 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
 
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
+
+            batch_ade_list_traj1 += comp_diversity_sampling(list_trajectories1, seq_start_end)
+            batch_ade_list_traj2 += comp_diversity_sampling(list_trajectories2, seq_start_end)
+            
             for i, (start, end) in enumerate(seq_start_end):
 
                 if selection == -1 or b * len(seq_start_end) + i == selection:
@@ -519,9 +547,7 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
 
                     extent = ax4.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
                     fig.savefig(save_dir + '/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
-
-
-
+    print('ade1 = {} ade2 = {}'.format(batch_ade_list_traj1 / len(loader), batch_ade_list_traj2/ len(loader)))
     return occs1, occs2
 
 def compare_fde_ade_pred_gt_train(path):
@@ -591,8 +617,8 @@ def move_figure(f, x, y):
 
 def main():
     test_case = 2
-    model_path = os.path.join(get_root_dir(), 'models_sdd/temp')
-    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_SP')
+    model_path = os.path.join(get_root_dir(), 'models_sdd/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6')
+    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6safeGAN_SP')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]
