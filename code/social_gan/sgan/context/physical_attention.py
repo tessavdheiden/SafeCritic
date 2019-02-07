@@ -97,9 +97,7 @@ class Attention(nn.Module):
         hidden_features = self.decoder_att(decoder_hidden)  # (batch_size, attention_dim)
         att = self.full_att(self.relu(image_features + hidden_features.unsqueeze(1))).squeeze(2)  # (batch_size, num_pixels)
         attention_weights = self.softmax(att)  # (batch_size, num_pixels)
-        # Decomment the line below when you want to use also the attention weights
-        #attention_weighted_encoding = (encoder_out * attention_weights.unsqueeze(2)).sum(dim=1)  # (batch_size, encoder_dim)
-        attention_weighted_encoding = encoder_out.sum(dim=1)  # (batch_size, encoder_dim)
+        attention_weighted_encoding = (encoder_out * attention_weights.unsqueeze(2)).sum(dim=1)  # (batch_size, encoder_dim)
 
         return attention_weighted_encoding, attention_weights
 

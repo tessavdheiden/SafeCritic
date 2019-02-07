@@ -48,19 +48,19 @@ class StaticSceneFeatureExtractor(nn.Module):
             # of the ImageNet images' RGB channels (the resnet has been pretrained on ImageNet).
             normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             self.transform = transforms.Compose([normalize])
-            self.encoder_dim = 5
+            self.encoder_dim = 2048
             self.encoded_image_size = 32
 
-            self.attention_encoder = Attention_Encoder(self.encoded_image_size)    # encoder to prepare the input for the attention module
+            self.attention_encoder = Attention_Encoder(self.encoded_image_size).to(device)    # encoder to prepare the input for the attention module
             self.attention_decoder = Attention_Decoder(
                 attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim,
-                encoder_dim=self.encoder_dim, encoded_image_size=self.encoded_image_size)
+                encoder_dim=self.encoder_dim, encoded_image_size=self.encoded_image_size).to(device)
 
         elif self.pool_static_type == 'physical_attention_no_encoder':
             self.encoder_dim = 5
             self.attention_decoder = Attention_Decoder(
                 attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim,
-                encoder_dim=self.encoder_dim, encoded_image_size=None)
+                encoder_dim=self.encoder_dim, encoded_image_size=None).to(device)
 
         else:
             self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim).to(device)
