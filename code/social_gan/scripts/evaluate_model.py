@@ -2,6 +2,7 @@ import argparse
 import os
 import torch
 import sys
+import pickle
 
 import matplotlib.pyplot as plt
 import matplotlib
@@ -127,28 +128,6 @@ def evaluate_helper(error, seq_start_end, min=True):
     return sum_
 
 
-def comp_diversity_sampling(list_trajectories1, seq_start_end):
-    # list_trajectories1 = [sample][start:end][p]
-    ade_all_1 = 0
-    n_checks = 0
-    for sample1 in range(20):
-        for sample2 in range(20):
-            if sample1 <= sample2:
-                continue
-            
-            for i, (start, end) in enumerate(seq_start_end[0:1]):
-                start = 0 #start.item()
-                end = 1 #end.item()
-                num_peds = end - start
-                for p in range(1):
-                    s1 = list_trajectories1[sample1][start:end][p]
-                    s2 = list_trajectories1[sample2][start:end][p]
-                    ade_all_1 += torch.norm(s1-s2, dim=1).mean() # dim=1, each timestep
-                    n_checks += 1
-                    break
-    print(n_checks)
-    return ade_all_1/n_checks
-
 '''
 def plot_trajectories_pixels(static_map, dataset_name, traj_gt, traj_obs, traj1, traj2, model_name1, model_name2, metric, ax1, ax2, ax3, ax4, photo, b, i, count_gt, count1, count2, ma1, mf1, ma2, mf2, h):
     colors = np.random.rand(traj_gt.size(0), 3)
@@ -233,6 +212,7 @@ def plot_pixel(ax, trajectory, person, h, a=1, last=False, first=False, size=10,
     ax.scatter(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[person, :], s=size, alpha=a)
     if last:
         ax.scatter(pixels_obs[-1, 0], pixels_obs[-1, 1], marker='X', color=colors[person, :], s=size)
+        ax.text(pixels_obs[0, 0] + 10, pixels_obs[0, 1] + 10, color=colors[person, :], s=str(person), fontsize=15)
     if first:
         ax.scatter(pixels_obs[0, 0], pixels_obs[0, 1], marker='o', color=colors[person, :], s=size)
 
@@ -312,18 +292,17 @@ def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs
     seq_length = 12
     for ii, ped in enumerate(traj_gt):
 
-        cols1, index1 = on_occupied(traj1, ii, static_map, num_points, seq_length, minimum_distance=.25)
-        cols2, index2 = on_occupied(traj2, ii, static_map, num_points, seq_length, minimum_distance=.25)
+        cols1, index1 = on_occupied(traj1, ii, static_map, num_points, seq_length, minimum_distance=.1)
+        cols2, index2 = on_occupied(traj2, ii, static_map, num_points, seq_length, minimum_distance=.1)
 
         pixels1 = get_pixels_from_world(traj1[ii], h)
         pixels2 = get_pixels_from_world(traj2[ii], h)
 
         if cols1 > 0:
-
             plot_occ_pix(ax2, pixels1[index1])
             occs1 += 1
 
-        if cols2 > 1:
+        if cols2 > 0:
             plot_occ_pix(ax3, pixels2[index2])
             occs2 += 1
 
@@ -381,6 +360,7 @@ def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, da
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
             for i, (start, end) in enumerate(seq_start_end):
+                print(len(seq_start_end), args.batch_size)
                 if selection == -1 or b * len(seq_start_end) + i == selection:
                     print(b * len(seq_start_end) + i)
                 else:
@@ -408,7 +388,7 @@ def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, da
 
                 plot_photo(ax3, photo, name1)
                 plot_photo(ax4, photo, name2)
-
+                
                 for sample in range(args.best_k):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
                     traj2 = list_trajectories2[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
@@ -439,15 +419,15 @@ def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, da
 
     return cols1, cols2, total_traj
 
-
 def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
+    num_samples = 20 # args.best_k
     selection = 246
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, data_dir, shuffle=False)
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     occs1, occs2, occs_gt, occs1prev,occs2prev = 0, 0, 0, 0, 0
-    batch_ade_list_traj1, batch_ade_list_traj2 = 0, 0
+
     if args.dataset_name != 'sdd':
         path = get_path(args.dataset_name)
         reader = imageio.get_reader(path + "/video.mov".format(args.dataset_name), 'ffmpeg')
@@ -466,9 +446,8 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
             if args.dataset_name == 'sdd':
                 seq_scenes = [generator2.pooling.pooling_list[1].static_scene_feature_extractor.list_data_files[num] for num in seq_scene_ids]
 
-            list_trajectories1 = []
-            list_trajectories2 = []
-            for sample in range(args.best_k):
+            list_trajectories1, list_trajectories2 = [], []
+            for sample in range(num_samples):
                 pred_traj_fake1, _ = get_trajectories(generator1, obs_traj, obs_traj_rel,
                                                                          seq_start_end, pred_traj_gt,
                                                                          seq_scene_ids, data_dir)
@@ -480,13 +459,17 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
 
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
+            # with open('{}list_trajectories1_b_{}'.format(get_root_dir()+'/results/trajectories/',b), 'wb') as fp:
+            #     pickle.dump(list_trajectories1, fp)
+            # with open('{}list_trajectories2_b_{}'.format(get_root_dir()+'/results/trajectories/',b), 'wb') as fp:
+            #     pickle.dump(list_trajectories2, fp)
+            #
+            # with open('{}seq_start_end_b_{}'.format(get_root_dir()+'/results/trajectories/',b), 'wb') as fp:
+            #     pickle.dump(seq_start_end, fp)
 
-            batch_ade_list_traj1 += comp_diversity_sampling(list_trajectories1, seq_start_end)
-            batch_ade_list_traj2 += comp_diversity_sampling(list_trajectories2, seq_start_end)
-            
+
             for i, (start, end) in enumerate(seq_start_end):
-
-                if selection == -1 or b * len(seq_start_end) + i == selection:
+                if selection == -1 or b * args.batch_size + i == selection:
                     print(b * len(seq_start_end) + i)
                 else:
                     continue
@@ -514,16 +497,18 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
                 plot_photo(ax4, photo, name2)
                 # colors = np.random.rand(num_peds, 3)
 
-                for sample in range(args.best_k):
+                for sample in range(num_samples):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
                     traj2 = list_trajectories2[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
 
                     for p in range(num_peds):
-                        plot_pixel(ax1, traj_obs, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax1, traj_obs, p, h, a=1, last = True, first = False, size = 10, colors = colors)
                         plot_pixel(ax2, traj_gt, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                         plot_pixel(ax3, traj1, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                         plot_pixel(ax4, traj2, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
-                    occs_gt, occs1, occs2 = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
+                        plot_pixel(ax3, traj_obs, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                        plot_pixel(ax4, traj_obs, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
+                    #occs_gt, occs1, occs2 = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, occs_gt, occs1, occs2)
                     pixels_annotated_points = get_pixels_from_world(annotated_points, h)
                     ax1.scatter(pixels_annotated_points[:, 0], pixels_annotated_points[:, 1], marker='.', color='red',
                                 s=1)
@@ -538,16 +523,23 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
                     occs2prev = occs2
 
                 if b*len(seq_start_end)+i == selection:
+                    rows = photo.shape[0]
+                    cols = photo.shape[1]
+                    center = (rows // 2, cols // 2)
                     # Save just the portion _inside_ the second axis's boundaries
+                    ax1.axis([center[1] - 300, center[1] + 300, center[0] - 500, center[0] + 100])
                     extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
                     fig.savefig(save_dir + '/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
 
+                    ax3.axis([center[1] - 300, center[1] + 300, center[0] - 500, center[0] + 100])
                     extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
                     fig.savefig(save_dir + '/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
 
+                    ax4.get_legend().remove()
+                    ax4.axis([center[1] - 300, center[1] + 300, center[0] - 500, center[0] + 100])
                     extent = ax4.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
                     fig.savefig(save_dir + '/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
-    print('ade1 = {} ade2 = {}'.format(batch_ade_list_traj1 / len(loader), batch_ade_list_traj2/ len(loader)))
+
     return occs1, occs2
 
 def compare_fde_ade_pred_gt_train(path):
@@ -618,7 +610,7 @@ def move_figure(f, x, y):
 def main():
     test_case = 2
     model_path = os.path.join(get_root_dir(), 'models_sdd/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6')
-    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6safeGAN_SP')
+    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]
