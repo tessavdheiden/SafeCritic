@@ -41,7 +41,7 @@ class StaticSceneFeatureExtractor(nn.Module):
             ).to(device)
 
         elif self.down_samples != -1 and self.pool_static_type == 'random':
-            self.spatial_embedding = nn.Linear(2 * self.down_samples, embedding_dim).to(device)
+            self.spatial_embedding = nn.Linear(2 * self.down_samples, embedding_dim)
 
         elif self.pool_static_type == 'physical_attention_with_encoder':
             # Pixel values must be in the range [0,1] and we must then normalize the image by the mean and standard deviation
@@ -51,21 +51,21 @@ class StaticSceneFeatureExtractor(nn.Module):
             self.encoder_dim = 2048
             self.encoded_image_size = 14
 
-            self.attention_encoder = Attention_Encoder(self.encoded_image_size).to(device)    # encoder to prepare the input for the attention module
+            self.attention_encoder = Attention_Encoder(self.encoded_image_size)    # encoder to prepare the input for the attention module
             self.attention_decoder = Attention_Decoder(
-                attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim, encoder_dim=self.encoder_dim).to(device)
+                attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim, encoder_dim=self.encoder_dim)
 
         elif self.pool_static_type == 'physical_attention_no_encoder':
             self.encoder_dim = 5
             self.attention_decoder = Attention_Decoder(
-                attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim, encoder_dim=self.encoder_dim).to(device)
+                attention_dim=bottleneck_dim, embed_dim=4, decoder_dim=h_dim, encoder_dim=self.encoder_dim)
 
         else:
-            self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim).to(device)
+            self.spatial_embedding = nn.Linear(2 * self.num_cells, embedding_dim)
 
         if 'attention' not in self.pool_static_type:
             mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
-            self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout).to(device)
+            self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
 
 
 

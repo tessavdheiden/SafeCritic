@@ -1,12 +1,9 @@
 import torch
 import torch.nn as nn
-import os
-import numpy as np
-import pandas as pd
 
 from sgan.context.static_scene_feature_extractor import StaticSceneFeatureExtractor
-from sgan.context.static_pooling_algorithms import repeat, make_mlp
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class PhysicalPooling(nn.Module):
     def __init__(
@@ -26,7 +23,7 @@ class PhysicalPooling(nn.Module):
         self.pool_static_type = pool_static_type
         self.static_scene_feature_extractor = StaticSceneFeatureExtractor(pool_static_type, down_samples, embedding_dim,
                                                                           h_dim, bottleneck_dim, activation, batch_norm, dropout,
-                                                                          mlp_dim, num_cells, neighborhood_size)
+                                                                          mlp_dim, num_cells, neighborhood_size).to(device)
 
     def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
         """
