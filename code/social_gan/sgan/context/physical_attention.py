@@ -64,7 +64,7 @@ class Attention(nn.Module):
     Attention Network.
     """
 
-    def __init__(self, encoder_dim, decoder_dim, attention_dim, encoded_image_size=None):
+    def __init__(self, encoder_dim, decoder_dim, attention_dim):
         """
         :param encoder_dim: feature size of encoded images
         :param decoder_dim: size of safeGAN decoder's output
@@ -75,10 +75,6 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
         self.encoder_att = nn.Linear(encoder_dim, attention_dim)  # linear layer to transform encoded image
         self.decoder_att = nn.Linear(decoder_dim, attention_dim)  # linear layer to transform SafeGAN decoder's output
-        if encoded_image_size is not None:
-            self.encoder_batch_norm = nn.BatchNorm1d(encoded_image_size*encoded_image_size)
-        else:
-            self.encoder_batch_norm = None
         self.relu = nn.ReLU()
         self.full_att = nn.Linear(attention_dim, 1)  # linear layer to calculate values to be softmax-ed
         self.softmax = nn.Softmax(dim=1)  # softmax layer to calculate weights
@@ -92,8 +88,6 @@ class Attention(nn.Module):
         :return: attention weighted encoding, attention_weights
         """
         image_features = self.encoder_att(encoder_out)  # (batch_size, num_pixels, attention_dim)
-        if self.encoder_batch_norm is not None:
-            image_features = self.encoder_batch_norm(image_features)  # (batch_size, num_pixels, attention_dim)
         hidden_features = self.decoder_att(decoder_hidden)  # (batch_size, attention_dim)
         att = self.full_att(self.relu(image_features + hidden_features.unsqueeze(1))).squeeze(2)  # (batch_size, num_pixels)
         attention_weights = self.softmax(att)  # (batch_size, num_pixels)
@@ -107,7 +101,7 @@ class Attention_Decoder(nn.Module):
     Decoder. It uses the Attention weighted image and the previous SafeGAN hidden state to compute the output
     """
 
-    def __init__(self, attention_dim, embed_dim, decoder_dim, encoder_dim, encoded_image_size):
+    def __init__(self, attention_dim, embed_dim, decoder_dim, encoder_dim):
         """
         :param attention_dim: size of attention network
         :param embed_dim: embedding size, dimension of the additional features to attach to the attention weighted image
@@ -124,7 +118,7 @@ class Attention_Decoder(nn.Module):
         self.decoder_dim = decoder_dim
         self.encoder_dim = encoder_dim
 
-        self.attention = Attention(encoder_dim, decoder_dim, attention_dim, encoded_image_size)  # attention network
+        self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
         self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, attention_dim, bias=True)  # decoding LSTM
         self.hidden = self.init_hidden()  # initialize hidden and cell state of the decoding LSTM
 
@@ -150,7 +144,8 @@ class Attention_Decoder(nn.Module):
         attention_weighted_encoding, attention_weights = self.attention(encoder_out, curr_hidden)
         lstm_hidden, lstm_cell = self.decode_step(torch.cat([embed_info, attention_weighted_encoding], dim=1),
                                                  (self.hidden[0].repeat(embed_info.shape[0], 1), self.hidden[1].repeat(embed_info.shape[0], 1)))  # (batch_size, attention_dim)
-        # update the attention decoder's lstm cell state and hidden state assigning them the first element of the compute        # output. This because each time the batch size can vary, so it was not possible to have an hidden state with the
+        # update the attention decoder's lstm cell state and hidden state assigning them the first element of the compute
+        # output. This because each time the batch size can vary, so it was not possible to have an hidden state with the
         # same dimension of the batch size.
         self.hidden = (lstm_hidden[0], lstm_cell[0])
 
