@@ -64,6 +64,7 @@ def get_argument_parser():
     parser.add_argument('--dropout', default=0, type=float)
     parser.add_argument('--batch_norm', default=0, type=bool_flag)
     parser.add_argument('--mlp_dim', default=64, type=int)
+    parser.add_argument('--activation', default='leakyrelu')
 
     # Generator Options
     parser.add_argument('--encoder_h_dim_g', default=32, type=int)
@@ -74,22 +75,6 @@ def get_argument_parser():
     parser.add_argument('--clipping_threshold_g', default=2.0, type=float)
     parser.add_argument('--g_learning_rate', default=0.0001, type=float)
     parser.add_argument('--g_steps', default=1, type=int)
-
-    # Pooling Options
-    parser.add_argument('--model_type', default='safeGAN')  # None, pool_net, spool
-    parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
-    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
-    parser.add_argument('--pool_static', default=1, type=bool_flag)
-    parser.add_argument('--pool_static_type', default='random', type=str) # random, polar, raycast, physical_attention
-    parser.add_argument('--down_samples', default=200, type=int)
-
-    # Pool Net Option
-    parser.add_argument('--bottleneck_dim', default=8, type=int)
-    parser.add_argument('--pooling_dim', default=2, type=int)
-
-    # Social Pooling Options
-    parser.add_argument('--neighborhood_size', default=3.0, type=float)
-    parser.add_argument('--grid_size', default=8, type=int)
 
     # Discriminator Options
     parser.add_argument('--d_type', default='local', type=str)
@@ -107,6 +92,21 @@ def get_argument_parser():
     parser.add_argument('--collision_threshold', default=.25, type=float)
     parser.add_argument('--occupancy_threshold', default=.25, type=float)
 
+    # Pooling Options
+    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
+    parser.add_argument('--down_samples', default=200, type=int)
+
+    # Pool Net Option
+    parser.add_argument('--bottleneck_dim', default=8, type=int)
+    parser.add_argument('--pooling_dim', default=2, type=int)
+
+    # Social Pooling Options
+    parser.add_argument('--neighborhood_size', default=3.0, type=float)
+    parser.add_argument('--grid_size', default=8, type=int)
+
+    parser.add_argument('--static_pooling_type', default='random', type=str) # random, polar, raycast, physical_attention
+    parser.add_argument('--dynamic_pooling_type', default="pool_hidden_net", type=str) # 
+
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
     parser.add_argument('--d_loss_weight', default=0.0, type=float)
@@ -116,12 +116,12 @@ def get_argument_parser():
 
     # Output
     parser.add_argument('--output_dir', default= "models_sdd/temp")
-    parser.add_argument('--print_every', default=500, type=int)
-    parser.add_argument('--checkpoint_every', default=500, type=int)
+    parser.add_argument('--print_every', default=50, type=int)
+    parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
-    parser.add_argument('--num_samples_check', default=500, type=int)
+    parser.add_argument('--num_samples_check', default=100, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
@@ -131,9 +131,7 @@ def get_argument_parser():
     parser.add_argument('--use_gpu', default=1, type=int)
     parser.add_argument('--timing', default=0, type=int)
     parser.add_argument('--gpu_num', default="0", type=str)
-    parser.add_argument('--static_pooling', default=1, type=bool_flag)
-    parser.add_argument('--dynamic_pooling', default=1, type=bool_flag)
-    parser.add_argument('--dynamic_pooling_type', default="pool_hidden_net", type=str)
+
     return parser
 
 
@@ -158,20 +156,7 @@ def get_dtypes(args):
 def main(args):
     if args.summary_writer_name is not None:
         writer = SummaryWriter(args.summary_writer_name)
-    '''
-    if args.pool_every_timestep == 1:
-        args.batch_norm = 0
-        args.batch_size = 1
-        args.encoder_h_dim_g = 8
-        args.decoder_h_dim_g = 8
-        args.noise_dim = (4, )
-        args.embedding_dim = 8
-        args.mlp_dim = 8
-        print('INFO: batch_norm = 0')
-    '''
 
-    if args.pooling_type == 'spool':
-        print('INFO: Discriminator loss disabled')
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_num
     train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
     val_path = get_dset_path(args.dataset_path, args.dataset_name, 'val')
@@ -180,17 +165,11 @@ def main(args):
 
     logger.info("Initializing train dataset")
     train_dset, train_loader = data_loader(args, train_path, shuffle=True)
-    logger.info("Initializing val dataset")
-    if args.sanity_check:
-        initialize_plot(args)
-        _, val_loader = data_loader(args, val_path, shuffle=False)
-    else:
-        _, val_loader = data_loader(args, val_path, shuffle=True)
 
-    if args.g_steps > 0:
-        iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.g_steps)
-    else:
-        iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.c_steps)
+    logger.info("Initializing val dataset")
+  
+    iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.g_steps)
+
     if args.num_epochs:
         args.num_iterations = int(iterations_per_epoch * args.num_epochs)
 
@@ -206,22 +185,21 @@ def main(args):
         num_layers=args.num_layers,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
-        activation='leakyrelu',
+        activation=args.activation,
         batch_norm=args.batch_norm,
-        pooling_type=args.pooling_type,
+        dynamic_pooling_type=args.dynamic_pooling_type,
+        static_pooling_type=args.static_pooling_type,
         pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
-        pool_static_type=args.pool_static_type,
         down_samples=args.down_samples
     )
     if args.pool_every_timestep:
-    	if args.static_pooling:
+    	if args.static_pooling_type is not None:
         	decoder_builder.with_static_pooling(train_path)
-    	if args.dynamic_pooling:
-        	decoder_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    	if args.dynamic_pooling_type is not None:
+        	decoder_builder.with_dynamic_pooling()
     decoder = decoder_builder.build()
 
     # build trajectory
@@ -238,22 +216,21 @@ def main(args):
         noise_mix_type=args.noise_mix_type,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
-        activation='leakyrelu',
+        activation=args.activation,
         batch_norm=args.batch_norm,
-        pooling_type=args.pooling_type,
+        dynamic_pooling_type=args.dynamic_pooling_type,
+        static_pooling_type=args.static_pooling_type,
         pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
-        pool_static_type=args.pool_static_type,
         down_samples=args.down_samples)
     
     g_builder.with_decoder(decoder)
-    if args.static_pooling:
+    if args.static_pooling_type is not None:
         g_builder.with_static_pooling(train_path)
-    if args.dynamic_pooling:
-        g_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    if args.dynamic_pooling_type is not None:
+        g_builder.with_dynamic_pooling()
     generator = g_builder.build()
 
     generator.apply(init_weights)
@@ -272,7 +249,7 @@ def main(args):
         mlp_dim=args.mlp_dim,
         num_layers=args.num_layers,
         dropout=args.dropout,
-        activation='leakyrelu',
+        activation=args.activation,
         batch_norm=args.batch_norm,
         d_type=args.d_type)
 
@@ -297,27 +274,24 @@ def main(args):
             mlp_dim=args.mlp_dim,
             num_layers=args.num_layers,
             dropout=args.dropout,
-            activation='leakyrelu',
+            activation=args.activation,
             batch_norm=args.batch_norm,
-            d_type=args.c_type,
-            generator=generator,
+            c_type=args.c_type,
             collision_threshold=args.collision_threshold,
             occupancy_threshold=args.occupancy_threshold,
-            pooling_type=args.pooling_type,
+            dynamic_pooling_type=args.dynamic_pooling_type,
+            static_pooling_type=args.static_pooling_type,
             pool_every_timestep=args.pool_every_timestep,
-            pool_static=args.pool_static,
             neighborhood_size=args.neighborhood_size,
             grid_size=args.grid_size,
             pooling_dim=args.pooling_dim,
-            pool_static_type=args.pool_static_type,
             down_samples=args.down_samples)
 
-    if args.static_pooling:
+    if args.static_pooling_type is not None:
         c_builder.with_static_pooling(train_path)
-    if args.dynamic_pooling:
-        c_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+    if args.dynamic_pooling_type is not None:
+        c_builder.with_dynamic_pooling()
     critic = c_builder.build()
-
 
     critic.apply(init_weights)
     critic.type(float_dtype).train()
@@ -325,11 +299,7 @@ def main(args):
     logger.info(critic)
     c_loss_fn = critic_loss
     optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
-    if args.c_steps == 0:
-        eval_critic = False
-    else:
-        eval_critic = True
-
+    eval_critic = True if args.c_steps else False
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -590,12 +560,8 @@ def discriminator_step(
 
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
-    if args.pool_static:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
-    else:
-        generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
 
-    pred_traj_fake_rel = generator_out
+    pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
     pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 
     traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
@@ -691,17 +657,12 @@ def generator_step(
 
     loss_mask = loss_mask[:, args.obs_len:]
 
-    if "physical_attention" in args.pool_static_type:
-        generator.static_net.static_scene_feature_extractor.attention_decoder.zero_grad()
-        generator.static_net.static_scene_feature_extractor.attention_decoder.hidden = generator.static_net.static_scene_feature_extractor.attention_decoder.init_hidden()
+    #if "physical_attention" in args.static_pooling_type:
+        #generator.static_net.static_scene_feature_extractor.attention_decoder.zero_grad()
+        #generator.static_net.static_scene_feature_extractor.attention_decoder.hidden = generator.static_net.static_scene_feature_extractor.attention_decoder.init_hidden()
 
     for _ in range(args.best_k):
-        if args.pool_static:
-            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
-        else:
-            generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
-
-        pred_traj_fake_rel = generator_out
+        pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
         pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 
         if args.l2_loss_weight > 0:
@@ -736,7 +697,7 @@ def generator_step(
         oracle_loss = torch.mean(-1 * (values_fake - torch.ones_like(values_fake)))
         losses['G_oracle_loss'] = oracle_loss.item()
 
-    if args.model_type != 'socialLSTM' and args.d_loss_weight > 0:
+    if args.d_loss_weight > 0:
         loss += args.d_loss_weight * ((1-args.lamb) * discriminator_loss + args.lamb * oracle_loss)
     losses['G_total_loss'] = loss.item()
 
@@ -774,11 +735,7 @@ def check_accuracy(string, epoch,
             linear_ped = 1 - non_linear_ped
             loss_mask = loss_mask[:, args.obs_len:]
 
-            if args.pool_static:
-                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
-            else:
-                pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
-
+            pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
             pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
 
             g_l2_loss_abs, g_l2_loss_rel = cal_l2_losses(
@@ -792,7 +749,7 @@ def check_accuracy(string, epoch,
             fde, fde_l, fde_nl = cal_fde(
                 pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
             )
-
+            
             cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
             cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold)
 
@@ -896,16 +853,9 @@ def check_accuracy(string, epoch,
     return metrics
 
 
-def cal_l2_losses(
-        pred_traj_gt, pred_traj_gt_rel, pred_traj_fake, pred_traj_fake_rel,
-        loss_mask
-):
-    g_l2_loss_abs = l2_loss(
-        pred_traj_fake, pred_traj_gt, loss_mask, mode='sum'
-    )
-    g_l2_loss_rel = l2_loss(
-        pred_traj_fake_rel, pred_traj_gt_rel, loss_mask, mode='sum'
-    )
+def cal_l2_losses(pred_traj_gt, pred_traj_gt_rel, pred_traj_fake, pred_traj_fake_rel,loss_mask):
+    g_l2_loss_abs = l2_loss(pred_traj_fake, pred_traj_gt, loss_mask, mode='sum')
+    g_l2_loss_rel = l2_loss(pred_traj_fake_rel, pred_traj_gt_rel, loss_mask, mode='sum')
     return g_l2_loss_abs, g_l2_loss_rel
 
 
@@ -916,9 +866,7 @@ def cal_ade(pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped):
     return ade, ade_l, ade_nl
 
 
-def cal_fde(
-        pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
-):
+def cal_fde(pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped):
     fde = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1])
     fde_l = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], linear_ped)
     fde_nl = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], non_linear_ped)
@@ -931,6 +879,7 @@ def cal_cols(pred_traj_gt, seq_start_end, minimum_distance, mode="binary"):
 
 def cal_occs(pred_traj_gt, seq_start_end, scene_information, seq_scene, minimum_distance, mode="binary"):
     return occupancy_error(pred_traj_gt, seq_start_end, scene_information, seq_scene, minimum_distance=minimum_distance, mode=mode)
+
 
 if __name__ == '__main__':
     parser = get_argument_parser()
