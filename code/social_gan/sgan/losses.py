@@ -1,11 +1,4 @@
 import torch
-from torch import autograd
-import random
-import matplotlib.pyplot as plt
-
-from datasets.calculate_static_scene_boundaries import get_pixels_from_world
-from sgan.models_static_scene import on_occupied, get_homography_and_map
-
 
 def bce_loss(input, target):
     """

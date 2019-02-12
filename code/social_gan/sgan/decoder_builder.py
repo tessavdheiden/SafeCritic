@@ -1,16 +1,10 @@
-import torch
-import os
-import numpy as np
-
 from sgan.decoder import Decoder
 
-from sgan.folder_utils import get_root_dir
 from sgan.context.composite_pooling import CompositePooling
 from sgan.context.null_pooling import NullPooling
 from sgan.context.static_pooling import PhysicalPooling
 from sgan.context.dynamic_pooling import SocialPooling, PoolHiddenNet
 
-from sgan.folder_utils import get_static_information_path, get_dset_name, get_dset_group_name
 
 class DecoderBuilder(object):
     def __init__(
