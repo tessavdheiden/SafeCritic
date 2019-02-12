@@ -1,12 +1,8 @@
 import torch
 import torch.nn as nn
-import numpy as np
-import os
-import pandas as pd
 
 from scripts.collision_checking import collision_error, occupancy_error
-from sgan.context.static_pooling import PhysicalPooling
-from sgan.context.dynamic_pooling import PoolHiddenNet, SocialPooling
+from sgan.context.dynamic_pooling import PoolHiddenNet
 from sgan.mlp import make_mlp
 
 

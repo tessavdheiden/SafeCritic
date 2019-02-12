@@ -1,9 +1,6 @@
 import torch
 import torch.nn as nn
 
-
-from sgan.context.dynamic_pooling import PoolHiddenNet, SocialPooling
-from sgan.context.static_pooling import PhysicalPooling 
 from sgan.mlp import make_mlp
 
 class Decoder(nn.Module):
