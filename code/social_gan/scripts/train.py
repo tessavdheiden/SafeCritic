@@ -167,6 +167,7 @@ def main(args):
     train_dset, train_loader = data_loader(args, train_path, shuffle=True)
 
     logger.info("Initializing val dataset")
+    val_dset, val_loader = data_loader(args, val_path, shuffle=True)
   
     iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.g_steps)
 
@@ -785,7 +786,7 @@ def check_accuracy(string, epoch,
             collisions_pred.append(cols_pred.sum().item())
             collisions_gt.append(cols_gt.sum().item())
 
-            if args.pool_static and eval_critic:
+            if eval_critic:
                 seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
                 occs_pred = cal_occs(pred_traj_fake, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode="binary")
                 occs_gt = cal_occs(pred_traj_gt, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode="binary")
@@ -825,7 +826,7 @@ def check_accuracy(string, epoch,
     metrics['cols'] = sum(collisions_pred) / total_traj
     metrics['cols_gt'] = sum(collisions_gt) / total_traj
 
-    if args.pool_static:
+    if args.static_pooling_type is not None:
         metrics['occs'] = sum(occupancies_pred) / total_traj
         metrics['occs_gt'] = sum(occupancies_gt) / total_traj
 
