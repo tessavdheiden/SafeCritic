@@ -18,9 +18,11 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 ## Improve model performance
 - [ ] Pool every
-- [ ] Make graph network
+- [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
 - [ ] Learn collision checking of oracle
-- [ ] Incorporate infrastructure elements with rules (traffic lights, roundabouts, zebra walks)
+
+## Benchmark
+- [ ] DESIRE
 
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
