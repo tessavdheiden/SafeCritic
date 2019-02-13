@@ -24,7 +24,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 - [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
 
 ## Improve pooling
-- [ ] Segmentations correct (not different for same object)
+- [ ] Segmentations correct (not different for same object), use occupancy grids
 - [ ] Visualize attention
 - [ ] Pool every
 
