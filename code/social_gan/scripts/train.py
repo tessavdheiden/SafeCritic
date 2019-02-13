@@ -79,9 +79,11 @@ def get_argument_parser():
     parser.add_argument('--model_type', default='safeGAN')  # None, pool_net, spool
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
     parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
-    parser.add_argument('--pool_static', default=1, type=bool_flag)
-    parser.add_argument('--pool_static_type', default='random', type=str) # random, polar, raycast, physical_attention
     parser.add_argument('--down_samples', default=-1, type=int)
+    parser.add_argument('--static_pooling', default=1, type=bool_flag)
+    parser.add_argument('--dynamic_pooling', default=1, type=bool_flag)
+    parser.add_argument('--dynamic_pooling_type', default="pool_hidden_net", type=str)
+    parser.add_argument('--static_pooling_type', default='random', type=str)  # random, random_cnn, random_cnn_atrous, polar, raycast, physical_attention_with_encoder, physical_attention_no_encoder
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -131,9 +133,6 @@ def get_argument_parser():
     parser.add_argument('--use_gpu', default=1, type=int)
     parser.add_argument('--timing', default=0, type=int)
     parser.add_argument('--gpu_num', default="0", type=str)
-    parser.add_argument('--static_pooling', default=1, type=bool_flag)
-    parser.add_argument('--dynamic_pooling', default=1, type=bool_flag)
-    parser.add_argument('--dynamic_pooling_type', default="pool_hidden_net", type=str)
     return parser
 
 
@@ -208,20 +207,19 @@ def main(args):
         bottleneck_dim=args.bottleneck_dim,
         activation='leakyrelu',
         batch_norm=args.batch_norm,
-        pooling_type=args.pooling_type,
         pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
-        pool_static_type=args.pool_static_type,
+        static_pooling_type=args.static_pooling_type,
+        dynamic_pooling_type=args.dynamic_pooling_type,
         down_samples=args.down_samples
     )
     if args.pool_every_timestep:
-    	if args.static_pooling:
-        	decoder_builder.with_static_pooling(train_path)
-    	if args.dynamic_pooling:
-        	decoder_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+        if args.static_pooling:
+            decoder_builder.with_static_pooling(train_path)
+        if args.dynamic_pooling:
+            decoder_builder.with_dynamic_pooling()
     decoder = decoder_builder.build()
 
     # build trajectory
@@ -240,20 +238,19 @@ def main(args):
         bottleneck_dim=args.bottleneck_dim,
         activation='leakyrelu',
         batch_norm=args.batch_norm,
-        pooling_type=args.pooling_type,
         pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
         neighborhood_size=args.neighborhood_size,
         grid_size=args.grid_size,
         pooling_dim=args.pooling_dim,
-        pool_static_type=args.pool_static_type,
+        static_pooling_type=args.static_pooling_type,
+        dynamic_pooling_type=args.dynamic_pooling_type,
         down_samples=args.down_samples)
     
     g_builder.with_decoder(decoder)
     if args.static_pooling:
         g_builder.with_static_pooling(train_path)
     if args.dynamic_pooling:
-        g_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+        g_builder.with_dynamic_pooling()
     generator = g_builder.build()
 
     generator.apply(init_weights)
@@ -299,25 +296,21 @@ def main(args):
             dropout=args.dropout,
             activation='leakyrelu',
             batch_norm=args.batch_norm,
-            d_type=args.c_type,
-            generator=generator,
             collision_threshold=args.collision_threshold,
             occupancy_threshold=args.occupancy_threshold,
-            pooling_type=args.pooling_type,
             pool_every_timestep=args.pool_every_timestep,
-            pool_static=args.pool_static,
             neighborhood_size=args.neighborhood_size,
             grid_size=args.grid_size,
             pooling_dim=args.pooling_dim,
-            pool_static_type=args.pool_static_type,
+            static_pooling_type=args.static_pooling_type,
+            dynamic_pooling_type=args.dynamic_pooling_type,
             down_samples=args.down_samples)
 
     if args.static_pooling:
         c_builder.with_static_pooling(train_path)
     if args.dynamic_pooling:
-        c_builder.with_dynamic_pooling(args.dynamic_pooling_type)
+        c_builder.with_dynamic_pooling()
     critic = c_builder.build()
-
 
     critic.apply(init_weights)
     critic.type(float_dtype).train()
@@ -329,7 +322,6 @@ def main(args):
         eval_critic = False
     else:
         eval_critic = True
-
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -482,7 +474,7 @@ def main(args):
 
         # Save weights and biases for visualization:
         #if args.summary_writer_name is not None:
-        #    plot_static_net_tensorboardX(writer, generator, args.pool_static_type, epoch)
+        #    plot_static_net_tensorboardX(writer, generator, args.static_pooling_type, epoch)
 
         # Save losses
         logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
@@ -590,7 +582,7 @@ def discriminator_step(
 
     losses = {}
     loss = torch.zeros(1).to(pred_traj_gt)
-    if args.pool_static:
+    if args.static_pooling:
         generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
     else:
         generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
@@ -649,7 +641,7 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
     scores_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
     labels_fake = -1 * cal_cols(traj_fake, seq_start_end, minimum_distance=critic.collision_threshold).unsqueeze(1) + 1
 
-    if generator.pool_static:
+    if generator.static_pooling:
         seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
         labels_occs_fake = -1 * cal_occs(traj_fake, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
         labels_occs_real = -1 * cal_occs(traj_real, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
@@ -691,12 +683,12 @@ def generator_step(
 
     loss_mask = loss_mask[:, args.obs_len:]
 
-    if "physical_attention" in args.pool_static_type:
+    if "physical_attention" in args.static_pooling_type:
         generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.zero_grad()
         generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.hidden = generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.init_hidden()
 
     for _ in range(args.best_k):
-        if args.pool_static:
+        if args.static_pooling:
             generator_out = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
         else:
             generator_out = generator(obs_traj, obs_traj_rel, seq_start_end)
@@ -774,7 +766,7 @@ def check_accuracy(string, epoch,
             linear_ped = 1 - non_linear_ped
             loss_mask = loss_mask[:, args.obs_len:]
 
-            if args.pool_static:
+            if args.static_pooling:
                 pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
             else:
                 pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end)
@@ -828,7 +820,7 @@ def check_accuracy(string, epoch,
             collisions_pred.append(cols_pred.sum().item())
             collisions_gt.append(cols_gt.sum().item())
 
-            if args.pool_static and eval_critic:
+            if args.static_pooling and eval_critic:
                 seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
                 occs_pred = cal_occs(pred_traj_fake, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode="binary")
                 occs_gt = cal_occs(pred_traj_gt, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=args.occupancy_threshold, mode="binary")
@@ -849,7 +841,7 @@ def check_accuracy(string, epoch,
             total_traj_nl += torch.sum(non_linear_ped).item()
 
             if args.sanity_check and (b == len(loader)-1 or (limit and total_traj >= args.num_samples_check)): #not checking all trajectories
-                if args.pool_static:
+                if args.static_pooling:
                     seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
                     sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string,
                                  generator.static_net.scene_information, seq_scenes)
@@ -868,7 +860,7 @@ def check_accuracy(string, epoch,
     metrics['cols'] = sum(collisions_pred) / total_traj
     metrics['cols_gt'] = sum(collisions_gt) / total_traj
 
-    if args.pool_static:
+    if args.static_pooling:
         metrics['occs'] = sum(occupancies_pred) / total_traj
         metrics['occs_gt'] = sum(occupancies_gt) / total_traj
 

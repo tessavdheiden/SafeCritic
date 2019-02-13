@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from scripts.collision_checking import collision_error, occupancy_error
-from sgan.context.dynamic_pooling import PoolHiddenNet, SocialPooling
+from sgan.context.dynamic_pooling import PoolHiddenNet
 from sgan.mlp import make_mlp
 
 
@@ -267,7 +267,7 @@ class TrajectoryCritic(nn.Module):
         if c_type == 'global':
             real_classifier_dims = [self.pooling_output_dim, mlp_dim, 1]
             self.spatial_embedding = nn.Linear(1, 1)
-        elif self.d_type == 'minimum':
+        elif self.c_type == 'minimum':
             real_classifier_dims = [1, mlp_dim, 1]
             self.spatial_embedding_scene = make_mlp(
                 real_classifier_dims,

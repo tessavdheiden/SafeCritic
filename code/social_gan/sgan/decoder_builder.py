@@ -11,9 +11,8 @@ class DecoderBuilder(object):
         self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1,
         pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, 
-	static_pooling_type=None,  dynamic_pooling_type=None,
-        neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        pool_static_type='random', down_samples=200
+	    static_pooling_type=None,  dynamic_pooling_type=None,
+        neighborhood_size=2.0, grid_size=8, pooling_dim=2, down_samples=200
     ):
          self.seq_len=seq_len
          self.embedding_dim=embedding_dim
@@ -92,6 +91,7 @@ class DecoderBuilder(object):
             activation=self.activation,
             batch_norm=self.batch_norm,
             pool_static_type=self.static_pooling_type,
+            pool_every_timestep=self.pool_every_timestep,
             pooling=self.pooling,
             pooling_output_dim=self.pooling_output_dim
-            )
+        )

@@ -9,11 +9,10 @@ class TrajectoryGeneratorBuilder(object):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, encoder_h_dim=64,
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
-        noise_type='gaussian', noise_mix_type='ped',dropout=0.0, bottleneck_dim=1024,
+        noise_type='gaussian', noise_mix_type='ped', dropout=0.0, bottleneck_dim=1024,
         activation='relu', batch_norm=True, 
         static_pooling_type=None,  dynamic_pooling_type=None, pool_every_timestep=True,
-        neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        pool_static_type='random', down_samples=200
+        neighborhood_size=2.0, grid_size=8, pooling_dim=2, down_samples=200
     ):
          self.obs_len=obs_len
          self.pred_len=pred_len
@@ -105,7 +104,7 @@ class TrajectoryGeneratorBuilder(object):
             noise_mix_type=self.noise_mix_type,
             dropout=self.dropout,
             activation=self.activation,
-	    batch_norm=self.batch_norm,
+	        batch_norm=self.batch_norm,
             pooling=self.pooling,
             pooling_output_dim=self.pooling_output_dim,
             decoder=self.decoder
@@ -116,7 +115,7 @@ class TrajectoryCriticBuilder(object):
         self, obs_len, pred_len, embedding_dim=64, h_dim=64, bottleneck_dim=64, mlp_dim=1024,
         num_layers=1, activation='relu', batch_norm=True, dropout=0.0,
         c_type='local', collision_threshold=.25, occupancy_threshold=1.0, 
-	static_pooling_type=None,  dynamic_pooling_type=None,
+	    static_pooling_type=None,  dynamic_pooling_type=None,
         pool_every_timestep=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
         down_samples=200
     ):
@@ -200,5 +199,3 @@ class TrajectoryCriticBuilder(object):
             pooling_output_dim=self.pooling_output_dim,
             collision_threshold = self.collision_threshold,
             occupancy_threshold = self.occupancy_threshold)
-        
-
