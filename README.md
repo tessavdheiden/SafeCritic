@@ -16,10 +16,19 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 ## Cluster computing
 - [ ] Make kubernetis work
 
-## Improve model performance
-- [ ] Pool every
-- [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
+## Improve evaluator
 - [ ] Learn collision checking of oracle
+- [ ] Collision checking, discrete or continous collision checking?
+
+## Improve generator
+- [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
+
+## Improve pooling
+- [ ] Segmentations correct (not different for same object)
+- [ ] Visualize attention
+- [ ] Pool every
+
+
 
 ## Benchmark
 - [ ] DESIRE

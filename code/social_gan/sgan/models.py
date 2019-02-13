@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from scripts.collision_checking import collision_error, occupancy_error
-from sgan.context.dynamic_pooling import PoolHiddenNet
+from sgan.context.dynamic_pooling import PoolHiddenNet, SocialPooling
 from sgan.mlp import make_mlp
 
 
@@ -20,15 +20,11 @@ class TrajectoryGenerator(nn.Module):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, encoder_h_dim=64,
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
-        noise_type='gaussian', noise_mix_type='ped', pooling_type=None,
-        pool_every_timestep=True, pool_static=False, dropout=0.0, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        pool_static_type='random', down_samples=200, pooling=None, pooling_output_dim=64, decoder=None
+        noise_type='gaussian', noise_mix_type='ped', 
+	dropout=0.0, activation='relu', batch_norm=True, 
+        pooling=None, pooling_output_dim=64, decoder=None
     ):
         super(TrajectoryGenerator, self).__init__()
-
-        if pooling_type and pooling_type.lower() == 'none':
-            pooling_type = None
 
         self.obs_len = obs_len
         self.pred_len = pred_len
@@ -43,11 +39,6 @@ class TrajectoryGenerator(nn.Module):
         self.noise_first_dim = 0
 
         # pooling options
-        self.pooling_type = pooling_type
-        self.pool_static = pool_static
-        self.pool_static_type = pool_static_type
-        self.pool_every_timestep = pool_every_timestep
-        self.bottleneck_dim = bottleneck_dim
         self.pooling = pooling
         self.pooling_output_dim=pooling_output_dim
 
@@ -244,10 +235,8 @@ class TrajectoryCritic(nn.Module):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, h_dim=64, mlp_dim=1024,
         num_layers=1, activation='relu', batch_norm=True, dropout=0.0,
-        d_type='local', generator=None, collision_threshold=.25, occupancy_threshold=1.0,
-        bottleneck_dim =1024, pooling_type=None, pool_every_timestep=True, pool_static=False, 
-        neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        pool_static_type='random', down_samples=200, pooling=None, pooling_output_dim=64
+        c_type='local', collision_threshold=.25, occupancy_threshold=1.0,
+        down_samples=200, pooling=None, pooling_output_dim=64
     ):
 
         super(TrajectoryCritic, self).__init__()
@@ -258,21 +247,14 @@ class TrajectoryCritic(nn.Module):
         self.mlp_dim = mlp_dim
         self.h_dim = h_dim
         self.activation = activation
-        self.d_type = d_type
+        self.c_type = c_type
         self.collision_threshold = collision_threshold
         self.occupancy_threshold = occupancy_threshold
-        self.generator = generator
 
         # pooling options
-        self.pooling_type = pooling_type
-        self.pool_static = pool_static
-        self.pool_static_type = pool_static_type
         self.noise_first_dim = 0
-        self.pool_every_timestep = pool_every_timestep
-        self.bottleneck_dim = bottleneck_dim
         self.pooling = pooling
         self.pooling_output_dim=pooling_output_dim
-
 
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
@@ -282,7 +264,7 @@ class TrajectoryCritic(nn.Module):
             dropout=dropout
         )
 
-        if d_type == 'global':
+        if c_type == 'global':
             real_classifier_dims = [self.pooling_output_dim, mlp_dim, 1]
             self.spatial_embedding = nn.Linear(1, 1)
         elif self.d_type == 'minimum':
@@ -297,7 +279,7 @@ class TrajectoryCritic(nn.Module):
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout)
-        elif self.d_type == 'local':
+        elif self.c_type == 'local':
             real_classifier_dims = [1, mlp_dim, 1]
             self.spatial_embedding = nn.Linear(1, 1)
 
@@ -413,7 +395,7 @@ class TrajectoryCritic(nn.Module):
         # trajectory information should help in discriminative behavior.
         rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
                                        mode='binary').unsqueeze(1) + 1
-        if self.d_type == 'global':
+        if self.c_type == 'global':
             if self.generator.pool_static:
                 classifier_input_static = self.static_net(
                     final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids
@@ -429,14 +411,14 @@ class TrajectoryCritic(nn.Module):
 
             scores = self.real_classifier(classifier_input)
 
-        elif self.d_type == 'minimum':
+        elif self.c_type == 'minimum':
             if self.generator.pool_static:
                 seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
                 rewards_occs = -1 * self.get_min_distance_scene(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
                 rewards[rewards_occs < 1] = 0
             scores = self.real_classifier(rewards)
 
-        elif self.d_type == 'local':
+        elif self.c_type == 'local':
             if self.generator.pool_static:
                 seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
                 rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1

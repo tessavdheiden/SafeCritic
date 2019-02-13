@@ -7,9 +7,9 @@ class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
         self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1,
-        pooling_type=None, pool_every_timestep=True, pool_static=False, dropout=0.0, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        pool_static_type='random', down_samples=200, pooling=None, pooling_output_dim=64
+        pool_every_timestep=True, dropout=0.0, 
+        activation='relu', batch_norm=True, 
+        pool_static_type='None', pooling=None, pooling_output_dim=64
     ):
         super(Decoder, self).__init__()
 
@@ -19,11 +19,10 @@ class Decoder(nn.Module):
         self.embedding_dim = embedding_dim
 
         # pooling options
-        self.pooling_type = pooling_type
-        self.pool_static = pool_static
+        if pool_static_type and pool_static_type.lower() == 'none':
+            pool_static_type = None
         self.pool_static_type = pool_static_type
         self.pool_every_timestep = pool_every_timestep
-        self.bottleneck_dim = bottleneck_dim
         self.pooling = pooling
         self.pooling_output_dim=pooling_output_dim
 
