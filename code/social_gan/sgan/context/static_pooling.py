@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from sgan.context.static_scene_feature_extractor import StaticSceneFeatureExtractor
+from sgan.context.static_scene_feature_extractor import StaticSceneFeatureExtractorRandom, StaticSceneFeatureExtractorCNN, StaticSceneFeatureExtractorRaycast, StaticSceneFeatureExtractorPolar, StaticSceneFeatureExtractorAttention
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -21,9 +21,30 @@ class PhysicalPooling(nn.Module):
         self.neighborhood_size = neighborhood_size
         self.down_samples = down_samples
         self.pool_static_type = pool_static_type
-        self.static_scene_feature_extractor = StaticSceneFeatureExtractor(pool_static_type, down_samples, embedding_dim,
+
+        if pool_static_type == "random":
+            self.static_scene_feature_extractor = StaticSceneFeatureExtractorRandom(pool_static_type, down_samples, embedding_dim,
                                                                           h_dim, bottleneck_dim, activation, batch_norm, dropout,
                                                                           mlp_dim, num_cells, neighborhood_size).to(device)
+        elif pool_static_type == "random_cnn" or pool_static_type == "random_cnn":
+            self.static_scene_feature_extractor = StaticSceneFeatureExtractorCNN(pool_static_type, down_samples, embedding_dim,
+                                                                          h_dim, bottleneck_dim, activation, batch_norm, dropout,
+                                                                          mlp_dim, num_cells, neighborhood_size).to(device)
+        elif "raycast" in pool_static_type:
+            self.static_scene_feature_extractor = StaticSceneFeatureExtractorRaycast(pool_static_type, down_samples, embedding_dim,
+                                                                                 h_dim, bottleneck_dim, activation, batch_norm, dropout,
+                                                                                 mlp_dim, num_cells, neighborhood_size).to(device)
+        elif "polar" in pool_static_type:
+            self.static_scene_feature_extractor = StaticSceneFeatureExtractorPolar(pool_static_type, down_samples, embedding_dim,
+                                                                                 h_dim, bottleneck_dim, activation, batch_norm, dropout,
+                                                                                 mlp_dim, num_cells, neighborhood_size).to(device)
+        elif "physical_attention" in pool_static_type:
+            self.static_scene_feature_extractor = StaticSceneFeatureExtractorAttention(pool_static_type, down_samples, embedding_dim,
+                                                                                 h_dim, bottleneck_dim, activation, batch_norm, dropout,
+                                                                                 mlp_dim, num_cells, neighborhood_size).to(device)
+        else:
+            print("Error in recognizing static scene feature extractor type!")
+            exit()
 
     def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids):
         """

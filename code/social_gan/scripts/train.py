@@ -78,10 +78,10 @@ def get_argument_parser():
     # Pooling Options
     parser.add_argument('--model_type', default='safeGAN')  # None, pool_net, spool
     parser.add_argument('--pooling_type', default='pool_net') # None, pool_net, spool
-    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
+    parser.add_argument('--pool_every_timestep', default=False, type=bool_flag)
     parser.add_argument('--pool_static', default=1, type=bool_flag)
     parser.add_argument('--pool_static_type', default='random', type=str) # random, polar, raycast, physical_attention
-    parser.add_argument('--down_samples', default=200, type=int)
+    parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -115,7 +115,7 @@ def get_argument_parser():
     parser.add_argument('--loss_type', default='bce', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "models_sdd/temp")
+    parser.add_argument('--output_dir', default= "../models_sdd/temp")
     parser.add_argument('--print_every', default=500, type=int)
     parser.add_argument('--checkpoint_every', default=500, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -125,7 +125,7 @@ def get_argument_parser():
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
-    parser.add_argument('--summary_writer_name', default="../runs", type=str)
+    parser.add_argument('--summary_writer_name', default=None, type=str)
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -692,8 +692,8 @@ def generator_step(
     loss_mask = loss_mask[:, args.obs_len:]
 
     if "physical_attention" in args.pool_static_type:
-        generator.static_net.static_scene_feature_extractor.attention_decoder.zero_grad()
-        generator.static_net.static_scene_feature_extractor.attention_decoder.hidden = generator.static_net.static_scene_feature_extractor.attention_decoder.init_hidden()
+        generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.zero_grad()
+        generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.hidden = generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.init_hidden()
 
     for _ in range(args.best_k):
         if args.pool_static:
