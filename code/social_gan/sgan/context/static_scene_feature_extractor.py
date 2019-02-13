@@ -31,7 +31,7 @@ class StaticSceneFeatureExtractorRandom(nn.Module):
         mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
         self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
 
-    def set_dset_list(self, data_dir):
+    def set_dset_list(self, data_dir, down_sampling=True):
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
         _dir = os.path.dirname(os.path.realpath(__file__))
@@ -47,7 +47,7 @@ class StaticSceneFeatureExtractorRandom(nn.Module):
                 possible to take all points or just a sample"""
             path = os.path.join(path_group, name)
             map = np.load(path + "/world_points_boundary.npy")
-            if down_sampling and map.shape[0] > self.down_samples and self.down_samples != -1:
+            if self.down_samples != -1 and down_sampling and map.shape[0] > self.down_samples:
                 down_sampling = (map.shape[0] // self.down_samples)
                 sampled = map[::down_sampling]
                 map = sampled[:self.down_samples]
@@ -111,7 +111,7 @@ class StaticSceneFeatureExtractorCNN(nn.Module):
         mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
         self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
 
-    def set_dset_list(self, data_dir):
+    def set_dset_list(self, data_dir, down_sampling=True):
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
         _dir = os.path.dirname(os.path.realpath(__file__))
@@ -127,7 +127,7 @@ class StaticSceneFeatureExtractorCNN(nn.Module):
                 possible to take all points or just a sample"""
             path = os.path.join(path_group, name)
             map = np.load(path + "/world_points_boundary.npy")
-            if down_sampling and map.shape[0] > self.down_samples and self.down_samples != -1:
+            if self.down_samples != -1 and down_sampling and map.shape[0] > self.down_samples:
                 down_sampling = (map.shape[0] // self.down_samples)
                 sampled = map[::down_sampling]
                 map = sampled[:self.down_samples]
@@ -178,7 +178,7 @@ class StaticSceneFeatureExtractorRaycast(nn.Module):
         mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
         self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
 
-    def set_dset_list(self, data_dir):
+    def set_dset_list(self, data_dir, down_sampling=True):
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
         _dir = os.path.dirname(os.path.realpath(__file__))
@@ -194,7 +194,7 @@ class StaticSceneFeatureExtractorRaycast(nn.Module):
                 possible to take all points or just a sample"""
             path = os.path.join(path_group, name)
             map = np.load(path + "/world_points_boundary.npy")
-            if down_sampling and map.shape[0] > self.down_samples and self.down_samples != -1:
+            if self.down_samples != -1 and down_sampling and map.shape[0] > self.down_samples:
                 down_sampling = (map.shape[0] // self.down_samples)
                 sampled = map[::down_sampling]
                 map = sampled[:self.down_samples]
@@ -239,7 +239,7 @@ class StaticSceneFeatureExtractorPolar(nn.Module):
         mlp_pre_pool_dims = [embedding_dim + h_dim, self.mlp_dim * 8, bottleneck_dim]
         self.mlp_pre_pool = make_mlp(mlp_pre_pool_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
 
-    def set_dset_list(self, data_dir):
+    def set_dset_list(self, data_dir, down_sampling=True):
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
         _dir = os.path.dirname(os.path.realpath(__file__))
@@ -255,7 +255,7 @@ class StaticSceneFeatureExtractorPolar(nn.Module):
                 possible to take all points or just a sample"""
             path = os.path.join(path_group, name)
             map = np.load(path + "/world_points_boundary.npy")
-            if down_sampling and map.shape[0] > self.down_samples and self.down_samples != -1:
+            if self.down_samples != -1 and down_sampling and map.shape[0] > self.down_samples:
                 down_sampling = (map.shape[0] // self.down_samples)
                 sampled = map[::down_sampling]
                 map = sampled[:self.down_samples]
