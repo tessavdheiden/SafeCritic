@@ -617,8 +617,8 @@ def move_figure(f, x, y):
 
 def main():
     test_case = 2
-    model_path = os.path.join(get_root_dir(), 'models_sdd/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6')
-    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6safeGAN_SP')
+    model_path = os.path.join(get_root_dir(), 'models_sdd/random')
+    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/random')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]

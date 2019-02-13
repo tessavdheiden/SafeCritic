@@ -262,6 +262,10 @@ def get_world_from_pixels(pts_img, h, multiply_depth=False):
 
 def get_pixels_from_world(pts_wrd, h, divide_depth=False):
     ones_vec = np.ones(pts_wrd.shape[0])
+    try:
+        pts_wrd = pts_wrd.cpu().numpy()
+    except Exception as e:
+        pass
 
     pts_wrd_3d = np.stack((pts_wrd[:, 0], pts_wrd[:, 1], ones_vec))
 

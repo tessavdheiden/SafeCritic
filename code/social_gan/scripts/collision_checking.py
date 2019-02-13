@@ -12,7 +12,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
     """
     pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
     seq_length = pred_pos.size(0)
-    collisions = []
+    costs = []
     for i, (start, end) in enumerate(seq_start_end):
         start = start.item()
         end = end.item()
@@ -22,17 +22,24 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
         curr_seqs_switch = curr_seqs.transpose(0, 1)
         X_cols_rep = curr_seqs_switch.repeat(1, 1, num_ped)  # repeat cols x1(t1) x1(t1) x2(t1) x2(t1) x1(t2) x1(t2) x2(t2) x2(t2)
         X_rows_rep = curr_seqs_switch.repeat(1, num_ped, 1)  # repeat rows x1(t1) x2(t1) x1(t1) x2(t1)
-        distance = torch.norm(X_rows_rep.view(seq_length, num_ped, num_ped, 2) - X_cols_rep.view(seq_length, num_ped, num_ped, 2), dim=3)
-        distance = distance.clone().view(seq_length, num_ped, num_ped)
+        distance_matrix = torch.norm(X_rows_rep.view(seq_length, num_ped, num_ped, 2) - X_cols_rep.view(seq_length, num_ped, num_ped, 2), dim=3)
+        distance_matrix = distance_matrix.view(seq_length, num_ped, num_ped)
 
-        distance[distance == 0] = minimum_distance  # exclude distance between people and themself
-        min_distance = distance.min(1)[0]  # [t X ped]
-        min_distance_all = min_distance.min(0)[0]
-        cols = torch.zeros_like(min_distance_all)
-        cols[min_distance_all < minimum_distance] = 1
-        collisions.append(cols)
+        threshold_diagonal_matrix = torch.diag(torch.tensor([minimum_distance]).repeat(curr_seqs.shape[0])).cuda()
+        cost_matrix = torch.nn.functional.relu(minimum_distance - distance_matrix - threshold_diagonal_matrix)
 
-    return torch.cat(collisions, dim=0).cuda()
+        costs.append(cost_matrix.view(seq_length, -1).permute(1,0))
+
+        # distance[distance == 0] = minimum_distance  # exclude distance between people and themself
+        #
+        #
+        # min_distance = distance.min(1)[0]  # [t X ped]
+        # min_distance_all = min_distance.min(0)[0]
+        # cols = torch.zeros_like(min_distance_all)
+        # cols[min_distance_all < minimum_distance] = 1
+        # collisions.append(cols)
+
+    return torch.cat(costs, dim=0).cuda().permute(1, 0)
 
 
 def occupancy_error(pred_pos, seq_start_end, scene_information, seq_scene, minimum_distance=0.2, mode='binary'):

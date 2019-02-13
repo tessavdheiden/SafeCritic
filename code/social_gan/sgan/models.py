@@ -415,41 +415,42 @@ class TrajectoryCritic(nn.Module):
         # end_pos. The intution being that hidden state has the whole
         # trajectory and relative postion at the start when combined with
         # trajectory information should help in discriminative behavior.
-        rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
-                                       mode='binary').unsqueeze(1) + 1
-        if self.d_type == 'global':
-            if self.generator.pool_static:
-                classifier_input_static = self.static_net(
-                    final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids
-                )
-                classifier_input_dynamic = self.pool_net(
-                    final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
-                )
-                classifier_input = torch.cat([classifier_input_static, classifier_input_dynamic], dim=1)
-            else:
-                classifier_input = self.pool_net(
-                    final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
-                )
 
-            scores = self.real_classifier(classifier_input)
+        return None, collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold, mode='binary')
 
-        elif self.d_type == 'minimum':
-            if self.generator.pool_static:
-                seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
-                rewards_occs = -1 * self.get_min_distance_scene(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
-                rewards[rewards_occs < 1] = 0
-            scores = self.real_classifier(rewards)
-
-        elif self.d_type == 'local':
-            if self.generator.pool_static:
-                seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
-                rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
-                rewards[rewards_occs < 1] = 0
-
-            scores = self.real_classifier(rewards)
-            # scores = self.spatial_embedding(rewards)
-
-        return scores, rewards
+        # if self.d_type == 'global':
+        #     if self.generator.pool_static:
+        #         classifier_input_static = self.static_net(
+        #             final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids
+        #         )
+        #         classifier_input_dynamic = self.pool_net(
+        #             final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
+        #         )
+        #         classifier_input = torch.cat([classifier_input_static, classifier_input_dynamic], dim=1)
+        #     else:
+        #         classifier_input = self.pool_net(
+        #             final_h.squeeze(), seq_start_end, traj[0], traj_rel[0]
+        #         )
+        #
+        #     scores = self.real_classifier(classifier_input)
+        #
+        # elif self.d_type == 'minimum':
+        #     if self.generator.pool_static:
+        #         seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
+        #         rewards_occs = -1 * self.get_min_distance_scene(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
+        #         rewards[rewards_occs < 1] = 0
+        #     scores = self.real_classifier(rewards)
+        #
+        # elif self.d_type == 'local':
+        #     if self.generator.pool_static:
+        #         seq_scenes = [self.generator.static_net.list_data_files[num] for num in seq_scene_ids]
+        #         rewards_occs = -1 * occupancy_error(traj, seq_start_end, self.generator.static_net.scene_information, seq_scenes, minimum_distance=self.occupancy_threshold, mode='binary').unsqueeze(1) + 1
+        #         rewards[rewards_occs < 1] = 0
+        #
+        #     scores = self.real_classifier(rewards)
+        #     # scores = self.spatial_embedding(rewards)
+        #
+        # return None, rewards
 
         # seq_len = traj.size(0)
         # scores = []

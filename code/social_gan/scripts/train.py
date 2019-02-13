@@ -56,7 +56,7 @@ def get_argument_parser():
     # Optimization
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--num_iterations', default=10000, type=int)
-    parser.add_argument('--num_epochs', default=201, type=int)
+    parser.add_argument('--num_epochs', default=2, type=int)
 
     # Model Options
     parser.add_argument('--embedding_dim', default=16, type=int)
@@ -443,7 +443,7 @@ def main(args):
 
             elif g_steps_left > 0:
                 step_type = 'g'
-                if args.lamb > 0:
+                if args.lamb >= 0:
                     losses_g = generator_step(args, batch, generator, discriminator, g_loss_fn, optimizer_g, critic)
                 else:
                     losses_g = generator_step(args, batch, generator, discriminator, g_loss_fn, optimizer_g)
@@ -562,8 +562,7 @@ def main(args):
 
             # Save a checkpoint with no model weights by making a shallow
             # copy of the checkpoint excluding some items
-            checkpoint_path = os.path.join(
-                args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
+            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
             logger.info('Saving checkpoint to {}'.format(checkpoint_path))
             key_blacklist = [
                 'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
@@ -731,9 +730,9 @@ def generator_step(
         discriminator_loss = g_loss_fn(scores_fake)
         losses['G_discriminator_loss'] = discriminator_loss.item()
 
-    if args.lamb > 0.0:
+    if args.lamb >= 0.0:
         _, values_fake = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
-        oracle_loss = torch.mean(-1 * (values_fake - torch.ones_like(values_fake)))
+        oracle_loss = torch.sum(values_fake)
         losses['G_oracle_loss'] = oracle_loss.item()
 
     if args.model_type != 'socialLSTM' and args.d_loss_weight > 0:
