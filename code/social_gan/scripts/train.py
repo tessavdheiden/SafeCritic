@@ -93,8 +93,8 @@ def get_argument_parser():
     parser.add_argument('--occupancy_threshold', default=.25, type=float)
 
     # Pooling Options
-    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
-    parser.add_argument('--down_samples', default=200, type=int)
+    parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
+    parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -115,7 +115,7 @@ def get_argument_parser():
     parser.add_argument('--loss_type', default='bce', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "models_sdd/temp")
+    parser.add_argument('--output_dir', default= "../models_sdd/temp")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -125,7 +125,7 @@ def get_argument_parser():
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
-    parser.add_argument('--summary_writer_name', default="../runs", type=str)
+    parser.add_argument('--summary_writer_name', default=None, type=str)
 
     # Misc
     parser.add_argument('--use_gpu', default=1, type=int)
@@ -453,7 +453,7 @@ def main(args):
 
         # Save weights and biases for visualization:
         #if args.summary_writer_name is not None:
-        #    plot_static_net_tensorboardX(writer, generator, args.pool_static_type, epoch)
+        #    plot_static_net_tensorboardX(writer, generator, args.static_pooling_type, epoch)
 
         # Save losses
         logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
@@ -554,7 +554,8 @@ def main(args):
 
             logger.info('Done.')
 
-    #writer.close()
+    if args.summary_writer_name is not None:
+        writer.close()
 
 
 def discriminator_step(
@@ -621,7 +622,7 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
     scores_fake, _ = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
     labels_fake = -1 * cal_cols(traj_fake, seq_start_end, minimum_distance=critic.collision_threshold).unsqueeze(1) + 1
 
-    if generator.pool_static:
+    if generator.static_pooling_type is not None:
         seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
         labels_occs_fake = -1 * cal_occs(traj_fake, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
         labels_occs_real = -1 * cal_occs(traj_real, seq_start_end, generator.static_net.scene_information, seq_scenes, minimum_distance=critic.occupancy_threshold).unsqueeze(1) + 1
@@ -663,9 +664,9 @@ def generator_step(
 
     loss_mask = loss_mask[:, args.obs_len:]
 
-    #if "physical_attention" in args.static_pooling_type:
-        #generator.static_net.static_scene_feature_extractor.attention_decoder.zero_grad()
-        #generator.static_net.static_scene_feature_extractor.attention_decoder.hidden = generator.static_net.static_scene_feature_extractor.attention_decoder.init_hidden()
+    if "physical_attention" in args.static_pooling_type:
+        generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.zero_grad()
+        generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.hidden = generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.init_hidden()
 
     for _ in range(args.best_k):
         pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
@@ -812,7 +813,7 @@ def check_accuracy(string, epoch,
             total_traj_nl += torch.sum(non_linear_ped).item()
 
             if args.sanity_check and (b == len(loader)-1 or (limit and total_traj >= args.num_samples_check)): #not checking all trajectories
-                if args.pool_static:
+                if args.static_pooling_type is not None:
                     seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
                     sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string,
                                  generator.static_net.scene_information, seq_scenes)
