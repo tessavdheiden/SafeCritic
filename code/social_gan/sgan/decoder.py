@@ -62,7 +62,7 @@ class Decoder(nn.Module):
             curr_pos = rel_pos + last_pos
 
             if self.pool_every_timestep and counter%6 == 0:
-                if "physical_attention" in self.pool_static_type:
+                if self.pool_static_type == "physical_attention_with_encoder" or self.pool_static_type == "physical_attention_no_encoder":
                     self.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.zero_grad()
                     self.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.hidden = self.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.init_hidden()
 
