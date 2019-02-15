@@ -150,33 +150,3 @@ class Attention_Decoder(nn.Module):
         self.hidden = (lstm_hidden[0], lstm_cell[0])
 
         return lstm_hidden, attention_weights
-
-
-
-
-
-""" Temporary code for the visualization of attention weights """
-
-'''import matplotlib.cm as cm
-import skimage.transform
-from PIL import Image
-from datasets.calculate_static_scene_boundaries import get_pixels_from_world'''
-
-'''PLOT ATTENTION WEIGHTS'''
-'''if i==0 and self.giuseppe==0:
-    plt.clf()
-    image = Image.open("/home/q472489/Desktop/FLORA/code/social_gan/datasets/safegan_dataset/SDD/segmented_scenes/"+seq_scenes[i]+".jpg")
-    image = image.resize([14 * 24, 14 * 24], Image.LANCZOS)
-    plt.imshow(image)
-    h_matrix = pd.read_csv("/home/q472489/Desktop/FLORA/code/social_gan/datasets/safegan_dataset/SDD/"+ seq_scenes[i] + '/{}_homography.txt'.format(seq_scenes[i]), delim_whitespace=True, header=None).values
-    original_image_size = Image.open("/home/q472489/Desktop/FLORA/code/social_gan/datasets/safegan_dataset/SDD/"+seq_scenes[i]+"/annotated_boundaries.jpg").size
-    pixels = get_pixels_from_world(curr_end_pos, h_matrix, True)
-    pixels = pixels*(14*24/original_image_size[0], 14*24/original_image_size[1])
-    plt.scatter(pixels[:, 0], pixels[:, 1], marker='.', color="r")
-    attention_weights = attention_weights.view(-1, self.encoded_image_size, self.encoded_image_size).detach().cpu().numpy()
-    alpha = skimage.transform.pyramid_expand(attention_weights[0], upscale=24, sigma=8)
-    plt.imshow(alpha, alpha=0.7)
-    plt.set_cmap(cm.Greys_r)
-    plt.axis('off')
-    plt.show()
-    self.giuseppe += 1'''

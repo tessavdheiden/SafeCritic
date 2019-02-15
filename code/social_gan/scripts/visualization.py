@@ -2,6 +2,11 @@ from sgan.models_static_scene import get_homography_and_map
 import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
+import matplotlib.cm as cm
+import skimage.transform
+from PIL import Image
+import pandas as pd
+import os
 
 def my_plot(ax, o, p, g, annotated_points):
     ax.scatter(o[:, 0], o[:, 1], c='orange', s=1)
@@ -132,3 +137,51 @@ def plot_static_net_tensorboardX(writer, generator, pool_static_type, epoch):
                              generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.weight'].cpu().numpy(), epoch)
         writer.add_histogram('PhysicalPooling_mlp_pre_pool_l1_bias',
                              generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
+
+
+def visualize_attention_weights(scene_name, encoded_image_size, attention_weights, curr_end_pos):
+    """
+    Function to visualize the attention weights on their relative scene image during inference time (training or testing).
+
+    :param scene_name: the name of the SDD scene from which the attention weights were computed
+    :param encoded_image_size: the width/height dimension of the scene image used as input for the Attention Encoder. The image should
+                               be a squared image, thus the dimension should be (encoded_image_size, encoded_image_size)
+    :param attention_weights: the weights computed by the attention module
+    :param curr_end_pos: the current positions of all agents in a scene
+    """
+
+    # 'upscaling_factor' is used to increment the size of the scene image (to make it better visualizable) as well as
+    # the agents' positions coordinates do adapt them to the new image size
+    upscaling_factor = 24
+    plt.clf()
+
+    # 'dataset_path' represents the path with the SDD scene folders inside
+    dataset_path = os.path.dirname(os.getcwd()) + "datasets/safegan_dataset/SDD/"
+    # Load the raw scene image on which the attention weights will be plotted.
+    # Here I suppose they are inside a folder called "segmented_scenes"
+    image = Image.open( dataset_path + "segmented_scenes/" + scene_name + ".jpg")
+    # Increase the dimension of the raw scene image
+    image = image.resize([encoded_image_size * upscaling_factor, encoded_image_size * upscaling_factor], Image.LANCZOS)
+
+    # In order to plot the agents's coordinates on the scene image it is necessary to load the homography matrix of that scene
+    # and then to convert the world coordinates into pixel values
+    h_matrix = pd.read_csv(dataset_path + scene_name + '/{}_homography.txt'.format(scene_name), delim_whitespace=True, header=None).values
+    pixels = get_pixels_from_world(curr_end_pos, h_matrix, True)
+
+    # Here it is necessary to resize also the pixel coordinates of the agents' positions, according to the upscaling
+    # factor and the original dimension of the scene image (that I take from the image with the annotated boundary points)
+    original_image_size = Image.open(dataset_path + scene_name + "/annotated_boundaries.jpg").size
+    pixels = pixels * (encoded_image_size * upscaling_factor / original_image_size[0], encoded_image_size * upscaling_factor / original_image_size[1])
+
+    # Ŕesize the attention weights dimension to match it with the dimension of the upscaled raw scene image.
+    # To expand the attention weights I use skimage that allows us to also smooth the pixel values during the expansion
+    attention_weights = attention_weights.view(-1, encoded_image_size, encoded_image_size).detach().cpu().numpy()
+    alpha = skimage.transform.pyramid_expand(attention_weights[0], upscale=24, sigma=8)
+
+    # Plot raw scene image, the agents' positions and the attention weights
+    plt.imshow(image)
+    plt.scatter(pixels[:, 0], pixels[:, 1], marker='.', color="r")
+    plt.imshow(alpha, alpha=0.7)
+    plt.set_cmap(cm.Greys_r)
+    plt.axis('off')
+    plt.show()
