@@ -156,7 +156,7 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     plt.clf()
 
     # 'dataset_path' represents the path with the SDD scene folders inside
-    dataset_path = os.path.dirname(os.getcwd()) + "datasets/safegan_dataset/SDD/"
+    dataset_path = os.path.dirname(os.getcwd()) + "/datasets/safegan_dataset/SDD/"
     # Load the raw scene image on which the attention weights will be plotted.
     # Here I suppose they are inside a folder called "segmented_scenes"
     image = Image.open( dataset_path + "segmented_scenes/" + scene_name + ".jpg")
