@@ -19,13 +19,14 @@ sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 
 from sgan.data.loader import data_loader
-from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss
+from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, g_critic_loss_function
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
 from scripts.visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
 
-from sgan.models import TrajectoryDiscriminator
+from sgan.evaluation.discriminator import TrajectoryDiscriminator
 from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder, TrajectoryCriticBuilder
+from sgan.evaluation.trajectory_generator_evaluator import TrajectoryGeneratorEvaluator
 from sgan.decoder_builder import DecoderBuilder
 
 from sgan.utils import int_tuple, bool_flag, get_total_norm
@@ -54,7 +55,7 @@ def get_argument_parser():
     parser.add_argument('--skip', default=1, type=int)
 
     # Optimization
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--num_iterations', default=10000, type=int)
     parser.add_argument('--num_epochs', default=201, type=int)
 
@@ -93,8 +94,8 @@ def get_argument_parser():
     parser.add_argument('--occupancy_threshold', default=.25, type=float)
 
     # Pooling Options
-    parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
-    parser.add_argument('--down_samples', default=-1, type=int)
+    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
+    parser.add_argument('--down_samples', default=200, type=int)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -104,18 +105,18 @@ def get_argument_parser():
     parser.add_argument('--neighborhood_size', default=3.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
-    parser.add_argument('--static_pooling_type', default="random", type=str) # random, polar, raycast, physical_attention
-    parser.add_argument('--dynamic_pooling_type', default="pool_hidden_net", type=str) # 
+    parser.add_argument('--static_pooling_type', default=None, type=str) # random, polar, raycast, physical_attention_with_encoder
+    parser.add_argument('--dynamic_pooling_type', default=None, type=str) # 
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-    parser.add_argument('--d_loss_weight', default=0.0, type=float)
+    parser.add_argument('--d_loss_weight', default=1.0, type=float)
+    parser.add_argument('--c_loss_weight', default=1.0, type=float)
     parser.add_argument('--best_k', default=20, type=int)
-    parser.add_argument('--lamb', default=0.0, type=float)
     parser.add_argument('--loss_type', default='bce', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "../models_sdd/temp")
+    parser.add_argument('--output_dir', default= "models_sdd/temp")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -124,7 +125,7 @@ def get_argument_parser():
     parser.add_argument('--num_samples_check', default=100, type=int)
     parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
-    parser.add_argument('--sanity_check_dir', default="../results/sanity_check")
+    parser.add_argument('--sanity_check_dir', default="results/sanity_check")
     parser.add_argument('--summary_writer_name', default=None, type=str)
 
     # Misc
@@ -261,11 +262,8 @@ def main(args):
     d_loss_fn = gan_d_loss
     optimizer_d = optim.Adam(discriminator.parameters(), lr=args.d_learning_rate)
 
-    if args.d_steps == 0:
-        eval_discriminator = False
-    else:
-        eval_discriminator = True
-
+    eval_discriminator = True if args.d_steps else False
+    
     c_builder = TrajectoryCriticBuilder(
             obs_len=args.obs_len,
             pred_len=args.pred_len,
@@ -300,7 +298,14 @@ def main(args):
     logger.info(critic)
     c_loss_fn = critic_loss
     optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
+    
     eval_critic = True if args.c_steps else False
+
+    trajectory_evaluator = TrajectoryGeneratorEvaluator()
+    if args.d_loss_weight > 0:
+        trajectory_evaluator.add_module(discriminator, gan_g_loss, args.d_loss_weight)
+    if args.c_loss_weight > 0:
+        trajectory_evaluator.add_module(critic, g_critic_loss_function, args.c_loss_weight)
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -414,10 +419,7 @@ def main(args):
 
             elif g_steps_left > 0:
                 step_type = 'g'
-                if args.lamb > 0:
-                    losses_g = generator_step(args, batch, generator, discriminator, g_loss_fn, optimizer_g, critic)
-                else:
-                    losses_g = generator_step(args, batch, generator, discriminator, g_loss_fn, optimizer_g)
+                losses_g = generator_step(args, batch, generator, optimizer_g, trajectory_evaluator)
 
                 checkpoint['norm_g'].append(get_total_norm(generator.parameters()))
                 g_steps_left -= 1
@@ -483,16 +485,12 @@ def main(args):
             checkpoint['sample_ts'].append(t)
 
             logger.info('Checking stats on train ...')
-            metrics_train = check_accuracy('train', epoch,
-                                           args, train_loader, generator, discriminator,
-                                           d_loss_fn, eval_discriminator=eval_discriminator, limit=True,
-                                           eval_critic=eval_critic, critic=critic, c_loss_fn=c_loss_fn)
+            metrics_train = check_accuracy_generator('train', epoch,
+                                           args, train_loader, generator, limit=True)
 
             logger.info('Checking stats on val ...')
-            metrics_val = check_accuracy('val', epoch,
-                                         args, val_loader, generator, discriminator,
-                                         d_loss_fn, eval_discriminator=eval_discriminator, limit=True,
-                                         eval_critic=eval_critic, critic=critic, c_loss_fn=c_loss_fn)
+            metrics_val = check_accuracy_generator('val', epoch,
+                                         args, val_loader, generator, limit=True)
 
             for k, v in sorted(metrics_val.items()):
                 logger.info('  [val] {}: {:.3f}'.format(k, v))
@@ -636,9 +634,6 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
     losses['C_data_loss'] = data_loss.item()
     loss += data_loss
     losses['C_total_loss'] = loss.item()
-    if labels_real[labels_real < 0.5].size(0) > 0:
-        print(scores_real)
-        print(labels_real)
     losses['C_scores_0_perc'] = scores_real[scores_real < 0.5].size(0) / scores_real.size(0) *100
     losses['C_labels_0_perc'] = labels_real[labels_real < 0.5].size(0) / labels_real.size(0) *100
 
@@ -652,9 +647,7 @@ def critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c
 
     return losses
 
-def generator_step(
-        args, batch, generator, discriminator, g_loss_fn, optimizer_g, critic=None
-):
+def generator_step(args, batch, generator, optimizer_g, trajectory_evaluator):
     batch = [tensor.cuda() for tensor in batch]
     (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,
      loss_mask, _, seq_start_end, seq_scene_ids) = batch
@@ -664,7 +657,7 @@ def generator_step(
 
     loss_mask = loss_mask[:, args.obs_len:]
 
-    if "physical_attention" in args.static_pooling_type:
+    if args.static_pooling_type is not None and "physical_attention" in args.static_pooling_type:
         generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.zero_grad()
         generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.hidden = generator.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.init_hidden()
 
@@ -685,8 +678,7 @@ def generator_step(
         for start, end in seq_start_end.data:
             _g_l2_loss_rel = g_l2_loss_rel[start:end]
             _g_l2_loss_rel = torch.sum(_g_l2_loss_rel, dim=0)
-            _g_l2_loss_rel = torch.min(_g_l2_loss_rel) / torch.sum(
-                loss_mask[start:end])
+            _g_l2_loss_rel = torch.min(_g_l2_loss_rel) / torch.sum(loss_mask[start:end]) # min among all best_k samples, sum loss_mask = num_peds * seq_len
             g_l2_loss_sum_rel += _g_l2_loss_rel
         losses['G_l2_loss_rel'] = g_l2_loss_sum_rel.item()
         loss += (1 - args.d_loss_weight) * g_l2_loss_sum_rel
@@ -694,18 +686,8 @@ def generator_step(
     traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
-    if args.d_loss_weight > 0:
-        scores_fake = discriminator(traj_fake, traj_fake_rel, seq_start_end)
-        discriminator_loss = g_loss_fn(scores_fake)
-        losses['G_discriminator_loss'] = discriminator_loss.item()
-
-    if args.lamb > 0.0:
-        _, values_fake = critic(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
-        oracle_loss = torch.mean(-1 * (values_fake - torch.ones_like(values_fake)))
-        losses['G_oracle_loss'] = oracle_loss.item()
-
-    if args.d_loss_weight > 0:
-        loss += args.d_loss_weight * ((1-args.lamb) * discriminator_loss + args.lamb * oracle_loss)
+    evaluator_loss = trajectory_evaluator.get_loss(pred_traj_fake, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
+    loss += evaluator_loss
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()
@@ -720,7 +702,108 @@ def generator_step(
     return losses
 
 
-def check_accuracy(string, epoch,
+def check_accuracy_generator(string, epoch, args, loader, generator, limit=False):
+    metrics = {}
+    collisions_pred, collisions_gt = [], []
+    occupancies_gt, occupancies_pred = [], []
+    g_l2_losses_abs, g_l2_losses_rel = [], []
+    disp_error, disp_error_l, disp_error_nl = [], [], []
+    f_disp_error, f_disp_error_l, f_disp_error_nl = [], [], []
+    total_traj, total_traj_l, total_traj_nl = 0, 0, 0
+    loss_mask_sum = 0
+    generator.eval()
+    with torch.no_grad():
+        for b, batch in enumerate(loader):
+            batch = [tensor.cuda() for tensor in batch]
+            (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
+             non_linear_ped, loss_mask, _, seq_start_end, seq_scene_ids) = batch
+            linear_ped = 1 - non_linear_ped
+            loss_mask = loss_mask[:, args.obs_len:]
+
+            pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
+            pred_traj_fake = relative_to_abs(pred_traj_fake_rel, obs_traj[-1])
+
+            g_l2_loss_abs, g_l2_loss_rel = cal_l2_losses(
+                pred_traj_gt, pred_traj_gt_rel, pred_traj_fake,
+                pred_traj_fake_rel, loss_mask
+            )
+            ade, ade_l, ade_nl = cal_ade(
+                pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
+            )
+
+            fde, fde_l, fde_nl = cal_fde(
+                pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
+            )
+            
+            cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
+            cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold)
+
+            traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
+            traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
+            traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
+            traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
+
+            g_l2_losses_abs.append(g_l2_loss_abs.item())
+            g_l2_losses_rel.append(g_l2_loss_rel.item())
+
+            disp_error.append(ade.item())
+            disp_error_l.append(ade_l.item())
+            disp_error_nl.append(ade_nl.item())
+            f_disp_error.append(fde.item())
+            f_disp_error_l.append(fde_l.item())
+            f_disp_error_nl.append(fde_nl.item())
+
+            collisions_pred.append(cols_pred.sum().item())
+            collisions_gt.append(cols_gt.sum().item())
+
+            loss_mask_sum += torch.numel(loss_mask.data)
+            total_traj += pred_traj_gt.size(1)
+            total_traj_l += torch.sum(linear_ped).item()
+            total_traj_nl += torch.sum(non_linear_ped).item()
+
+            if args.sanity_check and (b == len(loader)-1 or (limit and total_traj >= args.num_samples_check)): #not checking all trajectories
+                if args.static_pooling_type is not None:
+                    seq_scenes = [generator.static_net.list_data_files[num] for num in seq_scene_ids]
+                    sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string,
+                                 generator.static_net.scene_information, seq_scenes)
+                else:
+                    sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string)
+
+            if limit and total_traj >= args.num_samples_check:
+                break
+
+    metrics['g_l2_loss_abs'] = sum(g_l2_losses_abs) / loss_mask_sum
+    metrics['g_l2_loss_rel'] = sum(g_l2_losses_rel) / loss_mask_sum
+
+    metrics['ade'] = sum(disp_error) / (total_traj * args.pred_len)
+    metrics['fde'] = sum(f_disp_error) / total_traj
+
+    metrics['cols'] = sum(collisions_pred) / total_traj
+    metrics['cols_gt'] = sum(collisions_gt) / total_traj
+
+    if args.static_pooling_type is not None:
+        metrics['occs'] = sum(occupancies_pred) / total_traj
+        metrics['occs_gt'] = sum(occupancies_gt) / total_traj
+
+    if total_traj_l != 0:
+        metrics['ade_l'] = sum(disp_error_l) / (total_traj_l * args.pred_len)
+        metrics['fde_l'] = sum(f_disp_error_l) / total_traj_l
+    else:
+        metrics['ade_l'] = 0
+        metrics['fde_l'] = 0
+    if total_traj_nl != 0:
+        metrics['ade_nl'] = sum(disp_error_nl) / (
+                total_traj_nl * args.pred_len)
+        metrics['fde_nl'] = sum(f_disp_error_nl) / total_traj_nl
+    else:
+        metrics['ade_nl'] = 0
+        metrics['fde_nl'] = 0
+
+    generator.train()
+
+    return metrics
+
+def check_accuracy_evaluator(string, epoch,
         args, loader, generator, discriminator=None, d_loss_fn=None, eval_discriminator=True, limit=False, eval_critic=True, critic=None, c_loss_fn=None
 ):
     d_losses = []
