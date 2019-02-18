@@ -4,9 +4,12 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
+
 from sgan.context.static_pooling_algorithms import make_mlp, get_polar_grid_points, get_raycast_grid_points, repeat
 from sgan.context.physical_attention import Attention_Encoder, Attention_Decoder
 from sgan.folder_utils import get_dset_name, get_dset_group_name
+from datasets.calculate_static_scene_boundaries import get_pixels_from_world
+from sgan.models_static_scene import get_homography_and_map
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -361,6 +364,12 @@ class StaticSceneFeatureExtractorAttention(nn.Module):
         encoder_out = scene_info.repeat(num_ped, 1, 1, 1)
         # Flatten image
         encoder_out = encoder_out.view(num_ped, -1, self.encoder_dim)  # (batch_size, num_pixels, encoder_dim)
-        curr_pool_h, attention_weights = self.attention_decoder(encoder_out, curr_hidden_1,
-                                                                torch.cat([curr_end_pos, curr_disp_pos], dim=1))
+
+        # I give to the Attention decoder (basically an LSTM) the encoded image, the previous hidden state of SafeGAN' generator
+        # and also the absolute positions and the relative displacements of all agents expressed in pixels
+        _, h_matrix = get_homography_and_map(scene_name)
+        embed_info = torch.cat([torch.from_numpy(get_pixels_from_world(curr_end_pos, h_matrix)).to(device, encoder_out.dtype),
+                                torch.from_numpy(get_pixels_from_world(curr_disp_pos, h_matrix)).to(device, encoder_out.dtype)], dim=1)
+        curr_pool_h, attention_weights = self.attention_decoder(encoder_out, curr_hidden_1, embed_info)
+
         return curr_pool_h
