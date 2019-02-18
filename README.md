@@ -32,6 +32,8 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 ## Benchmark
 - [ ] DESIRE
+- [ ] SeqGAN
+- [ ] R2P2
 
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
