@@ -1,5 +1,7 @@
 import torch
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 def bce_loss(input, target):
     """
     Numerically stable version of the binary cross-entropy loss function.
@@ -33,6 +35,9 @@ def gan_g_loss(scores_fake, loss='bce'):
     else:
         loss_fake = torch.sqrt((y_fake - scores_fake) ** 2)
         return loss_fake.mean()
+
+def g_critic_loss_function(values_fake):
+   return torch.mean(-1 * (values_fake - torch.ones_like(values_fake))).to(device)
 
 
 def gan_d_loss(scores_real, scores_fake, loss='bce'):
