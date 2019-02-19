@@ -6,6 +6,11 @@ FLORA: Future prediction of obstacle locations in traffic scenes for collision a
 python3 -m scripts.train               # Trains the model
 python3 -m scripts.evaluate_model      # Evaluates a trained model
 ```
+## Improve evaluator
+- [ ] Seperate training the oracle (from real data only and/or the trained generator)
+- [ ] Learn collision checking of oracle
+- [ ] Collision checking, discrete or continous collision checking?
+- [ ] Change loss functions of Generator and Oracle
 
 ## Improve code
 - [ ] Organize code: Seperate dataset from model, delete simple lstm, seperate code in scripts, sgan into more folders (better naming)
@@ -13,11 +18,6 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 ## Cluster computing
 - [ ] Make kubernetis work
-
-## Improve evaluator
-- [ ] Learn collision checking of oracle
-- [ ] Collision checking, discrete or continous collision checking?
-- [ ] Change loss functions of Generator and Oracle
 
 ## Improve generator
 - [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
