@@ -8,6 +8,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 ```
 ## Improve evaluator
 - [ ] Seperate training the oracle (from real data only and/or the trained generator)
+- [ ] Learn collisions from videos
 - [ ] Learn the value function (collision) by generator.
 - [ ] Learn collision checking of oracle
 - [ ] Collision checking, discrete or continous collision checking?
