@@ -8,6 +8,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 ```
 ## Improve evaluator
 - [ ] Seperate training the oracle (from real data only and/or the trained generator)
+- [ ] Learn the value function (collision) by generator.
 - [ ] Learn collision checking of oracle
 - [ ] Collision checking, discrete or continous collision checking?
 - [ ] Change loss functions of Generator and Oracle
@@ -21,7 +22,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 ## Improve generator
 - [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
-- [ ] Learn the value function (collision) by generator?
+
 
 ## Improve pooling
 - [ ] Segmentations correct (not different for same object), use occupancy grids
