@@ -26,6 +26,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 
 ## Improve pooling
+- [ ] Downsample boundary points according to closest.
 - [ ] Segmentations correct (not different for same object), use occupancy grids
 - [ ] Visualize attention
 - [ ] Pool every
