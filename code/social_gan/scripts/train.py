@@ -22,6 +22,7 @@ from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, g_critic_loss_function
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
+from scripts.helper_get_generator import helper_get_generator
 from scripts.visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
 
 from sgan.evaluation.discriminator import TrajectoryDiscriminator
@@ -55,7 +56,7 @@ def get_argument_parser():
     parser.add_argument('--skip', default=1, type=int)
 
     # Optimization
-    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--num_iterations', default=10000, type=int)
     parser.add_argument('--num_epochs', default=201, type=int)
 
@@ -102,16 +103,16 @@ def get_argument_parser():
     parser.add_argument('--pooling_dim', default=2, type=int)
 
     # Social Pooling Options
-    parser.add_argument('--neighborhood_size', default=3.0, type=float)
+    parser.add_argument('--neighborhood_size', default=2.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
     parser.add_argument('--static_pooling_type', default=None, type=str) # random, polar, raycast, physical_attention_with_encoder
-    parser.add_argument('--dynamic_pooling_type', default=None, type=str) # 
+    parser.add_argument('--dynamic_pooling_type', default='pool_hidden_net', type=str) # social_pooling, pool_hidden_net
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-    parser.add_argument('--d_loss_weight', default=1.0, type=float)
-    parser.add_argument('--c_loss_weight', default=1.0, type=float)
+    parser.add_argument('--d_loss_weight', default=0.0, type=float)
+    parser.add_argument('--c_loss_weight', default=0.0, type=float)
     parser.add_argument('--best_k', default=20, type=int)
     parser.add_argument('--loss_type', default='bce', type=str)
 
@@ -178,62 +179,8 @@ def main(args):
     logger.info(
         'There are {} iterations per epoch, prints {} plots {}'.format(iterations_per_epoch, args.print_every, args.checkpoint_every)
     )
-    # build decoder
-    decoder_builder = DecoderBuilder(
-        seq_len=args.pred_len,
-        embedding_dim=args.embedding_dim,
-        h_dim=args.decoder_h_dim_g,
-        mlp_dim=args.mlp_dim,
-        num_layers=args.num_layers,
-        dropout=args.dropout,
-        bottleneck_dim=args.bottleneck_dim,
-        activation=args.activation,
-        batch_norm=args.batch_norm,
-        dynamic_pooling_type=args.dynamic_pooling_type,
-        static_pooling_type=args.static_pooling_type,
-        pool_every_timestep=args.pool_every_timestep,
-        neighborhood_size=args.neighborhood_size,
-        grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim,
-        down_samples=args.down_samples
-    )
-    if args.pool_every_timestep:
-    	if args.static_pooling_type is not None:
-        	decoder_builder.with_static_pooling(train_path)
-    	if args.dynamic_pooling_type is not None:
-        	decoder_builder.with_dynamic_pooling()
-    decoder = decoder_builder.build()
 
-    # build trajectory
-    g_builder = TrajectoryGeneratorBuilder(
-        obs_len=args.obs_len,
-        pred_len=args.pred_len,
-        embedding_dim=args.embedding_dim,
-        encoder_h_dim=args.encoder_h_dim_g,
-        decoder_h_dim=args.decoder_h_dim_g,
-        mlp_dim=args.mlp_dim,
-        num_layers=args.num_layers,
-        noise_dim=args.noise_dim,
-        noise_type=args.noise_type,
-        noise_mix_type=args.noise_mix_type,
-        dropout=args.dropout,
-        bottleneck_dim=args.bottleneck_dim,
-        activation=args.activation,
-        batch_norm=args.batch_norm,
-        dynamic_pooling_type=args.dynamic_pooling_type,
-        static_pooling_type=args.static_pooling_type,
-        pool_every_timestep=args.pool_every_timestep,
-        neighborhood_size=args.neighborhood_size,
-        grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim,
-        down_samples=args.down_samples)
-    
-    g_builder.with_decoder(decoder)
-    if args.static_pooling_type is not None:
-        g_builder.with_static_pooling(train_path)
-    if args.dynamic_pooling_type is not None:
-        g_builder.with_dynamic_pooling()
-    generator = g_builder.build()
+    generator = helper_get_generator(args, train_path)    
 
     generator.apply(init_weights)
     generator.type(float_dtype).train()
@@ -303,8 +250,10 @@ def main(args):
 
     trajectory_evaluator = TrajectoryGeneratorEvaluator()
     if args.d_loss_weight > 0:
+        logger.info('Discrimintor loss')
         trajectory_evaluator.add_module(discriminator, gan_g_loss, args.d_loss_weight)
     if args.c_loss_weight > 0:
+        logger.info('Oracle loss')
         trajectory_evaluator.add_module(critic, g_critic_loss_function, args.c_loss_weight)
 
     # Maybe restore from checkpoint
