@@ -32,7 +32,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 - [ ] Pool every
 
 ## Benchmark
-- [ ] Evaluation script
+- [ ] Evaluation script: simulate scene
 - [ ] DESIRE
 - [ ] SeqGAN
 - [ ] R2P2
