@@ -149,7 +149,7 @@ class SocialPooling(nn.Module):
         return tensor
 
 
-    def forward(self, h_states, seq_start_end, end_pos, rel_pos):
+    def forward(self, h_states, seq_start_end, end_pos, rel_pos, seq_scene_ids=None):          
         """
         Inputs:
         - h_states: Tesnsor of shape (num_layers, batch, h_dim)
