@@ -18,11 +18,10 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 from sgan.data.loader import data_loader
-from sgan.models import TrajectoryDiscriminator
+from scripts.helper_get_generator import helper_get_generator
 from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder
 from sgan.decoder_builder import DecoderBuilder
 from sgan.models_static_scene import get_homography_and_map
-from sgan.losses import displacement_error, final_displacement_error
 from sgan.utils import relative_to_abs
 from sgan.folder_utils import get_root_dir, get_test_data_path, get_dset_name, get_dset_group_name
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
@@ -46,65 +45,8 @@ def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
 
 
 def get_generator(checkpoint_in, args):
-    data_dir = get_test_data_path(args.dataset_name)
-    decoder_builder = DecoderBuilder(
-        seq_len=args.pred_len,
-        embedding_dim=args.embedding_dim,
-        h_dim=args.decoder_h_dim_g,
-        mlp_dim=args.mlp_dim,
-        num_layers=args.num_layers,
-        dropout=args.dropout,
-        bottleneck_dim=args.bottleneck_dim,
-        activation='leakyrelu',
-        batch_norm=args.batch_norm,
-        pooling_type=args.pooling_type,
-        pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
-        neighborhood_size=args.neighborhood_size,
-        grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim,
-        pool_static_type=args.pool_static_type,
-        down_samples=args.down_samples
-    )
-    if args.pool_every_timestep:
-    	if args.static_pooling:
-        	decoder_builder.with_static_pooling(data_dir)
-    	if args.dynamic_pooling:
-        	decoder_builder.with_dynamic_pooling(args.dynamic_pooling_type)
-    decoder = decoder_builder.build()
-
-        # build trajectory
-    g_builder = TrajectoryGeneratorBuilder(
-        obs_len=args.obs_len,
-        pred_len=args.pred_len,
-        embedding_dim=args.embedding_dim,
-        encoder_h_dim=args.encoder_h_dim_g,
-        decoder_h_dim=args.decoder_h_dim_g,
-        mlp_dim=args.mlp_dim,
-        num_layers=args.num_layers,
-        noise_dim=args.noise_dim,
-        noise_type=args.noise_type,
-        noise_mix_type=args.noise_mix_type,
-        dropout=args.dropout,
-        bottleneck_dim=args.bottleneck_dim,
-        activation='leakyrelu',
-        batch_norm=args.batch_norm,
-        pooling_type=args.pooling_type,
-        pool_every_timestep=args.pool_every_timestep,
-        pool_static=args.pool_static,
-        neighborhood_size=args.neighborhood_size,
-        grid_size=args.grid_size,
-        pooling_dim=args.pooling_dim,
-        pool_static_type=args.pool_static_type,
-        down_samples=args.down_samples)
-    
-    g_builder.with_decoder(decoder)
-    if args.static_pooling:
-        g_builder.with_static_pooling(data_dir)
-    if args.dynamic_pooling:
-        g_builder.with_dynamic_pooling(args.dynamic_pooling_type)
-    generator = g_builder.build()
-
+    test_path = get_test_data_path(args.dataset_name)
+    generator = helper_get_generator(args, test_path)
     generator.load_state_dict(checkpoint_in['g_state'])
     generator.cuda()
     generator.eval()
@@ -314,51 +256,56 @@ def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs
 # ------------------------------- PLOT SAMPLING -------------------------------
 
 
-def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/'):
-    selection = 69
+def compare_sampling_cols(args, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
+    num_samples = 20 # args.best_k
+    selection = 246
     path = "/".join(data_dir.split('/')[:-1])
-    if generator1.pool_static:
-        generator1.static_net.set_dset_list(path)
+    _, loader = data_loader(args, data_dir, shuffle=False)
 
-    if generator2.pool_static:
-        generator2.static_net.set_dset_list(path)
-
-    _, loader = data_loader(args, path, shuffle=False)
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
-    cols_gt, cols1, cols2, cols1prev = 0, 0, 0, 0
-    ade1, ade2, fde1, fde2 = [], [], [], []
+    cols1, cols2, cols_gt, cols1prev, cols2prev = 0, 0, 0, 0, 0
 
-    path = get_path(args.dataset_name)
     if args.dataset_name != 'sdd':
         path = get_path(args.dataset_name)
         reader = imageio.get_reader(path + "/video.mov".format(args.dataset_name), 'ffmpeg')
         annotated_points, h = get_homography_and_map(args.dataset_name, "/world_points_boundary.npy")
         down_sampling = (annotated_points.shape[0] // 50)
         annotated_points = annotated_points[::down_sampling]
-
-    total_traj = 0
     with torch.no_grad():
         for b, batch in enumerate(loader):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
+            if b % skip == 0:
+                continue
+
             if args.dataset_name == 'sdd':
-                seq_scenes = [generator2.static_net.list_data_files[num] for num in seq_scene_ids]
-            total_traj += pred_traj_gt.size(1)
-            list_trajectories1 = []
-            list_trajectories2 = []
-            for sample in range(args.best_k):
+                list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
+                seq_scenes = [list_data_files[num] for num in seq_scene_ids]
+
+            list_trajectories1, list_trajectories2 = [], []
+            for sample in range(num_samples):
                 pred_traj_fake1, _ = get_trajectories(generator1, obs_traj, obs_traj_rel,
-                                                                         seq_start_end, pred_traj_gt,
-                                                                         seq_scene_ids, data_dir)
+                                                      seq_start_end, pred_traj_gt,
+                                                      seq_scene_ids, data_dir)
                 pred_traj_fake2, _ = get_trajectories(generator2, obs_traj, obs_traj_rel,
-                                                                         seq_start_end, pred_traj_gt,
-                                                                         seq_scene_ids, data_dir)
+                                                      seq_start_end, pred_traj_gt,
+                                                      seq_scene_ids, data_dir)
                 pred_traj_fake1 = pred_traj_fake1.permute(1, 0, 2)  # batch, seq, 2
                 pred_traj_fake2 = pred_traj_fake2.permute(1, 0, 2)  # batch, seq, 2
+
                 list_trajectories1.append(pred_traj_fake1)
                 list_trajectories2.append(pred_traj_fake2)
+
+                # with open('{}list_trajectories1_b_{}'.format(get_root_dir()+'/results/trajectories/',b), 'wb') as fp:
+                #     pickle.dump(list_trajectories1, fp)
+                # with open('{}list_trajectories2_b_{}'.format(get_root_dir()+'/results/trajectories/',b), 'wb') as fp:
+                #     pickle.dump(list_trajectories2, fp)
+                #
+                # with open('{}seq_start_end_b_{}'.format(get_root_dir()+'/results/trajectories/',b), 'wb') as fp:
+                #     pickle.dump(seq_start_end, fp)
+
             for i, (start, end) in enumerate(seq_start_end):
                 print(len(seq_start_end), args.batch_size)
                 if selection == -1 or b * len(seq_start_end) + i == selection:
@@ -366,7 +313,7 @@ def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, da
                 else:
                     continue
 
-                if args.dataset_name == 'sdd' and generator2.pool_static:
+                if args.dataset_name == 'sdd':
                     dataset_name = seq_scenes[i]
                     path = get_path(dataset_name)
                     reader = imageio.get_reader(path + "/video.mov".format(dataset_name), 'ffmpeg')
@@ -402,22 +349,26 @@ def compare_sampling_cols(args1, args2, generator1, generator2, name1, name2, da
                 if True: #cols1 > cols1prev:
                     ax4.scatter(-100, -100, marker='*', color='red', s=100, label='collision agent 1')
                     ax4.scatter(-100, -100, marker='*', color='green', s=100, label='collision agent 2')
+                    ax3.set_xlabel('cols = {}'.format(cols1))
+                    ax4.set_xlabel('cols = {}'.format(cols2))
                     plt.legend()
+                    plt.savefig(save_dir + '/frame_{}.png'.format(b * len(seq_start_end) + i))
+                    cols1prev = cols1
+                    cols2prev = cols2
 
-                    plt.savefig(save_dir + '/selection/selection_frame_{}.png'.format(b * len(seq_start_end) + i))
 
                 if b * len(seq_start_end) + i == selection:
                     # Save just the portion _inside_ the second axis's boundaries
                     extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-                    fig.savefig(save_dir + '/selection/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
+                    fig.savefig(save_dir + '/frame_{}_obs.png'.format(b * len(seq_start_end) + i),bbox_inches=extent)
 
                     extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-                    fig.savefig(save_dir + '/selection/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+                    fig.savefig(save_dir + '/frame_{}_pred_social.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
 
                     extent = ax4.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-                    fig.savefig(save_dir + '/selection/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
+                    fig.savefig(save_dir + '/frame_{}_pred_safe.png'.format(b*len(seq_start_end)+i), bbox_inches=extent)
 
-    return cols1, cols2, total_traj
+    return cols1, cols2
 
 def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
     num_samples = 20 # args.best_k
@@ -474,7 +425,7 @@ def compare_sampling_occs(args, args2, generator1, generator2, name1, name2, dat
                 else:
                     continue
 
-                if args.dataset_name == 'sdd' and generator2.pool_static:
+                if args.dataset_name == 'sdd':
                     dataset_name = seq_scenes[i]
                     path = get_path(dataset_name)
                     reader = imageio.get_reader(path + "/video.mov".format(dataset_name), 'ffmpeg')
@@ -608,9 +559,9 @@ def move_figure(f, x, y):
     return f
 
 def main():
-    test_case = 2
-    model_path = os.path.join(get_root_dir(), 'models_sdd/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6')
-    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP2_SP_RESNET_ATTENTION_NOGATE_POOLEVERY6')
+    test_case = 1
+    model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_DP')
+    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]
@@ -630,13 +581,13 @@ def main():
         data_dir = get_test_data_path('sdd')
 
         if test_case == 1:
-            occs1, occs2, total_traj = compare_sampling_cols(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
+            occs1, occs2 = compare_sampling_cols(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-            print('Num samples {:.2f} total_traj: {:.2f}'.format(args.best_k, total_traj))
         elif test_case == 2:
             occs1, occs2 = compare_sampling_occs(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
             print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-
+    else:
+        print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
     main()
