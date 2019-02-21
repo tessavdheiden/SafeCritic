@@ -103,11 +103,11 @@ def get_argument_parser():
     parser.add_argument('--pooling_dim', default=2, type=int)
 
     # Social Pooling Options
-    parser.add_argument('--neighborhood_size', default=2.0, type=float)
+    parser.add_argument('--neighborhood_size', default=8.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
     parser.add_argument('--static_pooling_type', default=None, type=str) # random, polar, raycast, physical_attention_with_encoder
-    parser.add_argument('--dynamic_pooling_type', default='pool_hidden_net', type=str) # social_pooling, pool_hidden_net
+    parser.add_argument('--dynamic_pooling_type', default='social_pooling', type=str) # social_pooling, pool_hidden_net
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
@@ -485,8 +485,7 @@ def main(args):
 
             # Save a checkpoint with no model weights by making a shallow
             # copy of the checkpoint excluding some items
-            checkpoint_path = os.path.join(
-                args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
+            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
             logger.info('Saving checkpoint to {}'.format(checkpoint_path))
             key_blacklist = [
                 'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',

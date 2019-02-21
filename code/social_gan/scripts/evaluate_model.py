@@ -257,14 +257,15 @@ def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs
 
 
 def compare_sampling_cols(args, args2, generator1, generator2, name1, name2, data_dir, save_dir='../results/', skip=2):
-    num_samples = 20 # args.best_k
+    num_samples = 100 # args.best_k
+
     selection = 246
     path = "/".join(data_dir.split('/')[:-1])
     _, loader = data_loader(args, data_dir, shuffle=False)
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
     cols1, cols2, cols_gt, cols1prev, cols2prev = 0, 0, 0, 0, 0
-
+    count = 0
     if args.dataset_name != 'sdd':
         path = get_path(args.dataset_name)
         reader = imageio.get_reader(path + "/video.mov".format(args.dataset_name), 'ffmpeg')
@@ -307,7 +308,6 @@ def compare_sampling_cols(args, args2, generator1, generator2, name1, name2, dat
                 #     pickle.dump(seq_start_end, fp)
 
             for i, (start, end) in enumerate(seq_start_end):
-                print(len(seq_start_end), args.batch_size)
                 if selection == -1 or b * len(seq_start_end) + i == selection:
                     print(b * len(seq_start_end) + i)
                 else:
@@ -335,11 +335,13 @@ def compare_sampling_cols(args, args2, generator1, generator2, name1, name2, dat
 
                 plot_photo(ax3, photo, name1)
                 plot_photo(ax4, photo, name2)
-                
-                for sample in range(args.best_k):
+
+                for sample in range(num_samples):
                     traj1 = list_trajectories1[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
                     traj2 = list_trajectories2[sample][start:end]  # Position -> P1(t), P1(t+1), P1(t+3), P2(t)
 
+                    print(count)
+                    count +=1
                     for p in range(num_peds):
                         plot_pixel(ax1, traj_obs, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
                         plot_pixel(ax2, traj_gt, p, h, a=.1, last = False, first = False, size = 10, colors = colors)
@@ -559,6 +561,12 @@ def move_figure(f, x, y):
     return f
 
 def main():
+    '''
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(7)
+    else:
+        torch.manual_seed(7)
+    '''
     test_case = 1
     model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_DP')
     plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP')
