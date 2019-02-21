@@ -1,4 +1,5 @@
-from sgan.models import TrajectoryGenerator, TrajectoryCritic
+from sgan.models import TrajectoryGenerator
+from sgan.evaluation.critic import TrajectoryCritic
 
 from sgan.context.composite_pooling import CompositePooling
 from sgan.context.null_pooling import NullPooling
@@ -124,6 +125,7 @@ class TrajectoryCriticBuilder(object):
          self.seq_len = obs_len + pred_len
          self.mlp_dim = mlp_dim
          self.h_dim = h_dim
+         self.dropout=dropout
          self.activation = activation
          self.embedding_dim = embedding_dim
          self.bottleneck_dim = bottleneck_dim
