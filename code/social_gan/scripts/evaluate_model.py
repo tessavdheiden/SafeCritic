@@ -568,8 +568,8 @@ def main():
         torch.manual_seed(7)
     '''
     test_case = 1
-    model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_DP')
-    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP')
+    model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_MtrxC')
+    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_MtrxC')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]

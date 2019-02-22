@@ -23,14 +23,13 @@ from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, g_critic_l
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
 from scripts.helper_get_generator import helper_get_generator
-from scripts.visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
+from scripts.visualization import reset_plot, sanity_check
 
 from sgan.evaluation.discriminator import TrajectoryDiscriminator
-from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder, TrajectoryCriticBuilder
+from sgan.trajectory_generator_builder import TrajectoryCriticBuilder
 from sgan.evaluation.trajectory_generator_evaluator import TrajectoryGeneratorEvaluator
-from sgan.decoder_builder import DecoderBuilder
 
-from sgan.utils import int_tuple, bool_flag, get_total_norm
+from sgan.utils import int_tuple, bool_flag, get_total_norm, init_weights
 from sgan.utils import relative_to_abs
 from sgan.folder_utils import get_dset_path, get_root_dir
 
@@ -58,7 +57,7 @@ def get_argument_parser():
     # Optimization
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--num_iterations', default=10000, type=int)
-    parser.add_argument('--num_epochs', default=201, type=int)
+    parser.add_argument('--num_epochs', default=2, type=int)
 
     # Model Options
     parser.add_argument('--embedding_dim', default=16, type=int)
@@ -137,22 +136,11 @@ def get_argument_parser():
     return parser
 
 
-parser = get_argument_parser()
-
-
-def init_weights(m):
-    classname = m.__class__.__name__
-    if classname.find('Linear') != -1:
-        nn.init.kaiming_normal_(m.weight)
-
-
 def get_dtypes(args):
-    long_dtype = torch.LongTensor
-    float_dtype = torch.FloatTensor
     if args.use_gpu == 1:
-        long_dtype = torch.cuda.LongTensor
-        float_dtype = torch.cuda.FloatTensor
-    return long_dtype, float_dtype
+        return torch.cuda.LongTensor, torch.cuda.FloatTensor
+    else:
+        return torch.LongTensor, torch.FloatTensor
 
 
 def main(args):
@@ -170,23 +158,20 @@ def main(args):
 
     logger.info("Initializing val dataset")
     val_dset, val_loader = data_loader(args, val_path, shuffle=True)
-  
+
     iterations_per_epoch = math.ceil(len(train_dset) / args.batch_size / args.g_steps)
 
     if args.num_epochs:
         args.num_iterations = int(iterations_per_epoch * args.num_epochs)
 
-    logger.info(
-        'There are {} iterations per epoch, prints {} plots {}'.format(iterations_per_epoch, args.print_every, args.checkpoint_every)
-    )
+    # logger.info(f'There are {iterations_per_epoch} iterations per epoch, prints {args.print_every} plots {args.checkpoint_every}.')
 
-    generator = helper_get_generator(args, train_path)    
+    generator = helper_get_generator(args, train_path)
 
     generator.apply(init_weights)
     generator.type(float_dtype).train()
     logger.info('Here is the generator:')
     logger.info(generator)
-    g_loss_fn = gan_g_loss
     optimizer_g = optim.Adam(filter(lambda x: x.requires_grad, generator.parameters()), lr=args.g_learning_rate)
 
     # build trajectory
@@ -210,28 +195,29 @@ def main(args):
     optimizer_d = optim.Adam(discriminator.parameters(), lr=args.d_learning_rate)
 
     eval_discriminator = True if args.d_steps else False
-    
+
     c_builder = TrajectoryCriticBuilder(
-            obs_len=args.obs_len,
-            pred_len=args.pred_len,
-            embedding_dim=args.embedding_dim,
-            h_dim=args.encoder_h_dim_c,
-            bottleneck_dim=args.bottleneck_dim,
-            mlp_dim=args.mlp_dim,
-            num_layers=args.num_layers,
-            dropout=args.dropout,
-            activation=args.activation,
-            batch_norm=args.batch_norm,
-            c_type=args.c_type,
-            collision_threshold=args.collision_threshold,
-            occupancy_threshold=args.occupancy_threshold,
-            dynamic_pooling_type=args.dynamic_pooling_type,
-            static_pooling_type=args.static_pooling_type,
-            pool_every_timestep=args.pool_every_timestep,
-            neighborhood_size=args.neighborhood_size,
-            grid_size=args.grid_size,
-            pooling_dim=args.pooling_dim,
-            down_samples=args.down_samples)
+        obs_len=args.obs_len,
+        pred_len=args.pred_len,
+        embedding_dim=args.embedding_dim,
+        h_dim=args.encoder_h_dim_c,
+        bottleneck_dim=args.bottleneck_dim,
+        mlp_dim=args.mlp_dim,
+        num_layers=args.num_layers,
+        dropout=args.dropout,
+        activation=args.activation,
+        batch_norm=args.batch_norm,
+        c_type=args.c_type,
+        collision_threshold=args.collision_threshold,
+        occupancy_threshold=args.occupancy_threshold,
+        dynamic_pooling_type=args.dynamic_pooling_type,
+        static_pooling_type=args.static_pooling_type,
+        pool_every_timestep=args.pool_every_timestep,
+        neighborhood_size=args.neighborhood_size,
+        grid_size=args.grid_size,
+        pooling_dim=args.pooling_dim,
+        down_samples=args.down_samples,
+        critic_model=args.critic_model)
 
     if args.static_pooling_type is not None:
         c_builder.with_static_pooling(train_path)
@@ -244,17 +230,22 @@ def main(args):
     logger.info('Here is the critic:')
     logger.info(critic)
     c_loss_fn = critic_loss
-    optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
-    
+    if args.critic_model == 'default':
+        optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
+
     eval_critic = True if args.c_steps else False
 
     trajectory_evaluator = TrajectoryGeneratorEvaluator()
     if args.d_loss_weight > 0:
-        logger.info('Discrimintor loss')
+        logger.info('Discriminator loss')
         trajectory_evaluator.add_module(discriminator, gan_g_loss, args.d_loss_weight)
     if args.c_loss_weight > 0:
         logger.info('Oracle loss')
-        trajectory_evaluator.add_module(critic, g_critic_loss_function, args.c_loss_weight)
+        if args.critic_model == 'default':
+            trajectory_evaluator.add_module(critic, g_critic_loss_function, args.c_loss_weight)
+        elif args.critic_model == 'matrix_critic':
+            trajectory_evaluator.add_module(critic, matrix_critic_loss, args.c_loss_weight)
+
 
     # Maybe restore from checkpoint
     restore_path = None
@@ -682,7 +673,7 @@ def check_accuracy_generator(string, epoch, args, loader, generator, limit=False
             fde, fde_l, fde_nl = cal_fde(
                 pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
             )
-            
+
             cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
             cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold)
 
@@ -787,7 +778,7 @@ def check_accuracy_evaluator(string, epoch,
             fde, fde_l, fde_nl = cal_fde(
                 pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
             )
-            
+
             cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
             cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold)
 

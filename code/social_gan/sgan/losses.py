@@ -61,6 +61,16 @@ def gan_d_loss(scores_real, scores_fake, loss='bce'):
         return loss_real + loss_fake
 
 
+def matrix_critic_loss(predictions):
+    """
+    Given the prediction, and with the ground truth being 0, this function returns the summed MSE for all elements
+    Input:
+    :param predictions: tensor of shape (N, _)
+    :return: tensor of shape (1), representing the loss value.
+    """
+    return torch.sum(torch.sqrt(predictions ** 2))
+
+
 def critic_loss(scores_real, y_real, scores_fake, y_fake, loss='mse'):
     """
     Input:

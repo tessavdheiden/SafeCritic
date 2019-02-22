@@ -1,3 +1,4 @@
+from evaluation.matrix_critic import TrajectoryMatrixCritic
 from sgan.models import TrajectoryGenerator
 from sgan.evaluation.critic import TrajectoryCritic
 
@@ -11,7 +12,7 @@ class TrajectoryGeneratorBuilder(object):
         self, obs_len, pred_len, embedding_dim=64, encoder_h_dim=64,
         decoder_h_dim=128, mlp_dim=1024, num_layers=1, noise_dim=(0, ),
         noise_type='gaussian', noise_mix_type='ped', dropout=0.0, bottleneck_dim=1024,
-        activation='relu', batch_norm=True, 
+        activation='relu', batch_norm=True,
         static_pooling_type=None,  dynamic_pooling_type=None, pool_every_timestep=True,
         neighborhood_size=2.0, grid_size=8, pooling_dim=2, down_samples=200
     ):
@@ -54,14 +55,14 @@ class TrajectoryGeneratorBuilder(object):
                 neighborhood_size=self.neighborhood_size,
                 pool_static_type=self.static_pooling_type,
                 down_samples=self.down_samples)
-         
+
          physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
          self.pooling.add(physical_pooling)
          self.pooling_output_dim += self.bottleneck_dim
          print('Static pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def with_dynamic_pooling(self):
-         if self.dynamic_pooling_type == 'pool_hidden_net': 
+         if self.dynamic_pooling_type == 'pool_hidden_net':
             self.pooling.add(PoolHiddenNet(
                 embedding_dim=self.embedding_dim,
                 h_dim=self.encoder_h_dim,
@@ -73,7 +74,7 @@ class TrajectoryGeneratorBuilder(object):
                 neighborhood_size=self.neighborhood_size,
                 pool_every=self.pool_every_timestep))
 
-         elif self.dynamic_pooling_type == 'social_pooling': 
+         elif self.dynamic_pooling_type == 'social_pooling':
             self.pooling.add(SocialPooling(
                 h_dim=self.encoder_h_dim,
                 bottleneck_dim=self.bottleneck_dim,
@@ -87,7 +88,7 @@ class TrajectoryGeneratorBuilder(object):
 
     def with_decoder(self, decoder):
         self.decoder = decoder
-        
+
     def build(self):
         print('Building Generator with number of pooling modules: {} and pooling dim: {} and bottleneck dim: {}'.format(self.pooling.get_pooling_count(), \
 			self.pooling_output_dim, self.bottleneck_dim))
@@ -112,14 +113,13 @@ class TrajectoryGeneratorBuilder(object):
             )
 
 class TrajectoryCriticBuilder(object):
-    def __init__(
-        self, obs_len, pred_len, embedding_dim=64, h_dim=64, bottleneck_dim=64, mlp_dim=1024,
-        num_layers=1, activation='relu', batch_norm=True, dropout=0.0,
-        c_type='local', collision_threshold=.25, occupancy_threshold=1.0, 
-	    static_pooling_type=None,  dynamic_pooling_type=None,
-        pool_every_timestep=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
-        down_samples=200
-    ):
+    def __init__(self, obs_len, pred_len, embedding_dim=64, h_dim=64, bottleneck_dim=64, mlp_dim=1024, num_layers=1,
+                 activation='relu', batch_norm=True, dropout=0.0,
+                 c_type='local', collision_threshold=.25, occupancy_threshold=1.0,
+                 static_pooling_type=None, dynamic_pooling_type=None,
+                 pool_every_timestep=True, neighborhood_size=2.0, grid_size=8, pooling_dim=2,
+                 down_samples=200, critic_model='default'):
+         self.critic_model = critic_model
          self.obs_len = obs_len
          self.pred_len = pred_len
          self.seq_len = obs_len + pred_len
@@ -146,7 +146,7 @@ class TrajectoryCriticBuilder(object):
          self.pooling.add(NullPooling())
          self.pooling_output_dim = h_dim
 
- 
+
     def with_static_pooling(self, data_dir):
          physical_pooling = PhysicalPooling(
                 embedding_dim=self.embedding_dim,
@@ -158,14 +158,14 @@ class TrajectoryCriticBuilder(object):
                 neighborhood_size=self.neighborhood_size,
                 pool_static_type=self.static_pooling_type,
                 down_samples=self.down_samples)
-         
+
          physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
          self.pooling.add(physical_pooling)
          self.pooling_output_dim += self.bottleneck_dim
          print('Static pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def with_dynamic_pooling(self):
-         if self.dynamic_pooling_type == 'pool_hidden_net': 
+         if self.dynamic_pooling_type == 'pool_hidden_net':
             self.pooling.add(PoolHiddenNet(
                 embedding_dim=self.embedding_dim,
                 h_dim=self.h_dim,
@@ -177,7 +177,7 @@ class TrajectoryCriticBuilder(object):
                 neighborhood_size=self.neighborhood_size,
                 pool_every=self.pool_every_timestep))
 
-         elif self.dynamic_pooling_type == 'social_pooling': 
+         elif self.dynamic_pooling_type == 'social_pooling':
             self.pooling.add(SocialPooling(
                 h_dim=self.h_dim,
                 bottleneck_dim=self.bottleneck_dim,
@@ -191,13 +191,19 @@ class TrajectoryCriticBuilder(object):
 
     def build(self):
         print('Building Critic with number of pooling modules: {} and pooling dim: {} and bottleneck dim: {}'.format(self.pooling.get_pooling_count(), self.pooling_output_dim, self.bottleneck_dim))
-        return TrajectoryCritic(
-            obs_len = self.obs_len,
-            pred_len = self.pred_len,
-            mlp_dim = self.mlp_dim,
-            h_dim = self.h_dim,
-            c_type = self.c_type,
-            pooling=self.pooling,
-            pooling_output_dim=self.pooling_output_dim,
-            collision_threshold = self.collision_threshold,
-            occupancy_threshold = self.occupancy_threshold)
+        if self.critic_model == 'default':
+            return TrajectoryCritic(
+                obs_len=self.obs_len,
+                pred_len=self.pred_len,
+                mlp_dim=self.mlp_dim,
+                h_dim=self.h_dim,
+                c_type=self.c_type,
+                pooling=self.pooling,
+                pooling_output_dim=self.pooling_output_dim,
+                collision_threshold=self.collision_threshold,
+                occupancy_threshold=self.occupancy_threshold)
+        elif self.critic_model == 'matrix_critic':
+            return TrajectoryMatrixCritic(
+                obs_len=self.obs_len,
+                pred_len=self.pred_len,
+                collision_threshold=self.collision_threshold)

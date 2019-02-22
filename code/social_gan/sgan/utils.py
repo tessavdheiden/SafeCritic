@@ -1,10 +1,17 @@
-import os
-import time
-import torch
-import numpy as np
 import inspect
-from contextlib import contextmanager
 import subprocess
+import time
+from contextlib import contextmanager
+
+import numpy as np
+import torch
+import torch.nn as nn
+
+
+def init_weights(m):
+    classname = m.__class__.__name__
+    if classname.find('Linear') != -1:
+        nn.init.kaiming_normal_(m.weight)
 
 
 def int_tuple(s):
