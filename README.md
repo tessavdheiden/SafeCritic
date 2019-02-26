@@ -27,7 +27,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 
 ## Improve pooling
-- [X] Downsample boundary points according to closest.
+- [X] Downsample boundary points according to closest and give them a fixed location in the input vector (so depending on the relative location between piont and agent).
 - [ ] Segmentations correct (not different for same object), use occupancy grids
 - [ ] Visualize attention
 - [ ] Pool every
