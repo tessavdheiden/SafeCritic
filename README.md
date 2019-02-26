@@ -22,6 +22,7 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 - [ ] Make kubernetis work
 
 ## Improve generator
+- [X] Noise perturbates the hidden states (creates diverse samples). Can Pooling or Oracle filter the noise (create diverse, but collision free trajectories)?
 - [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
 
 
