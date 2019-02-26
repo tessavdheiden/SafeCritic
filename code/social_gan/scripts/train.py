@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 
 from sgan.data.loader import data_loader
-from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, g_critic_loss_function
+from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, g_critic_loss_function, matrix_critic_loss
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
 from scripts.helper_get_generator import helper_get_generator
@@ -86,6 +86,7 @@ def get_argument_parser():
 
     # Critic Options
     parser.add_argument('--c_type', default='global', type=str)
+    parser.add_argument('--critic_model', default='default', type=str)
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
     parser.add_argument('--c_steps', default=0, type=int)
