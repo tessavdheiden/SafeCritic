@@ -7,7 +7,7 @@ python3 -m scripts.train               # Trains the model
 python3 -m scripts.evaluate_model      # Evaluates a trained model
 ```
 ## Improve evaluator
-- [X] Seperate training the oracle (from real data only and/or the trained generator)
+- [X] Pool every for critic
 - [ ] Learn collisions from videos
 - [ ] Learn the value function (collision) by generator.
 - [ ] Learn collision checking of oracle
@@ -16,24 +16,20 @@ python3 -m scripts.evaluate_model      # Evaluates a trained model
 
 ## Improve code
 - [ ] Organize code: Seperate dataset from model, delete simple lstm, seperate code in scripts, sgan into more folders (better naming)
-- [ ] Modify check_accuracy_evaluator in train.py 
 
 ## Cluster computing
 - [ ] Make kubernetis work
 
 ## Improve generator
-- [X] Noise perturbates the hidden states (creates diverse samples). Can Pooling or Oracle filter the noise (create diverse, but collision free trajectories)? Also the perturbation is for each person the same (models.py line 98)
-- [ ] Make graph network, nodes={dynamic object (person), static object (tree/building), infrastructure (traffic light, roundabout, other (zebra))}
-
+- [ ] Noise perturbates the hidden states (creates diverse samples). Can Pooling or Oracle filter the noise (create diverse, but collision free trajectories)? Also the perturbation is for each person the same (models.py line 98)
 
 ## Improve pooling
-- [X] Downsample boundary points according to closest and give them a fixed location in the input vector (so depending on the relative location between piont and agent).
-- [ ] Segmentations correct (not different for same object), use occupancy grids
-- [ ] Visualize attention
-- [ ] Pool every
+- [X] Attention on social pooling
+- [X] Input segmented images and pool into local grid.
+- [X] Attention physical pooling on local grid around agent
 
 ## Benchmark
-- [ ] Evaluation script: simulate scene
+- [X] Compute new minADE, minFDE, meanSampleMSE, DC, OC
 - [ ] DESIRE
 - [ ] SeqGAN
 - [ ] R2P2
