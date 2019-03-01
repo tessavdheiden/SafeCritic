@@ -61,7 +61,7 @@ def gan_d_loss(scores_real, scores_fake, loss='bce'):
         return loss_real + loss_fake
 
 
-def critic_loss(scores_real, y_real, scores_fake, y_fake, loss='mse'):
+def critic_loss(scores_real, y_real, loss='mse'):
     """
     Input:
     - scores_real: Tensor of shape (N,) giving scores for real samples
@@ -72,12 +72,10 @@ def critic_loss(scores_real, y_real, scores_fake, y_fake, loss='mse'):
     """
     if loss == 'mse':
         loss_real = torch.sqrt((scores_real - y_real) ** 2)
-        loss_fake = torch.sqrt((scores_fake - y_fake) ** 2)
-        return (loss_real.mean() + loss_fake.mean()) / 2
+        return loss_real.mean()
     elif loss == 'bce':
         loss_real = bce_loss(scores_real, y_real)
-        loss_fake = bce_loss(scores_fake, y_fake)
-        return loss_real + loss_fake
+        return loss_real
 
 
 def l2_loss(pred_traj, pred_traj_gt, loss_mask, random=0, mode='average'):
