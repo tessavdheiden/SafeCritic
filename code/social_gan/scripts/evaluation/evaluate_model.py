@@ -37,7 +37,7 @@ def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
 def get_generator(checkpoint_in, args):
     test_path = get_test_data_path(args.dataset_name)
     generator = helper_get_generator(args, test_path)
-    generator.load_state_dict(checkpoint_in['g_state'])
+    generator.load_state_dict(checkpoint_in['g_best_state'])
     generator.cuda()
     generator.eval()
     return generator
@@ -197,7 +197,7 @@ def load_pickle(name, num):
 
 
 def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
-    num_samples = 20 # args.best_k
+    num_samples = 10 # args.best_k
     _, loader = data_loader(args, data_dir, shuffle=False)
 
     with torch.no_grad():
@@ -205,9 +205,6 @@ def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
-
-            if b % skip == 0:
-                continue
 
             list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
             seq_scenes = [list_data_files[num] for num in seq_scene_ids]
@@ -254,7 +251,7 @@ def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
             save_pickle(pred_traj_fake2_list, 'pred_traj_fake2_list', b)
 
 
-def compare_sampling_cols(selection=46, batch=1):
+def compare_sampling_cols(selection=-1, batch=2):
     obs_traj = load_pickle('obs_traj', batch)
     pred_traj_gt = load_pickle('pred_traj_gt', batch)
     seq_start_end = load_pickle('seq_start_end', batch)
@@ -291,12 +288,11 @@ def compare_sampling_cols(selection=46, batch=1):
         traj_gt = pred_traj_gt.permute(1, 0, 2)[start:end]
 
         cols_gt, cols1, cols2 = 0, 0, 0
-
         for p in range(num_ped):
-            #if p == 3 or p==4 or p==5:
+            #if p == 0 or p==1 or p==2:
                 plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
                 plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
-                for sample in range(5):
+                for sample in range(1):
                     traj_pred1 = pred_traj_fake2_list[sample].permute(1, 0, 2)[start:end]
                     traj_pred2 = pred_traj_fake2_list[sample + 1].permute(1, 0, 2)[start:end]
                     traj_pred3 = pred_traj_fake2_list[sample + 2].permute(1, 0, 2)[start:end]
@@ -305,15 +301,16 @@ def compare_sampling_cols(selection=46, batch=1):
                     plot_pixel(ax3, traj_pred2, p, h, a=1, last=False, first=False, size=10, colors=colors)
                     plot_pixel(ax4, traj_pred3, p, h, a=1, last=False, first=False, size=10, colors=colors)
 
-        #ax1.set_xlabel('frame {}'.format(str(batch * len(seq_start_end) + i)))
+        ax1.set_xlabel('frame {}'.format(str(batch * len(seq_start_end) + i)))
         #_, _, _ = plot_cols(ax2, ax3, ax4, traj_gt, traj_pred1, traj_pred2, cols_gt, cols1, cols2, h)
         #_, _, _ = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2)
-        #plt.waitforbuttonpress()
-        #plt.draw()
-        plt.show()
-        if True:
-            #extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-            #fig.savefig(get_root_dir() + '/results/plots/SDD/safeGAN_DP/frame_{}_obs_sample_{}.png'.format(batch * len(seq_start_end) + i, sample),bbox_inches=extent)
+        plt.waitforbuttonpress()
+        plt.draw()
+
+        if False:
+            plt.show()
+            extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+            fig.savefig(get_root_dir() + '/results/plots/SDD/safeGAN_DP/frame_{}_obs_sample_{}.png'.format(batch * len(seq_start_end) + i, sample),bbox_inches=extent)
 
             extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
             fig.savefig(get_root_dir() + '/results/plots/SDD/safeGAN_DP/frame_{}_pred_safe_sample_{}.png'.format(batch * len(seq_start_end) + i, sample), bbox_inches=extent)
@@ -375,12 +372,6 @@ def main():
         if test_case == 1:
             occs1, occs2 = compare_sampling_cols()
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-        elif test_case == 2:
-            occs1, occs2 = compare_sampling_occs(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
-            print('Occupancies model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
-        else:
-            generate_video(args1, args2, generator1, generator2, paths[0].split('/')[-1][:-3], paths[1].split('/')[-1][:-3], data_dir, plots_path)
-    else:
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
