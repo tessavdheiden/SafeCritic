@@ -156,13 +156,13 @@ class TrajectoryCritic(nn.Module):
         Output:
         - scores: Tensor of shape (batch,) with real/fake scores
         """
+
         final_encoder_h = self.encoder(traj_rel)
         # Note: In case of 'global' option we are using start_pos as opposed to
         # end_pos. The intution being that hidden state has the whole
         # trajectory and relative postion at the start when combined with
         # trajectory information should help in discriminative behavior.
-        rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,
-                                       mode='binary').unsqueeze(1) + 1
+
         if self.c_type == 'global':
             end_pos = traj[-1, :, :]
             rel_pos = traj_rel[-1, :, :]
@@ -170,6 +170,7 @@ class TrajectoryCritic(nn.Module):
             scores = self.real_classifier(classifier_input)
 
         elif self.c_type == 'local':
+            rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,mode='binary').unsqueeze(1) + 1
             scores = self.real_classifier(rewards)
             # scores = self.spatial_embedding(rewards)
 
