@@ -82,7 +82,7 @@ def get_argument_parser():
     parser.add_argument('--d_type', default='local', type=str)
     parser.add_argument('--encoder_h_dim_d', default=64, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--d_steps', default=0, type=int)
+    parser.add_argument('--d_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
     # Critic Options
@@ -95,7 +95,7 @@ def get_argument_parser():
     parser.add_argument('--occupancy_threshold', default=.25, type=float)
 
     # Pooling Options
-    parser.add_argument('--pool_every_timestep', default=1, type=bool_flag)
+    parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
     parser.add_argument('--down_samples', default=200, type=int)
 
     # Pool Net Option
@@ -111,8 +111,8 @@ def get_argument_parser():
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-    parser.add_argument('--d_loss_weight', default=0.0, type=float)
-    parser.add_argument('--c_loss_weight', default=1.0, type=float)
+    parser.add_argument('--d_loss_weight', default=1.0, type=float)
+    parser.add_argument('--c_loss_weight', default=0.0, type=float)
     parser.add_argument('--best_k', default=20, type=int)
     parser.add_argument('--loss_type', default='bce', type=str)
 
@@ -440,17 +440,17 @@ def main(args):
 
             if args.c_steps > 0:
                 logger.info('Checking C stats on train ...')
-                metrics_train = check_accuracy_critic(args, train_loader, critic, c_loss_fn, limit=True)
+                metrics_train_c = check_accuracy_critic(args, train_loader, critic, c_loss_fn, limit=True)
 
                 logger.info('Checking C stats on val ...')
-                metrics_val = check_accuracy_critic(args, val_loader, critic, c_loss_fn, limit=True)
+                metrics_val_c = check_accuracy_critic(args, val_loader, critic, c_loss_fn, limit=True)
 
             if args.d_steps > 0:
                 logger.info('Checking D stats on train ...')
-                metrics_train = check_accuracy_discriminator(args, train_loader, generator, discriminator, d_loss_fn, limit=True)
+                metrics_train_c = check_accuracy_discriminator(args, train_loader, generator, discriminator, d_loss_fn, limit=True)
 
                 logger.info('Checking D stats on val ...')
-                metrics_val = check_accuracy_discriminator(args, val_loader, generator, discriminator, d_loss_fn, limit=True)
+                metrics_val_c = check_accuracy_discriminator(args, val_loader, generator, discriminator, d_loss_fn, limit=True)
 
             for k, v in sorted(metrics_val.items()):
                 logger.info('  [val] {}: {:.3f}'.format(k, v))
