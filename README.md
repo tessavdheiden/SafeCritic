@@ -16,6 +16,8 @@ Our benchmark is against DESIRE, SocialGAN and SoPhie. These generating models h
 ## Improvements
 ### Evaluator
 - [X] Pool every for critic
+- [X] Compute matric [numPeds x numPeds x time] and put attention over it.
+- [X] Dualing networks to learn advantage
 - [ ] Learn collisions from videos
 - [ ] Learn the value function (collision) by generator.
 - [ ] Learn collision checking of oracle
