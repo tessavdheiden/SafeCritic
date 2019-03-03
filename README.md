@@ -2,11 +2,14 @@
 
 FLORA: Future prediction of obstacle locations in traffic scenes for collision avoidances.
 
+
+## Train and evaluate model
 ```bash
 python3 -m scripts.train               # Trains the model
 python3 -m scripts.evaluate_model      # Evaluates a trained model
 ```
 ## Improve evaluator
+### evaluator
 - [X] Pool every for critic
 - [ ] Learn collisions from videos
 - [ ] Learn the value function (collision) by generator.
