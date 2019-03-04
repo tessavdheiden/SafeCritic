@@ -34,9 +34,9 @@ Our benchmark is against DESIRE, SocialGAN and SoPhie. These generating models h
 - [ ] Noise perturbates the hidden states (creates diverse samples). Can Pooling or Oracle filter the noise (create diverse, but collision free trajectories)? Also the perturbation is for each person the same (models.py line 98)
 
 ### Pooling
-- [X] Attention on social pooling
 - [X] Input segmented images and pool into local grid.
 - [X] Attention physical pooling on local grid around agent
+- [X] Move the init hidden and calling grad before the start of pooling (in generator and decoder).
 
 ### Baselines
 - [X] Compute new minADE, minFDE, meanSampleMSE, DC, OC
