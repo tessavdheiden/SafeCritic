@@ -56,16 +56,12 @@ class Decoder(nn.Module):
         decoder_input = self.spatial_embedding(last_pos_rel)
         decoder_input = decoder_input.view(1, batch, self.embedding_dim) # [1, ped, h_dim]
 
-        for counter in range(self.seq_len):
+        for counter in range(1, self.seq_len+1):
             output, state_tuple = self.decoder(decoder_input, state_tuple)
             rel_pos = self.hidden2pos(output.view(-1, self.h_dim))
             curr_pos = rel_pos + last_pos
 
-            if self.pool_every_timestep and counter%6 == 0:
-                if self.pool_static_type == "physical_attention_with_encoder" or self.pool_static_type == "physical_attention_no_encoder":
-                    self.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.zero_grad()
-                    self.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.hidden = self.pooling.pooling_list[1].static_scene_feature_extractor.attention_decoder.init_hidden()
-
+            if self.pool_every_timestep: #and counter % 6 == 0:
                 decoder_h = state_tuple[0]
                 context_information = self.pooling.aggregate_context(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
                 decoder_h = context_information
