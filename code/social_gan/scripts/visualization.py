@@ -12,7 +12,6 @@ from attrdict import AttrDict
 from sgan.models_static_scene import get_homography_and_map
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from sgan.folder_utils import get_root_dir, get_test_data_path
-from scripts.evaluation.evaluate_model import get_generator
 
 def my_plot(ax, o, p, g, annotated_points):
     ax.scatter(o[:, 0], o[:, 1], c='orange', s=1)
@@ -161,10 +160,10 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     plt.clf()
 
     # 'dataset_path' represents the path with the SDD scene folders inside
-    dataset_path = os.path.dirname(os.getcwd()) + "/datasets/safegan_dataset/SDD/"
+    dataset_path = get_root_dir() + "/datasets/safegan_dataset/SDD/"
     # Load the raw scene image on which the attention weights will be plotted.
     # Here I suppose they are inside a folder called "segmented_scenes"
-    image_original = Image.open( dataset_path + "/" + scene_name + "/reference.jpg")
+    image_original = Image.open(get_root_dir() + "/datasets/safegan_dataset/SDD/" + scene_name + "/reference.jpg")
     original_image_size = Image.open(dataset_path + scene_name + "/annotated_boundaries.jpg").size
 
     # Increase the dimension of the raw scene image
@@ -182,9 +181,12 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     #
 
     w, h = image_original.size
-    row = np.round(pixels[0][0])
-    col = np.round(pixels[0][1])
-    image = image_original.crop((w//2 - 200, h//2 - 200, w//2 + 200, h//2 + 200))
+    col = np.round(pixels[0][0])
+    row = np.round(pixels[0][1])
+    if row - 200 > 0 and row + 200 < h and col - 200 > 0 and col + 200 < w:
+        image = image_original.crop((col - 200, row - 200, col + 200, row + 200))
+    else:
+        image = image_original.crop((w//2 - 200, h//2 - 200, w//2 + 200, h//2 + 200))
     #image = image.resize([20 * upscaling_factor, 20 * upscaling_factor], Image.LANCZOS)
 
 
@@ -192,21 +194,24 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     # To expand the attention weights I use skimage that allows us to also smooth the pixel values during the expansion
     attention_weights = attention_weights.view(-1, encoded_image_size, encoded_image_size).detach().cpu().numpy()
     alpha = skimage.transform.pyramid_expand(attention_weights[0], upscale=48, sigma=8)
-    pixels = np.expand_dims( np.array([w//2, h//2]), axis=0)
+    #pixels = np.expand_dims( np.array([w//2, h//2]), axis=0)
 
     # Plot raw scene image, the agents' positions and the attention weights
-    plt.subplot(1, 1, 1)
+    plt.subplot(1, 2, 1)
     plt.imshow(image_original)
-    plt.scatter(pixels[:, 0], pixels[:, 1], marker='.', color="r")
+    plt.scatter(pixels[:, 0], pixels[:, 1], marker='.', color="b")
+    plt.scatter(pixels[0, 0], pixels[0, 1], marker='X', color="r")
+
     plt.axis('off')
-    '''
-    plt.subplot(1, 1, 1)
+
+    plt.subplot(1, 2, 2)
     plt.imshow(image)
     plt.imshow(alpha, alpha=0.7)
     plt.set_cmap(cm.Greys_r)
     plt.axis('off')
-    '''
+
     plt.show()
+
 
 def main():
     model_path = os.path.join(get_root_dir(), 'models_sdd/temp/checkpoint_with_model.pt')
