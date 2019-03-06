@@ -19,6 +19,8 @@ from sgan.models_static_scene import get_homography_and_map
 from sgan.utils import relative_to_abs
 from sgan.folder_utils import get_root_dir, get_test_data_path, get_dset_name, get_dset_group_name
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
+from sgan.losses import displacement_error, final_displacement_error
+from scripts.collision_checking import collision_error, occupancy_error
 
 MAKE_MP4 = True
 FOUR_PLOTS = True
@@ -89,13 +91,13 @@ def plot_photo(ax, photo, title):
     ax.set_xticklabels([])
 
 
-def plot_pixel(ax, trajectory, person, h, a=1, last=False, first=False, intermediate=True, size=10, colors=None, label=False):
+def plot_pixel(ax, trajectory, person, h, a=1, last=False, first=False, intermediate=True, size=10, colors=None, linestyle = '-', label=False):
     if colors is None:
         colors = np.random.rand(trajectory.size(0), 3)
     pixels_obs = get_pixels_from_world(trajectory[person], h)
 
     if intermediate:
-        ax.plot(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[person, :], markersize=1, alpha=a)
+        ax.plot(pixels_obs[:, 0], pixels_obs[:, 1], marker='.', color=colors[person, :], markersize=1, alpha=a, linestyle=linestyle)
         ax.quiver(pixels_obs[-1, 0], pixels_obs[-1, 1], pixels_obs[-1, 0] - pixels_obs[-2, 0], pixels_obs[-2, 1] - pixels_obs[-1, 1], color=colors[person, :])
 
     if last:
@@ -183,25 +185,27 @@ def plot_occs(static_map, h, ax1, ax2, ax3, traj_gt, traj1, traj2, occs_gt, occs
 
 
 # ------------------------------- PLOT SAMPLING -------------------------------
-def save_pickle(list, name, num):
-    path_name = '{}batch_{}_{}.pkl'.format(get_root_dir()+'/results/trajectories/', str(num), name)
+def save_pickle(list, name, num, data_set):
+    path_name = '{}/{}/batch_{}_{}.pkl'.format(get_root_dir()+'/results/trajectories/', data_set, str(num), name)
     with open(path_name, 'wb') as fp:
         pickle.dump(list, fp)
 
 
-def load_pickle(name, num):
-    path_name = '{}batch_{}_{}.pkl'.format(get_root_dir() + '/results/trajectories/', str(num), name)
+def load_pickle(name, num, data_set):
+    path_name = '{}/{}/batch_{}_{}.pkl'.format(get_root_dir() + '/results/trajectories/', data_set, str(num), name)
     with open(path_name, 'rb') as handle:
         list = pickle.load(handle)
     return list
 
 
-def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
-    num_samples = 10 # args.best_k
+def collect_generated_samples(args, generator1, generator2, data_dir, data_set, skip=2):
+    num_samples = 20 # args.best_k
     _, loader = data_loader(args, data_dir, shuffle=False)
 
     with torch.no_grad():
         for b, batch in enumerate(loader):
+            if b > 2:
+                break
             batch = [tensor.cuda() for tensor in batch]
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
@@ -209,9 +213,9 @@ def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
             list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
             seq_scenes = [list_data_files[num] for num in seq_scene_ids]
 
-            save_pickle(obs_traj, 'obs_traj', b)
-            save_pickle(pred_traj_gt, 'pred_traj_gt', b)
-            save_pickle(seq_start_end, 'seq_start_end', b)
+            save_pickle(obs_traj, 'obs_traj', b, data_set)
+            save_pickle(pred_traj_gt, 'pred_traj_gt', b, data_set)
+            save_pickle(seq_start_end, 'seq_start_end', b, data_set)
 
             photo_list, homography_list, annotated_points_list = [], [], []
             for i, (start, end) in enumerate(seq_start_end):
@@ -231,9 +235,9 @@ def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
                 photo = reader.get_data(int(frame))
                 photo_list.append(photo)
 
-            save_pickle(homography_list, 'homography_list', b)
-            save_pickle(annotated_points_list, 'annotated_points_list', b)
-            save_pickle(photo_list, 'photo_list', b)
+            save_pickle(homography_list, 'homography_list', b, data_set)
+            save_pickle(annotated_points_list, 'annotated_points_list', b, data_set)
+            save_pickle(photo_list, 'photo_list', b, data_set)
 
             pred_traj_fake1_list, pred_traj_fake2_list = [], []
             for sample in range(num_samples):
@@ -247,21 +251,21 @@ def collect_generated_samples(args, generator1, generator2, data_dir, skip=2):
                 pred_traj_fake1_list.append(pred_traj_fake1)
                 pred_traj_fake2_list.append(pred_traj_fake2)
 
-            save_pickle(pred_traj_fake1_list, 'pred_traj_fake1_list', b)
-            save_pickle(pred_traj_fake2_list, 'pred_traj_fake2_list', b)
+            save_pickle(pred_traj_fake1_list, 'pred_traj_fake1_list', b, data_set)
+            save_pickle(pred_traj_fake2_list, 'pred_traj_fake2_list', b, data_set)
 
 
-def compare_sampling_cols(selection=-1, batch=2):
-    obs_traj = load_pickle('obs_traj', batch)
-    pred_traj_gt = load_pickle('pred_traj_gt', batch)
-    seq_start_end = load_pickle('seq_start_end', batch)
+def evaluate_trajectory_quality(data_set, selection=-1, batch=0):
+    obs_traj = load_pickle('obs_traj', batch, data_set)
+    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
+    seq_start_end = load_pickle('seq_start_end', batch, data_set)
 
-    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch)
-    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch)
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
 
-    homography_list = load_pickle('homography_list', batch)
-    photo_list = load_pickle('photo_list', batch)
-    annotated_points_list = load_pickle('annotated_points_list', batch)
+    homography_list = load_pickle('homography_list', batch, data_set)
+    photo_list = load_pickle('photo_list', batch, data_set)
+    annotated_points_list = load_pickle('annotated_points_list', batch, data_set)
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
 
@@ -288,8 +292,8 @@ def compare_sampling_cols(selection=-1, batch=2):
         traj_gt = pred_traj_gt.permute(1, 0, 2)[start:end]
 
         cols_gt, cols1, cols2 = 0, 0, 0
-        for p in range(num_ped):
-            #if p == 0 or p==1 or p==2:
+        for p in range(np.minimum(num_ped, 3)):
+            if p == 0 or p==1 or p==2:
                 plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
                 plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
                 for sample in range(1):
@@ -298,8 +302,16 @@ def compare_sampling_cols(selection=-1, batch=2):
                     traj_pred3 = pred_traj_fake2_list[sample + 2].permute(1, 0, 2)[start:end]
 
                     plot_pixel(ax2, traj_pred1, p, h, a=1, last=False, first=False, size=10, colors=colors)
-                    plot_pixel(ax3, traj_pred2, p, h, a=1, last=False, first=False, size=10, colors=colors)
-                    plot_pixel(ax4, traj_pred3, p, h, a=1, last=False, first=False, size=10, colors=colors)
+                    plot_pixel(ax2, traj_pred2, p, h, a=1, last=False, first=False, size=10, colors=colors)
+                    plot_pixel(ax2, traj_pred3, p, h, a=1, last=False, first=False, size=10, colors=colors)
+
+                    traj_pred11 = pred_traj_fake1_list[sample].permute(1, 0, 2)[start:end]
+                    traj_pred22 = pred_traj_fake1_list[sample + 1].permute(1, 0, 2)[start:end]
+                    traj_pred33 = pred_traj_fake1_list[sample + 2].permute(1, 0, 2)[start:end]
+
+                    plot_pixel(ax3, traj_pred11, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle=':')
+                    plot_pixel(ax3, traj_pred22, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle=':')
+                    plot_pixel(ax3, traj_pred33, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle=':')
 
         ax1.set_xlabel('frame {}'.format(str(batch * len(seq_start_end) + i)))
         #_, _, _ = plot_cols(ax2, ax3, ax4, traj_gt, traj_pred1, traj_pred2, cols_gt, cols1, cols2, h)
@@ -343,17 +355,86 @@ def move_figure(f, x, y):
 
     return f
 
+
+def evaluate_training_ade(args1, checkpoint1, checkpoint2):
+    ade1 = checkpoint1['metrics_val']['cols']
+    ade2 = checkpoint2['metrics_val']['cols_gt']
+    epochs1 = torch.arange(len(ade1)).cpu().numpy()
+    epochs2 = torch.arange(len(ade2)).cpu().numpy()
+    plt.plot(epochs1[::10], ade1[::10], label='cp1')
+    plt.plot(epochs2[::10], ade2[::10], label='cp2')
+    plt.legend()
+    plt.show()
+
+def evaluate_test_ade(data_set, batch=0):
+    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
+    seq_start_end = load_pickle('seq_start_end', batch, data_set)
+
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
+
+    num_samples = len(pred_traj_fake1_list)
+    ade1 = []
+    ade2 = []
+    for i in range(num_samples):
+        ade1.append(displacement_error(pred_traj_fake1_list[i], pred_traj_gt, mode='raw'))
+        ade2.append(displacement_error(pred_traj_fake2_list[i], pred_traj_gt, mode='raw'))
+    total_traj = pred_traj_gt.size(1)
+    pred_len = pred_traj_gt.size(0)
+    ade1 = evaluate_helper(ade1, seq_start_end) / (total_traj * pred_len)
+    ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj * pred_len)
+    return ade1, ade2
+
+def evaluate_test_fde(data_set, batch=0):
+    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
+    seq_start_end = load_pickle('seq_start_end', batch, data_set)
+
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
+
+    num_samples = len(pred_traj_fake1_list)
+    ade1 = []
+    ade2 = []
+    for i in range(num_samples):
+        ade1.append(final_displacement_error(pred_traj_fake1_list[i][-1], pred_traj_gt[-1], mode='raw'))
+        ade2.append(final_displacement_error(pred_traj_fake2_list[i][-1], pred_traj_gt[-1], mode='raw'))
+    total_traj = pred_traj_gt.size(1)
+    ade1 = evaluate_helper(ade1, seq_start_end) / total_traj
+    ade2 = evaluate_helper(ade2, seq_start_end) / total_traj
+    return ade1, ade2
+
+def evaluate_test_cols(data_set, batch=1):
+    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
+    seq_start_end = load_pickle('seq_start_end', batch, data_set)
+
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
+
+    num_samples = len(pred_traj_fake1_list)
+    ade1 = []
+    ade2 = []
+    for i in range(num_samples):
+        ade1.append(collision_error(pred_traj_fake1_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
+        ade2.append(collision_error(pred_traj_fake1_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
+    total_traj = pred_traj_gt.size(1)
+    pred_len = pred_traj_gt.size(0)
+    ade1 = evaluate_helper(ade1, seq_start_end, min=False) / (total_traj * pred_len)
+    ade2 = evaluate_helper(ade2, seq_start_end, min=False) / (total_traj * pred_len)
+    return ade1, ade2
+
+
 def main():
 
-    test_case = 1
-    precompute_required = True
+    test_case = 2
+    precompute_required = False
+    data_set = 'UCY'
 
-    model_path = os.path.join(get_root_dir(), 'results/models/SDD/safeGAN_DP')
+    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_DP'.format(data_set))
     plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP')
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]
-        data_dir = get_test_data_path('sdd')
+        data_dir = get_test_data_path(data_set.lower())
         if precompute_required:
             # load checkpoint of first model and arguments
             checkpoint1 = torch.load(paths[0])
@@ -367,11 +448,19 @@ def main():
             print('Loading model from path: ' + paths[1])
             generator2 = get_generator(checkpoint2, args2)
 
-            collect_generated_samples(args1, generator1, generator2, data_dir)
+            evaluate_training_ade(args1, checkpoint1, checkpoint2)
+            collect_generated_samples(args1, generator1, generator2, data_dir, data_set)
 
         if test_case == 1:
-            occs1, occs2 = compare_sampling_cols()
+            occs1, occs2 = evaluate_trajectory_quality(data_set)
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
+        elif test_case == 2:
+            cols = 0
+            for batch in range(0, 10):
+                ade1, ade2 = evaluate_test_cols(data_set, batch)
+                print('ADE model 1: {:.6f} model 2: {:.6f}'.format(ade1, ade2))
+                cols += ade2
+            print('ADE model 1: {:.6f} '.format(cols/10))
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
