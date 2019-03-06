@@ -40,6 +40,7 @@ Our benchmark is against DESIRE, SocialGAN and SoPhie. These generating models h
 
 ### Baselines
 - [X] Compute new minADE, minFDE, meanSampleMSE, DC, OC
+- [X] Datasets UCY vs SDD, UCY generates multiple samples.
 - [ ] DESIRE
 - [ ] SeqGAN
 - [ ] SoPhie
