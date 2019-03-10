@@ -3,8 +3,8 @@ from sgan.evaluation.critic import TrajectoryCritic
 
 from sgan.context.composite_pooling import CompositePooling
 from sgan.context.null_pooling import NullPooling
-from sgan.context.static_pooling import PhysicalPooling
-from sgan.context.dynamic_pooling import SocialPooling, PoolHiddenNet
+from sgan.context.static_pooling import PhysicalPooling, GridPooling
+from sgan.context.dynamic_pooling import SocialPooling, PoolHiddenNet, SocialPoolingAttention
 
 class TrajectoryGeneratorBuilder(object):
     def __init__(
@@ -44,7 +44,8 @@ class TrajectoryGeneratorBuilder(object):
          print('Null pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def with_static_pooling(self, data_dir):
-         physical_pooling = PhysicalPooling(
+         if self.static_pooling_type != 'grid':
+            physical_pooling = PhysicalPooling(
                 embedding_dim=self.embedding_dim,
                 h_dim=self.encoder_h_dim,
                 mlp_dim=self.mlp_dim,
@@ -54,8 +55,17 @@ class TrajectoryGeneratorBuilder(object):
                 neighborhood_size=self.neighborhood_size,
                 pool_static_type=self.static_pooling_type,
                 down_samples=self.down_samples)
-         
-         physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
+            physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
+         else:
+            physical_pooling = GridPooling(
+                 h_dim=self.encoder_h_dim,
+                 bottleneck_dim=self.bottleneck_dim,
+                 activation=self.activation,
+                 batch_norm=self.batch_norm,
+                 dropout=self.dropout,
+                 neighborhood_size=self.neighborhood_size,
+                 grid_size=self.grid_size)
+            physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
          self.pooling.add(physical_pooling)
          self.pooling_output_dim += self.bottleneck_dim
          print('Static pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
@@ -75,6 +85,16 @@ class TrajectoryGeneratorBuilder(object):
 
          elif self.dynamic_pooling_type == 'social_pooling': 
             self.pooling.add(SocialPooling(
+                h_dim=self.encoder_h_dim,
+                bottleneck_dim=self.bottleneck_dim,
+                activation=self.activation,
+                batch_norm=self.batch_norm,
+                dropout=self.dropout,
+                neighborhood_size=self.neighborhood_size,
+                grid_size=self.grid_size))
+
+         elif self.dynamic_pooling_type == 'social_pooling_attention':
+            self.pooling.add(SocialPoolingAttention(
                 h_dim=self.encoder_h_dim,
                 bottleneck_dim=self.bottleneck_dim,
                 activation=self.activation,
@@ -199,5 +219,5 @@ class TrajectoryCriticBuilder(object):
             c_type = self.c_type,
             pooling=self.pooling,
             pooling_output_dim=self.pooling_output_dim,
-            collision_threshold = self.collision_threshold,
-            occupancy_threshold = self.occupancy_threshold)
+            collision_threshold=self.collision_threshold,
+            occupancy_threshold=self.occupancy_threshold)

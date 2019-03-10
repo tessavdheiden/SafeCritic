@@ -7,6 +7,11 @@ from contextlib import contextmanager
 import subprocess
 
 
+device = device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_device():
+    return device
+
 def int_tuple(s):
     return tuple(int(i) for i in s.split(','))
 

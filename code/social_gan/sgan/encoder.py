@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 
+from sgan.utils import get_device
+
+device = get_device()
 class Encoder(nn.Module):
     """Encoder is part of both TrajectoryGenerator and
     TrajectoryDiscriminator"""
@@ -19,12 +22,12 @@ class Encoder(nn.Module):
             embedding_dim, h_dim, num_layers, dropout=dropout
         )
         # self.linear_out = nn.Linear(2*h_dim, embedding_dim)
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.spatial_embedding = nn.Linear(2, embedding_dim).to(device)
 
     def init_hidden(self, batch):
         return (
-            torch.zeros(self.num_layers, batch, self.h_dim).cuda(),
-            torch.zeros(self.num_layers, batch, self.h_dim).cuda()
+            torch.zeros(self.num_layers, batch, self.h_dim).to(device),
+            torch.zeros(self.num_layers, batch, self.h_dim).to(device)
         )
 
     def forward(self, obs_traj, full_seq=False):
@@ -36,7 +39,7 @@ class Encoder(nn.Module):
         """
         # Encode observed Trajectory
         batch = obs_traj.size(1)
-        obs_traj_embedding = self.spatial_embedding(obs_traj.view(-1, 2))
+        obs_traj_embedding = self.spatial_embedding(obs_traj.contiguous().view(-1, 2))
         obs_traj_embedding = obs_traj_embedding.view(
             -1, batch, self.embedding_dim
         )

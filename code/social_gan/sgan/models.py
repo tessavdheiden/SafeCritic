@@ -4,11 +4,14 @@ import torch.nn as nn
 from sgan.mlp import make_mlp
 from sgan.encoder import Encoder
 
+from sgan.utils import get_device
+
+device = get_device()
 def get_noise(shape, noise_type):
     if noise_type == 'gaussian':
-        return torch.randn(*shape).cuda()
+        return torch.randn(*shape).to(device)
     elif noise_type == 'uniform':
-        return torch.rand(*shape).sub_(0.5).mul_(2.0).cuda()
+        return torch.rand(*shape).sub_(0.5).mul_(2.0).to(device)
     raise ValueError('Unrecognized noise type "%s"' % noise_type)
 
 
@@ -130,7 +133,7 @@ class TrajectoryGenerator(nn.Module):
         final_encoder_h = self.encoder(obs_traj_rel)
         end_pos = obs_traj[-1, :, :]
         rel_pos = obs_traj_rel[-1, :, :]
-       
+
         context_information = self.pooling.aggregate_context(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
 
         # Add Noise
@@ -143,7 +146,7 @@ class TrajectoryGenerator(nn.Module):
 
         decoder_c = torch.zeros(
             self.num_layers, batch, self.decoder_h_dim
-        ).cuda()
+        ).to(device)
 
         state_tuple = (decoder_h, decoder_c)
         last_pos = obs_traj[-1]

@@ -3,6 +3,10 @@ import torch.nn as nn
 
 from sgan.mlp import make_mlp
 
+from sgan.utils import get_device
+
+device = get_device()
+
 class Decoder(nn.Module):
     """Decoder is part of TrajectoryGenerator"""
     def __init__(
@@ -38,7 +42,7 @@ class Decoder(nn.Module):
                 batch_norm=batch_norm,
                 dropout=dropout)
 
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.spatial_embedding = nn.Linear(2, embedding_dim).to(device)
         self.hidden2pos = nn.Linear(h_dim, 2)
 
     def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, seq_scene_ids=None):
@@ -53,7 +57,7 @@ class Decoder(nn.Module):
         """
         batch = last_pos.size(0)
         pred_traj_fake_rel, indxs = [], []
-        decoder_input = self.spatial_embedding(last_pos_rel)
+        decoder_input = self.spatial_embedding(last_pos_rel.to(device))
         decoder_input = decoder_input.view(1, batch, self.embedding_dim) # [1, ped, h_dim]
 
         for counter in range(1, self.seq_len+1):
