@@ -7,9 +7,9 @@ from sgan.context.physical_attention import Attention_Decoder
 from scripts.visualization import visualize_attention_weights
 from sgan.folder_utils import get_dset_name, get_root_dir, get_test_data_path
 
+from sgan.utils import get_device
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+device = get_device()
 class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
@@ -240,7 +240,7 @@ class SocialPoolingAttention(nn.Module):
             activation=activation,
             batch_norm=batch_norm,
             dropout=dropout
-        )
+        ).to(device)
 
     def get_bounds(self, ped_pos):
         top_left_x = ped_pos[:, 0] - self.neighborhood_size / 2
@@ -285,21 +285,22 @@ class SocialPoolingAttention(nn.Module):
         - pool_h: Tensor of shape (batch, h_dim)
         """
         pool_h = []
+        total_grid_size = self.grid_size * self.grid_size
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
             end = end.item()
             num_ped = end - start
-            grid_size = self.grid_size * self.grid_size
+
             curr_hidden = h_states.view(-1, self.h_dim)[start:end]
             curr_hidden_repeat = curr_hidden.repeat(num_ped, 1)
             curr_end_pos = end_pos[start:end]
-            curr_pool_h_size = (num_ped * grid_size) + 1
-            curr_pool_h = curr_hidden.new_zeros((curr_pool_h_size, self.h_dim))
+            curr_pool_h_size = (num_ped * total_grid_size) + 1
+            curr_pool_h = curr_hidden.new_zeros((curr_pool_h_size, self.h_dim)).to(device)
             # curr_end_pos = curr_end_pos.data
             top_left, bottom_right = self.get_bounds(curr_end_pos)
 
             # Used in attention
-            embed_info = torch.cat([curr_end_pos, rel_pos[start:end]], dim=1)
+            #embed_info = torch.cat([curr_end_pos, rel_pos[start:end]], dim=1)
 
             # Repeat position -> P1, P2, P1, P2
             curr_end_pos = curr_end_pos.repeat(num_ped, 1)
@@ -324,31 +325,71 @@ class SocialPoolingAttention(nn.Module):
             # for loop. Offset everything by 1. Use the initial 0 position to
             # dump all uncessary adds.
             grid_pos += 1
-            total_grid_size = self.grid_size * self.grid_size
-            offset = torch.arange( 0, total_grid_size * num_ped, total_grid_size ).type_as(seq_start_end)
+            offset = torch.arange(0, total_grid_size * num_ped, total_grid_size).type_as(seq_start_end)
 
             offset = self.repeat(offset.view(-1, 1), num_ped).view(-1)
             grid_pos += offset
             grid_pos[within_bound != 0] = 0
-            grid_pos = grid_pos.view(-1, 1).expand_as(curr_hidden_repeat) # grid_pos = [num_ped**2, h_dim]
+            grid_pos = grid_pos.view(-1, 1).expand_as(curr_hidden_repeat).to(device) # grid_pos = [num_ped**2, h_dim]
 
-            curr_pool_h = curr_pool_h.scatter_add(0, grid_pos, curr_hidden_repeat) # curr_hidden_repeat = [num_ped**2, h_dim]
+            curr_pool_h = curr_pool_h.scatter_add(0, grid_pos, curr_hidden_repeat) # curr_pool_h = [num_peds * total_grid_size + 1, h_dim],  grid_pos = [num_peds**2], curr_hidden_repeat = [num_ped**2, h_dim]
             curr_pool_h = curr_pool_h[1:]
 
-            encoder_out = curr_pool_h.view(num_ped, total_grid_size, self.h_dim)
-            curr_pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden, embed_info=embed_info)
-
+            #encoder_out = curr_pool_h.view(num_ped, total_grid_size, self.h_dim)
+            #curr_pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden, embed_info=embed_info)
+            #pool_h.append(curr_pool_h.view(num_ped, -1))  # grid_size * grid_size * h_dim
             '''
             data_dir = get_test_data_path('sdd')
             list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
             seq_scenes = [list_data_files[num] for num in seq_scene_ids]
             visualize_attention_weights(seq_scenes[i], self.grid_size, attention_weights, end_pos[start:end])
             '''
-
-            pool_h.append(curr_pool_h.view(num_ped, -1)) # grid_size * grid_size * h_dim
+            pool_h.append(curr_pool_h.view(num_ped, total_grid_size, self.h_dim)) # grid_size * grid_size * h_dim
 
         pool_h = torch.cat(pool_h, dim=0)
+        encoder_out = pool_h.view(-1, total_grid_size, self.h_dim)
+        embed_info = torch.cat([end_pos, rel_pos], dim=1)
+        pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=h_states.squeeze(0), embed_info=embed_info)
         pool_h = self.mlp_pool(pool_h)
         return pool_h
 
+'''
+torch.set_printoptions(profile="full")
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+fig,ax = plt.subplots(1)
 
+ax.scatter(top_left[:, 0], top_left[:, 1], c='black')
+ax.scatter(bottom_right[:, 0], bottom_right[:, 1], c='black')
+
+colors = np.random.rand(3, num_ped)
+for p in range(num_ped**2):
+    ped = p // num_ped
+    print(ped)
+    ax.scatter(curr_end_pos[ped, 0], curr_end_pos[ped, 1], marker='x', c=colors[:, ped])
+    rect = patches.Rectangle((top_left[p, 0],top_left[p, 1]),2,-2,linewidth=1,edgecolor=colors[:, ped],facecolor='none')
+    ax.add_patch(rect)
+    ax.text(curr_end_pos[ped, 0], curr_end_pos[ped, 1], ped, color=colors[:, ped])
+ax.axis('square')
+plt.show()
+
+grid_pos = self.get_grid_locations(
+    top_left, curr_end_pos).type_as(seq_start_end)
+
+print(within_bound)
+print(grid_pos)
+
+grid_pos = self.get_grid_locations(
+    top_left, scene_info_rep).view(num_ped, num_points)
+print(grid_pos)
+within_bound = x_bound + y_bound
+within_bound[0::num_ped + 1] = 1  # Don't include the ped itself
+within_bound = within_bound.view(num_ped, num_points)
+grid_pos += 1
+offset = torch.arange(0, self.grid_size * num_ped, self.grid_size)
+print(offset)
+offset = self.repeat(offset.view(-1, 1), num_points).view(num_ped, num_points)
+print(offset)
+
+'''
