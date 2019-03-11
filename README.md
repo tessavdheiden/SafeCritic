@@ -15,34 +15,27 @@ Our benchmark is against DESIRE, SocialGAN and SoPhie. These generating models h
 
 ## Improvements
 ### Evaluator
-- [X] Pool every for critic
-- [X] Compute matric [numPeds x numPeds x time] and put attention over it.
-- [X] Dualing networks to learn advantage
-- [ ] Learn collisions from videos
-- [ ] Learn the value function (collision) by generator.
-- [ ] Learn collision checking of oracle
-- [ ] Collision checking, discrete or continous collision checking?
-- [ ] Change loss functions of Generator and Oracle
+- [ ] Critic: Pooling or alternative Value (or Q-value, Advantage function) approximation ([numPeds x numPeds x time]).
+
+### Generator
+- [X] Timing: pool every with static and dynamic takes 8min.
+- [ ] Loss from critic: Discount rewards, normalize, future.
+
+### Pooling
+- [X] Input segmented boundary points.
+- [X] Visualize physical pooling attention. 
+- [X] Init hidden and grad?
+
+### Baselines
+- [ ] Compute new minADE, minFDE, meanSampleMSE, DC, OC, test & train. 
+- [ ] Test on SDD, UCY, ALL.
+- [X] DESIRE
+- [ ] SoPhie
+- [ ] REINFORCE
 
 ### Code quality
 - [ ] Organize code: Seperate dataset from model, delete simple lstm, seperate code in scripts, sgan into more folders (better naming)
 
 ### Cluster computing
 - [ ] Make kubernetis work
-
-### Generator
-- [ ] Noise perturbates the hidden states (creates diverse samples). Can Pooling or Oracle filter the noise (create diverse, but collision free trajectories)? Also the perturbation is for each person the same (models.py line 98)
-
-### Pooling
-- [X] Input segmented images and pool into local grid.
-- [X] Attention physical pooling on local grid around agent
-- [X] Move the init hidden and calling grad before the start of pooling (in generator and decoder).
-
-### Baselines
-- [X] Compute new minADE, minFDE, meanSampleMSE, DC, OC
-- [X] Datasets UCY vs SDD, UCY generates multiple samples.
-- [ ] DESIRE
-- [ ] SeqGAN
-- [ ] SoPhie
-- [ ] REINFORCE
  
