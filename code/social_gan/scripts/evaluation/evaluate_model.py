@@ -231,9 +231,9 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
 
                 start = start.item()
                 frame = traj_frames[args.obs_len][start][0].item()
-                print(frame)
-                if len(reader) < frame:
-                    continue
+                #print(frame)
+                #if len(reader) < frame:
+                #    continue
 
                 photo = reader.get_data(int(frame))
                 photo_list.append(photo)
@@ -480,10 +480,10 @@ def evaluate_test_occs(data_set, scene, batch=1):
 def main():
 
     test_case = 1
-    precompute_required = False
+    precompute_required = True
     data_set = 'SDD'
 
-    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_SP'.format(data_set))
+    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_DP'.format(data_set))
 
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
