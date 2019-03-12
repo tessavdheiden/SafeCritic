@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from tensorboardX import SummaryWriter
 import numpy as np
 import matplotlib.cm as cm
+import matplotlib.patches as patches
 import skimage.transform
 from PIL import Image
 import pandas as pd
@@ -12,6 +13,9 @@ from attrdict import AttrDict
 from sgan.models_static_scene import get_homography_and_map
 from datasets.calculate_static_scene_boundaries import get_pixels_from_world
 from sgan.folder_utils import get_root_dir, get_test_data_path
+from sgan.utils import get_device
+
+device = get_device()
 
 def my_plot(ax, o, p, g, annotated_points):
     ax.scatter(o[:, 0], o[:, 1], c='orange', s=1)
@@ -144,7 +148,7 @@ def plot_static_net_tensorboardX(writer, generator, pool_static_type, epoch):
                              generator.state_dict()['static_net.static_scene_feature_extractor.mlp_pre_pool.2.bias'].cpu().numpy(), epoch)
 
 
-def visualize_attention_weights(scene_name, encoded_image_size, attention_weights, curr_end_pos):
+def visualize_attention_weights(scene_name, encoded_image_size, attention_weights, curr_end_pos, ax1, ax2, counter=0):
     """
     Function to visualize the attention weights on their relative scene image during inference time (training or testing).
     :param scene_name: the name of the SDD scene from which the attention weights were computed
@@ -153,11 +157,13 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     :param attention_weights: the weights computed by the attention module
     :param curr_end_pos: the current positions of all agents in a scene
     """
-
+    ped_id = 0
+    grid_size = 8.0
     # 'upscaling_factor' is used to increment the size of the scene image (to make it better visualizable) as well as
     # the agents' positions coordinates do adapt them to the new image size
     upscaling_factor = 1
-    plt.clf()
+    ax1.cla()
+    ax2.cla()
 
     # 'dataset_path' represents the path with the SDD scene folders inside
     dataset_path = get_root_dir() + "/datasets/safegan_dataset/SDD/"
@@ -181,36 +187,48 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     #
 
     w, h = image_original.size
-    col = np.round(pixels[0][0])
-    row = np.round(pixels[0][1])
-    if row - 200 > 0 and row + 200 < h and col - 200 > 0 and col + 200 < w:
-        image = image_original.crop((col - 200, row - 200, col + 200, row + 200))
+    col = np.round(pixels[ped_id][0])
+    row = np.round(pixels[ped_id][1])
+    grid_left_upper_corner = curr_end_pos - torch.tensor([grid_size/2.0, grid_size/2.0]).expand_as(curr_end_pos).to(device)
+    pixels_grid = get_pixels_from_world(grid_left_upper_corner, h_matrix, True)
+
+    col_grid = (col - np.round(pixels_grid[ped_id][0]))
+    row_grid = (row - np.round(pixels_grid[ped_id][1]))
+
+    if row - row_grid > 0 and row + row_grid < h and col - col_grid > 0 and col + col_grid < w:
+        image = image_original.crop((col - col_grid, row - row_grid, col + col_grid, row + row_grid))
     else:
-        image = image_original.crop((w//2 - 200, h//2 - 200, w//2 + 200, h//2 + 200))
+        image = image_original.crop((w//2 - col_grid, h//2 - row_grid, w//2 + col_grid, h//2 + row_grid))
     #image = image.resize([20 * upscaling_factor, 20 * upscaling_factor], Image.LANCZOS)
 
 
     # Ŕesize the attention weights dimension to match it with the dimension of the upscaled raw scene image.
     # To expand the attention weights I use skimage that allows us to also smooth the pixel values during the expansion
     attention_weights = attention_weights.view(-1, encoded_image_size, encoded_image_size).detach().cpu().numpy()
-    alpha = skimage.transform.pyramid_expand(attention_weights[0], upscale=48, sigma=8)
+    upscaling_factor = image.size[0] / encoded_image_size
+    alpha = skimage.transform.pyramid_expand(attention_weights[ped_id], upscale=upscaling_factor, sigma=8)
     #pixels = np.expand_dims( np.array([w//2, h//2]), axis=0)
 
+
+    rect = patches.Rectangle((pixels_grid[ped_id, 0], pixels_grid[ped_id, 1]), 2*col_grid, 2*row_grid,linewidth=1,edgecolor='white',facecolor='none')
+
     # Plot raw scene image, the agents' positions and the attention weights
-    plt.subplot(1, 2, 1)
-    plt.imshow(image_original)
-    plt.scatter(pixels[:, 0], pixels[:, 1], marker='.', color="b")
-    plt.scatter(pixels[0, 0], pixels[0, 1], marker='X', color="r")
+    ax1.imshow(image_original)
+    ax1.scatter(pixels[:, 0], pixels[:, 1], marker='.', color="b")
+    ax1.scatter(pixels[ped_id, 0], pixels[ped_id, 1], marker='X', color="r")
+    ax1.add_patch(rect)
+    ax1.axis('off')
 
-    plt.axis('off')
-
-    plt.subplot(1, 2, 2)
-    plt.imshow(image)
-    plt.imshow(alpha, alpha=0.7)
+    ax2.imshow(image)
+    ax2.imshow(np.flipud(alpha), alpha=0.7)
     plt.set_cmap(cm.Greys_r)
-    plt.axis('off')
+    ax2.axis('off')
 
-    plt.show()
+    directory = get_root_dir() + '/results/plots/SDD/safeGAN_DP/attention'
+    files = len(os.listdir(directory))
+    plt.savefig(directory + '/frame_{}.png'.format(files + 1))
+    plt.draw()
+    plt.waitforbuttonpress()
 
 
 def main():
