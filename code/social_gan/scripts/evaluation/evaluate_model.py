@@ -204,9 +204,10 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
 
     with torch.no_grad():
         for b, batch in enumerate(loader):
-            if b > 2:
-                break
+            print('batch = {}'.format(b))
             batch = [tensor.cuda() for tensor in batch]
+#            if b != 5:
+#                continue
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
@@ -217,7 +218,7 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
             save_pickle(pred_traj_gt, 'pred_traj_gt', b, data_set)
             save_pickle(seq_start_end, 'seq_start_end', b, data_set)
 
-            photo_list, homography_list, annotated_points_list = [], [], []
+            photo_list, homography_list, annotated_points_list, scene_name_list, scene_information = [], [], [], [], {}
             for i, (start, end) in enumerate(seq_start_end):
                 dataset_name = seq_scenes[i]
                 path = get_path(dataset_name)
@@ -225,6 +226,8 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
                 annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
                 homography_list.append(h)
                 annotated_points_list.append(annotated_points)
+                scene_name_list.append(dataset_name)
+                scene_information[dataset_name] = annotated_points
 
                 start = start.item()
                 frame = traj_frames[args.obs_len][start][0].item()
@@ -238,6 +241,8 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
             save_pickle(homography_list, 'homography_list', b, data_set)
             save_pickle(annotated_points_list, 'annotated_points_list', b, data_set)
             save_pickle(photo_list, 'photo_list', b, data_set)
+            save_pickle(scene_name_list, 'scene_name_list', b, data_set)
+            save_pickle(scene_information, 'scene_information', b, data_set)
 
             pred_traj_fake1_list, pred_traj_fake2_list = [], []
             for sample in range(num_samples):
@@ -255,7 +260,7 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
             save_pickle(pred_traj_fake2_list, 'pred_traj_fake2_list', b, data_set)
 
 
-def evaluate_trajectory_quality(data_set, selection=-1, batch=0):
+def evaluate_trajectory_quality(data_set, selection=-1, batch=5):
     obs_traj = load_pickle('obs_traj', batch, data_set)
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
     seq_start_end = load_pickle('seq_start_end', batch, data_set)
@@ -266,6 +271,7 @@ def evaluate_trajectory_quality(data_set, selection=-1, batch=0):
     homography_list = load_pickle('homography_list', batch, data_set)
     photo_list = load_pickle('photo_list', batch, data_set)
     annotated_points_list = load_pickle('annotated_points_list', batch, data_set)
+
 
     fig, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4, figsize=(16, 4), num=1)
 
@@ -281,6 +287,8 @@ def evaluate_trajectory_quality(data_set, selection=-1, batch=0):
         photo = photo_list[i]
         h = homography_list[i]
         annotated_points = annotated_points_list[i]
+        annotated_points = get_pixels_from_world(annotated_points, h)
+        subsample = annotated_points.shape[0] // 500
 
         plt.cla()
         plot_photo(ax1, photo, 'observed')
@@ -293,31 +301,33 @@ def evaluate_trajectory_quality(data_set, selection=-1, batch=0):
 
         cols_gt, cols1, cols2 = 0, 0, 0
         for p in range(np.minimum(num_ped, 3)):
-            if p == 0 or p==1 or p==2:
+            if True: #p == 0 or p==1 or p==2:
                 plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
                 plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
-                for sample in range(1):
-                    traj_pred1 = pred_traj_fake2_list[sample].permute(1, 0, 2)[start:end]
-                    traj_pred2 = pred_traj_fake2_list[sample + 1].permute(1, 0, 2)[start:end]
-                    traj_pred3 = pred_traj_fake2_list[sample + 2].permute(1, 0, 2)[start:end]
+
+                for sample in range(0, 20-2, 3):
+                    traj_pred1 = pred_traj_fake1_list[sample + 0].permute(1, 0, 2)[start:end]
+                    traj_pred2 = pred_traj_fake1_list[sample + 1].permute(1, 0, 2)[start:end]
+                    traj_pred3 = pred_traj_fake1_list[sample + 2].permute(1, 0, 2)[start:end]
+
+                    traj_pred11 = pred_traj_fake2_list[sample + 0].permute(1, 0, 2)[start:end]
+                    traj_pred22 = pred_traj_fake2_list[sample + 1].permute(1, 0, 2)[start:end]
+                    traj_pred33 = pred_traj_fake2_list[sample + 2].permute(1, 0, 2)[start:end]
 
                     plot_pixel(ax2, traj_pred1, p, h, a=1, last=False, first=False, size=10, colors=colors)
                     plot_pixel(ax2, traj_pred2, p, h, a=1, last=False, first=False, size=10, colors=colors)
                     plot_pixel(ax2, traj_pred3, p, h, a=1, last=False, first=False, size=10, colors=colors)
 
-                    traj_pred11 = pred_traj_fake1_list[sample].permute(1, 0, 2)[start:end]
-                    traj_pred22 = pred_traj_fake1_list[sample + 1].permute(1, 0, 2)[start:end]
-                    traj_pred33 = pred_traj_fake1_list[sample + 2].permute(1, 0, 2)[start:end]
-
-                    plot_pixel(ax3, traj_pred11, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle=':')
-                    plot_pixel(ax3, traj_pred22, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle=':')
-                    plot_pixel(ax3, traj_pred33, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle=':')
-
+                    plot_pixel(ax3, traj_pred11, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
+                    plot_pixel(ax3, traj_pred22, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
+                    plot_pixel(ax3, traj_pred33, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
+        ax3.scatter(annotated_points[::subsample, 0], annotated_points[::subsample, 1], marker='.', color='white', s=1)
         ax1.set_xlabel('frame {}'.format(str(batch * len(seq_start_end) + i)))
         #_, _, _ = plot_cols(ax2, ax3, ax4, traj_gt, traj_pred1, traj_pred2, cols_gt, cols1, cols2, h)
         #_, _, _ = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2)
         plt.waitforbuttonpress()
         plt.draw()
+        #plt.pause(.001)
 
         if False:
             plt.show()
@@ -356,19 +366,25 @@ def move_figure(f, x, y):
     return f
 
 
-def evaluate_training_ade(args1, checkpoint1, checkpoint2):
-    ade1 = checkpoint1['metrics_val']['cols']
-    ade2 = checkpoint2['metrics_val']['cols_gt']
+def evaluate_training_metric(args1, checkpoint1, checkpoint2, metric='cols'):
+    ade1 = checkpoint1['metrics_val'][metric]
+    ade2 = checkpoint2['metrics_val'][metric]
+    ade_gt1 = checkpoint1['metrics_val']['{}_gt'.format(metric)]
+    ade_gt2 = checkpoint2['metrics_val']['{}_gt'.format(metric)]
     epochs1 = torch.arange(len(ade1)).cpu().numpy()
     epochs2 = torch.arange(len(ade2)).cpu().numpy()
-    plt.plot(epochs1[::10], ade1[::10], label='cp1')
-    plt.plot(epochs2[::10], ade2[::10], label='cp2')
+    plt.plot(epochs1[::1], ade1[::1], label='cp1')
+    plt.plot(epochs2[::1], ade2[::1], label='cp2')
+    if metric == 'cols' or metric == 'occs':
+        plt.plot(epochs1[::1], ade_gt1[::1], label='cp1_gt')
+        plt.plot(epochs2[::1], ade_gt2[::1], label='cp2_gt')
     plt.legend()
     plt.show()
 
-def evaluate_test_ade(data_set, batch=0):
+def evaluate_test_ade(data_set, scene, batch=0):
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
     seq_start_end = load_pickle('seq_start_end', batch, data_set)
+    scene_name_list = load_pickle('scene_name_list', batch, data_set)
 
     pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
     pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
@@ -376,6 +392,10 @@ def evaluate_test_ade(data_set, batch=0):
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
+    scene_name = np.unique(scene_name_list)
+    print(scene_name)
+    if not (scene_name == scene).all():
+        return 0, 0
     for i in range(num_samples):
         ade1.append(displacement_error(pred_traj_fake1_list[i], pred_traj_gt, mode='raw'))
         ade2.append(displacement_error(pred_traj_fake2_list[i], pred_traj_gt, mode='raw'))
@@ -385,9 +405,10 @@ def evaluate_test_ade(data_set, batch=0):
     ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj * pred_len)
     return ade1, ade2
 
-def evaluate_test_fde(data_set, batch=0):
+def evaluate_test_fde(data_set, scene, batch=0):
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
     seq_start_end = load_pickle('seq_start_end', batch, data_set)
+    scene_name_list = load_pickle('scene_name_list', batch, data_set)
 
     pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
     pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
@@ -395,6 +416,10 @@ def evaluate_test_fde(data_set, batch=0):
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
+    scene_name = np.unique(scene_name_list)
+    print(scene_name)
+    if not (scene_name == scene).all():
+        return 0, 0
     for i in range(num_samples):
         ade1.append(final_displacement_error(pred_traj_fake1_list[i][-1], pred_traj_gt[-1], mode='raw'))
         ade2.append(final_displacement_error(pred_traj_fake2_list[i][-1], pred_traj_gt[-1], mode='raw'))
@@ -403,9 +428,10 @@ def evaluate_test_fde(data_set, batch=0):
     ade2 = evaluate_helper(ade2, seq_start_end) / total_traj
     return ade1, ade2
 
-def evaluate_test_cols(data_set, batch=1):
+def evaluate_test_cols(data_set, scene, batch=1):
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
     seq_start_end = load_pickle('seq_start_end', batch, data_set)
+    scene_name_list = load_pickle('scene_name_list', batch, data_set)
 
     pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
     pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
@@ -413,54 +439,87 @@ def evaluate_test_cols(data_set, batch=1):
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
+    scene_name = np.unique(scene_name_list)
+    print(scene_name)
+    if not (scene_name == scene).all():
+        return 0, 0
     for i in range(num_samples):
         ade1.append(collision_error(pred_traj_fake1_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
-        ade2.append(collision_error(pred_traj_fake1_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
+        ade2.append(collision_error(pred_traj_fake2_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
     total_traj = pred_traj_gt.size(1)
     pred_len = pred_traj_gt.size(0)
-    ade1 = evaluate_helper(ade1, seq_start_end, min=False) / (total_traj * pred_len)
-    ade2 = evaluate_helper(ade2, seq_start_end, min=False) / (total_traj * pred_len)
+    ade1 = evaluate_helper(ade1, seq_start_end, min=False) / (total_traj )
+    ade2 = evaluate_helper(ade2, seq_start_end, min=False) / (total_traj )
     return ade1, ade2
 
 
+def evaluate_test_occs(data_set, scene, batch=1):
+    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
+    seq_start_end = load_pickle('seq_start_end', batch, data_set)
+    scene_name_list = load_pickle('scene_name_list', batch, data_set)
+    scene_information = load_pickle('scene_information', batch, data_set)
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set)
+
+    num_samples = len(pred_traj_fake1_list)
+    ade1 = []
+    ade2 = []
+    scene_name = np.unique(scene_name_list)
+    print(scene_name)
+    if not (scene_name == scene).all():
+        return 0, 0
+    for i in range(num_samples):
+        ade1.append(occupancy_error(pred_traj_fake1_list[i], seq_start_end, scene_information, scene_name_list, minimum_distance=0.1, mode='all'))
+        ade2.append(occupancy_error(pred_traj_fake2_list[i], seq_start_end, scene_information, scene_name_list, minimum_distance=0.1, mode='all'))
+    total_traj = pred_traj_gt.size(1)
+    pred_len = pred_traj_gt.size(0)
+    ade1 = evaluate_helper(ade1, seq_start_end, min=False) / (total_traj )
+    ade2 = evaluate_helper(ade2, seq_start_end, min=False) / (total_traj )
+    return ade1, ade2
+
 def main():
 
-    test_case = 2
+    test_case = 1
     precompute_required = False
-    data_set = 'UCY'
+    data_set = 'SDD'
 
-    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_DP'.format(data_set))
-    plots_path = os.path.join(get_root_dir(), 'results/plots/SDD/safeGAN_DP')
+    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_SP'.format(data_set))
+
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]
         data_dir = get_test_data_path(data_set.lower())
+
+        # load checkpoint of first model and arguments
+        checkpoint1 = torch.load(paths[0])
+        args1 = AttrDict(checkpoint1['args'])
+        print('Loading model from path: ' + paths[0])
+        generator1 = get_generator(checkpoint1, args1)
+
+        # load checkpoing of second model
+        checkpoint2 = torch.load(paths[1])
+        args2 = AttrDict(checkpoint2['args'])
+        print('Loading model from path: ' + paths[1])
+        generator2 = get_generator(checkpoint2, args2)
+
         if precompute_required:
-            # load checkpoint of first model and arguments
-            checkpoint1 = torch.load(paths[0])
-            args1 = AttrDict(checkpoint1['args'])
-            print('Loading model from path: ' + paths[0])
-            generator1 = get_generator(checkpoint1, args1)
-
-            # load checkpoing of second model
-            checkpoint2 = torch.load(paths[1])
-            args2 = AttrDict(checkpoint2['args'])
-            print('Loading model from path: ' + paths[1])
-            generator2 = get_generator(checkpoint2, args2)
-
-            evaluate_training_ade(args1, checkpoint1, checkpoint2)
             collect_generated_samples(args1, generator1, generator2, data_dir, data_set)
 
         if test_case == 1:
-            occs1, occs2 = evaluate_trajectory_quality(data_set)
+            occs1, occs2 = evaluate_trajectory_quality(data_set, selection=-1, batch=1 )
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
         elif test_case == 2:
-            cols = 0
-            for batch in range(0, 10):
-                ade1, ade2 = evaluate_test_cols(data_set, batch)
+            cols1, cols2, counter = 0, 0, 0
+            for batch in range(0, 9):
+                ade1, ade2 = evaluate_test_cols(data_set, 'bookstore_3', batch)
                 print('ADE model 1: {:.6f} model 2: {:.6f}'.format(ade1, ade2))
-                cols += ade2
-            print('ADE model 1: {:.6f} '.format(cols/10))
+                if ade1 > 0 and ade2 > 0:
+                    cols1 += ade1
+                    cols2 += ade2
+                    counter += 1.0
+            print('ADE model 1: {:.6f} model 2: {:.6f}'.format(cols1/counter, cols2/counter))
+        elif test_case == 3:
+            evaluate_training_metric(args1, checkpoint1, checkpoint2, 'cols')
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
