@@ -1,15 +1,24 @@
 import torch
 import torch.nn as nn
-import os
+
 
 from sgan.mlp import make_mlp
 from sgan.context.physical_attention import Attention_Decoder
-from scripts.visualization import visualize_attention_weights
+
 from sgan.folder_utils import get_dset_name, get_root_dir, get_test_data_path
 
 from sgan.utils import get_device
 
 device = get_device()
+
+visualize_attention = True
+if visualize_attention:
+    import os
+    import matplotlib.pyplot as plt
+    fig, ((ax1, ax2)) = plt.subplots(1, 2, figsize=(8, 4), num=1)
+    from scripts.visualization import visualize_attention_weights
+
+
 class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
@@ -93,9 +102,6 @@ class PoolHiddenNet(nn.Module):
             pool_h.append(curr_pool_h) # append for all sequences the hiddens (num_ped_per_seq, 64)
         pool_h = torch.cat(pool_h, dim=0)
         return pool_h
-
-
-
 
 
 class SocialPooling(nn.Module):
@@ -217,7 +223,6 @@ class SocialPooling(nn.Module):
         return pool_h
 
 
-
 class SocialPoolingAttention(nn.Module):
     """Current state of the art pooling mechanism:
     http://cvgl.stanford.edu/papers/CVPR16_Social_LSTM.pdf"""
@@ -299,23 +304,20 @@ class SocialPoolingAttention(nn.Module):
             # curr_end_pos = curr_end_pos.data
             top_left, bottom_right = self.get_bounds(curr_end_pos)
 
-            # Used in attention
-            #embed_info = torch.cat([curr_end_pos, rel_pos[start:end]], dim=1)
-
             # Repeat position -> P1, P2, P1, P2
-            curr_end_pos = curr_end_pos.repeat(num_ped, 1)
+            curr_end_pos_rep = curr_end_pos.repeat(num_ped, 1)
             # Repeat bounds -> B1, B1, B2, B2
             top_left = self.repeat(top_left, num_ped)
             bottom_right = self.repeat(bottom_right, num_ped)
 
             grid_pos = self.get_grid_locations(
-                    top_left, curr_end_pos).type_as(seq_start_end)
+                    top_left, curr_end_pos_rep).type_as(seq_start_end)
             # Make all positions to exclude as non-zero
             # Find which peds to exclude
-            x_bound = ((curr_end_pos[:, 0] >= bottom_right[:, 0]) +
-                       (curr_end_pos[:, 0] <= top_left[:, 0]))
-            y_bound = ((curr_end_pos[:, 1] >= top_left[:, 1]) +
-                       (curr_end_pos[:, 1] <= bottom_right[:, 1]))
+            x_bound = ((curr_end_pos_rep[:, 0] >= bottom_right[:, 0]) +
+                       (curr_end_pos_rep[:, 0] <= top_left[:, 0]))
+            y_bound = ((curr_end_pos_rep[:, 1] >= top_left[:, 1]) +
+                       (curr_end_pos_rep[:, 1] <= bottom_right[:, 1]))
 
             within_bound = x_bound + y_bound
             within_bound[0::num_ped + 1] = 1  # Don't include the ped itself
@@ -332,18 +334,21 @@ class SocialPoolingAttention(nn.Module):
             grid_pos[within_bound != 0] = 0
             grid_pos = grid_pos.view(-1, 1).expand_as(curr_hidden_repeat).to(device) # grid_pos = [num_ped**2, h_dim]
 
-            curr_pool_h = curr_pool_h.scatter_add(0, grid_pos, curr_hidden_repeat) # curr_pool_h = [num_peds * total_grid_size + 1, h_dim],  grid_pos = [num_peds**2], curr_hidden_repeat = [num_ped**2, h_dim]
+            curr_pool_h = curr_pool_h.scatter_add(0, grid_pos, curr_hidden_repeat)  # curr_pool_h = [num_peds * total_grid_size + 1, h_dim],  grid_pos = [num_peds**2], curr_hidden_repeat = [num_ped**2, h_dim]
             curr_pool_h = curr_pool_h[1:]
 
-            #encoder_out = curr_pool_h.view(num_ped, total_grid_size, self.h_dim)
-            #curr_pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden, embed_info=embed_info)
-            #pool_h.append(curr_pool_h.view(num_ped, -1))  # grid_size * grid_size * h_dim
-            '''
-            data_dir = get_test_data_path('sdd')
-            list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
-            seq_scenes = [list_data_files[num] for num in seq_scene_ids]
-            visualize_attention_weights(seq_scenes[i], self.grid_size, attention_weights, end_pos[start:end])
-            '''
+            if visualize_attention:
+                # #pool_h.append(curr_pool_h.view(num_ped, -1))  # grid_size * grid_size * h_dim
+                # Used for visualization
+                embed_info = torch.cat([curr_end_pos, rel_pos[start:end]], dim=1)
+                encoder_out = curr_pool_h.view(num_ped, total_grid_size, self.h_dim)
+                curr_pool_h_after_attention, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden,
+                                                                    embed_info=embed_info)
+                data_dir = get_test_data_path('sdd')
+                list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
+                seq_scenes = [list_data_files[num] for num in seq_scene_ids]
+                visualize_attention_weights(seq_scenes[i], self.grid_size, attention_weights, end_pos[start:end], ax1, ax2)
+
             pool_h.append(curr_pool_h.view(num_ped, total_grid_size, self.h_dim)) # grid_size * grid_size * h_dim
 
         pool_h = torch.cat(pool_h, dim=0)

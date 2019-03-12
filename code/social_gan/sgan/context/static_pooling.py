@@ -4,12 +4,20 @@ import numpy as np
 
 import os
 
+from scripts.visualization import visualize_attention_weights
 from sgan.context.static_scene_feature_extractor import StaticSceneFeatureExtractorRandom, StaticSceneFeatureExtractorGrid, StaticSceneFeatureExtractorCNN, StaticSceneFeatureExtractorRaycast, StaticSceneFeatureExtractorPolar, StaticSceneFeatureExtractorAttention
 from sgan.utils import get_device
 from sgan.folder_utils import get_dset_name, get_dset_group_name, get_root_dir
 from sgan.context.physical_attention import Attention_Decoder
 from sgan.mlp import make_mlp
 device = get_device()
+
+visualize_attention = False
+
+if visualize_attention:
+    import matplotlib.pyplot as plt
+    fig, ((ax1, ax2)) = plt.subplots(1, 2, figsize=(8, 4), num=1)
+
 
 class PhysicalPooling(nn.Module):
     def __init__(
@@ -139,7 +147,6 @@ class GridPooling(nn.Module):
             dropout=dropout
         ).to(device)
 
-
     def get_bounds(self, ped_pos):
         top_left_x = ped_pos[:, 0] - self.neighborhood_size / 2
         top_left_y = ped_pos[:, 1] + self.neighborhood_size / 2
@@ -202,9 +209,6 @@ class GridPooling(nn.Module):
             # curr_end_pos = curr_end_pos.data
             top_left, bottom_right = self.get_bounds(curr_end_pos)
 
-            # Used in attention
-            embed_info = torch.cat([curr_end_pos, curr_disp_pos], dim=1)
-
             # Repeat position -> P1, P2, P1, P2
             scene_info_rep = scene_info.repeat(num_ped, 1)
             # Repeat bounds -> B1, B1, B2, B2
@@ -235,12 +239,16 @@ class GridPooling(nn.Module):
 
             curr_grid = curr_grid.scatter_add(0, grid_pos, occupancy)  # curr_hidden_repeat = [num_ped**2, h_dim]
             curr_grid = curr_grid[1:]
-            #encoder_out = curr_grid.view(num_ped, total_grid_size, 1)
-            #curr_pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden,
-            #                                                        embed_info=embed_info)
+            # curr_grid.view(num_ped, total_grid_size, 1)
+            # encoder_out = curr_grid.view(num_ped, total_grid_size, 1)
+            # curr_pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden, embed_info=embed_info)
+            # pool_h.append(curr_pool_h) # append for all sequences the hiddens (num_ped_per_seq, 64)
 
-            #pool_h.append(curr_pool_h) # append for all sequences the hiddens (num_ped_per_seq, 64)
-
+            if visualize_attention:
+                embed_info = torch.cat([curr_end_pos, curr_disp_pos], dim=1)
+                encoder_out = curr_grid.view(num_ped, total_grid_size, 1)
+                curr_pool_h, attention_weights = self.attention_decoder(encoder_out=encoder_out, curr_hidden=curr_hidden, embed_info=embed_info)
+                visualize_attention_weights(seq_scenes[i], self.grid_size, attention_weights, end_pos[start:end], ax1, ax2)
             pool_h.append(curr_grid.view(num_ped, total_grid_size, 1)) # grid_size * grid_size * 1
 
         pool_h = torch.cat(pool_h, dim=0)
