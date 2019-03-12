@@ -3,8 +3,8 @@ from sgan.decoder import Decoder
 
 from sgan.context.composite_pooling import CompositePooling
 from sgan.context.null_pooling import NullPooling
-from sgan.context.static_pooling import PhysicalPooling
-from sgan.context.dynamic_pooling import SocialPooling, PoolHiddenNet
+from sgan.context.static_pooling import PhysicalPooling, GridPooling
+from sgan.context.dynamic_pooling import SocialPooling, PoolHiddenNet, SocialPoolingAttention
 
 class DecoderBuilder(object):
     def __init__(
@@ -38,17 +38,26 @@ class DecoderBuilder(object):
          print('Null pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def with_static_pooling(self, data_dir):
-         physical_pooling = PhysicalPooling(
-                embedding_dim=self.embedding_dim,
-                h_dim=self.h_dim,
-                mlp_dim=self.mlp_dim,
-                bottleneck_dim=self.bottleneck_dim,
-                activation=self.activation,
-                batch_norm=self.batch_norm,
-                neighborhood_size=self.neighborhood_size,
-                pool_static_type=self.static_pooling_type,
-                down_samples=self.down_samples)
-         
+         if self.static_pooling_type != 'grid':
+             physical_pooling = PhysicalPooling(
+                 embedding_dim=self.embedding_dim,
+                 h_dim=self.h_dim,
+                 mlp_dim=self.mlp_dim,
+                 bottleneck_dim=self.bottleneck_dim,
+                 activation=self.activation,
+                 batch_norm=self.batch_norm,
+                 neighborhood_size=self.neighborhood_size,
+                 pool_static_type=self.static_pooling_type,
+                 down_samples=self.down_samples)
+         else:
+             physical_pooling = GridPooling(
+                 h_dim=self.h_dim,
+                 bottleneck_dim=self.bottleneck_dim,
+                 activation=self.activation,
+                 batch_norm=self.batch_norm,
+                 dropout=self.dropout,
+                 neighborhood_size=self.neighborhood_size,
+                 grid_size=self.grid_size)
          physical_pooling.static_scene_feature_extractor.set_dset_list(data_dir)
          self.pooling.add(physical_pooling)
          self.pooling_output_dim += self.bottleneck_dim
@@ -69,6 +78,15 @@ class DecoderBuilder(object):
 
          elif self.dynamic_pooling_type == 'social_pooling': 
             self.pooling.add(SocialPooling(
+                h_dim=self.h_dim,
+                bottleneck_dim=self.bottleneck_dim,
+                activation=self.activation,
+                batch_norm=self.batch_norm,
+                dropout=self.dropout,
+                neighborhood_size=self.neighborhood_size,
+                grid_size=self.grid_size))
+         elif self.dynamic_pooling_type == 'social_pooling_attention':
+            self.pooling.add(SocialPoolingAttention(
                 h_dim=self.h_dim,
                 bottleneck_dim=self.bottleneck_dim,
                 activation=self.activation,
