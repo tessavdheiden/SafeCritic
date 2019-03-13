@@ -26,6 +26,7 @@ def get_dset_path(dataset_path, dset_name, dset_type):
     return _dir + dataset_path + '/' + get_dset_group_name(dset_name) + '/' + dset_name + '/Training/'+ dset_type
 
 def get_dset_name(name):
+    '''
     if name =='biwi_eth_val.txt' or name =='biwi_eth_train.txt' or name =='biwi_eth.txt' or name =='eth.txt' or name =='eth_val.txt'  or name =='eth_train.txt' or name == 'eth':
         return 'eth'
     elif name == 'biwi_hotel_val.txt' or name == 'biwi_hotel_train.txt' or name =='biwi_hotel.txt'or name =='hotel.txt' or name =='hotel_val.txt'  or name =='hotel_train.txt' or name == 'hotel':
@@ -42,7 +43,8 @@ def get_dset_name(name):
         return 'students_3'
     elif name == 'uni_examples_val.txt' or name == 'uni_examples_train.txt' or name =='uni_examples.txt' or name == 'univ':
         return 'students_3'
-    elif '_train.txt' in name:
+    '''
+    if '_train.txt' in name:
         return name[:-10]
     elif '_val.txt' in name:
         return name[:-8]
@@ -54,10 +56,12 @@ def get_dset_name(name):
 def get_dset_group_name(name):
     if name =='eth' or name =='hotel':
         return 'ETH'
-    elif name == 'zara_1' or name == 'zara_2' or name =='students_3':
+    elif name == 'zara_1' or name == 'zara_2' or name =='students_3' or name =='ucy':
         return 'UCY'
     elif name == 'sdd':
         return 'SDD'
+    elif name == 'all':
+        return 'ALL'
     elif name == 'bookstore_0' or name == 'bookstore_1' or name == 'bookstore_2' or name == 'bookstore_3':
         return 'SDD'
     elif name == 'coupa_0' or name == 'coupa_1' or name == 'coupa_3':

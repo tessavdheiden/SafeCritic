@@ -21,7 +21,7 @@ def bce_loss(input, target):
     return loss.mean()
 
 
-def gan_g_loss(scores_fake, loss='bce'):
+def gan_g_loss(scores_fake, loss='mse'):
     """
     Input:
     - scores_fake: Tensor of shape (N,) containing scores for fake samples

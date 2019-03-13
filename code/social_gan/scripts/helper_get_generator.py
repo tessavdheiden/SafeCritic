@@ -22,10 +22,10 @@ def helper_get_generator(args, data_path):
         down_samples=args.down_samples
     )
     if args.pool_every_timestep:
-    	if args.static_pooling_type is not None:
-        	decoder_builder.with_static_pooling(data_path)
-    	if args.dynamic_pooling_type is not None:
-        	decoder_builder.with_dynamic_pooling()
+        if args.static_pooling_type is not None:
+            decoder_builder.with_static_pooling(data_path)
+        if args.dynamic_pooling_type is not None:
+            decoder_builder.with_dynamic_pooling()
     decoder = decoder_builder.build()
 
     # build trajectory

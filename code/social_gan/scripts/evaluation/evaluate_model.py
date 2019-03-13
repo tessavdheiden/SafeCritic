@@ -479,11 +479,11 @@ def evaluate_test_occs(data_set, scene, batch=1):
 
 def main():
 
-    test_case = 1
-    precompute_required = True
+    test_case = 3
+    precompute_required = False
     data_set = 'SDD'
 
-    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_DP'.format(data_set))
+    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_Discriminator'.format(data_set))
 
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
@@ -519,7 +519,7 @@ def main():
                     counter += 1.0
             print('ADE model 1: {:.6f} model 2: {:.6f}'.format(cols1/counter, cols2/counter))
         elif test_case == 3:
-            evaluate_training_metric(args1, checkpoint1, checkpoint2, 'cols')
+            evaluate_training_metric(args1, checkpoint1, checkpoint2, 'ade')
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':

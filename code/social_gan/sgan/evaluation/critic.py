@@ -1,9 +1,13 @@
 import torch
 import torch.nn as nn
+import os
+import numpy as np
 
 from sgan.encoder import Encoder
 from sgan.mlp import make_mlp
-from scripts.collision_checking import collision_error, occupancy_error
+from sgan.folder_utils import get_root_dir, get_dset_name, get_dset_group_name
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class TrajectoryCritic(nn.Module):
     def __init__(
@@ -49,33 +53,50 @@ class TrajectoryCritic(nn.Module):
 
         elif self.c_type == 'local':
             real_classifier_dims = [1, mlp_dim, 1]
-            self.spatial_embedding = nn.Linear(1, 1)
-
+            self.final_embedding_agents = nn.Sequential(
+                nn.Linear(1, mlp_dim),
+                nn.ReLU(),
+                nn.Linear(mlp_dim, 1)
+            )
+            self.final_embedding_scene = nn.Sequential(
+                nn.Linear(1, mlp_dim),
+                nn.ReLU(),
+                nn.Linear(mlp_dim, 1)
+            )
+            self.temporal_embedding_agents = nn.Sequential(
+                nn.Linear(self.seq_len, mlp_dim),
+                nn.ReLU(),
+                nn.Linear(mlp_dim, 1)
+            )
+            self.temporal_embedding_scene = nn.Sequential(
+                nn.Linear(self.seq_len, mlp_dim),
+                nn.ReLU(),
+                nn.Linear(mlp_dim, 1)
+            )
             self.real_classifier = make_mlp(
                 real_classifier_dims,
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout)
 
-    def repeat(self, tensor, num_reps):
-        """
-        Inputs:
-        -tensor: 2D tensor of any shape
-        -num_reps: Number of times to repeat each row
-        Outpus:
-        -repeat_tensor: Repeat each row such that: R1, R1, R2, R2
-        """
-        col_len = tensor.size(1)
-        tensor = tensor.unsqueeze(dim=1).repeat(1, num_reps, 1)
-        tensor = tensor.view(-1, col_len)
-        return tensor
+    def set_dset_list(self, data_dir, down_sampling=True, down_samples=200):
+        directory = get_root_dir() + '/datasets/safegan_dataset/'
 
-    def to_binary(self, prob):
-        out = torch.zeros_like(prob)
-        out[prob > self.collision_threshold] = 1
-        return out
+        self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
+        for name in self.list_data_files:
+            path_group = os.path.join(directory, get_dset_group_name(name))
 
-    def get_min_distance_agents(self, pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'):
+            """ The inputs are the boundary points between the traversable and non-traversable areas. It is 
+                possible to take all points or just a sample"""
+            path = os.path.join(path_group, name)
+            map = np.load(path + "/world_points_boundary.npy")
+            if down_samples != -1 and down_sampling and map.shape[0] > down_samples:
+                down_sampling = (map.shape[0] // down_samples)
+                sampled = map[::down_sampling]
+                map = sampled[:down_samples]
+            self.scene_information[name] = torch.from_numpy(map).type(torch.float).to(device)
+
+    def get_min_distance_agents(self, pred_pos, seq_start_end):
         """
         Input:
         - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -99,18 +120,20 @@ class TrajectoryCritic(nn.Module):
             distance = torch.norm(X_rows_rep.view(seq_length, num_ped, num_ped, 2) - X_cols_rep.view(seq_length, num_ped, num_ped, 2), dim=3)
             distance = distance.clone().view(seq_length, num_ped, num_ped)
 
-            distance[distance == 0] = minimum_distance  # exclude distance between people and themself
-            min_distance = distance.min(1)[0]  # [t X ped]
-            min_distance_all = min_distance.min(0)[0]
+            distance[distance == 0] = self.collision_threshold  # exclude distance between people and themself
+            grid = torch.zeros_like(distance) # [t X ped X ped]
+            grid[distance < self.collision_threshold] = 1
 
-            cols = self.spatial_embedding_agent(min_distance_all.unsqueeze(1))
-            # cols = torch.zeros_like(min_distance_all)
-            # cols[min_distance_all < minimum_distance] = 1
+            cols = grid.sum(1) # [t X ped X ped] -> [t X ped] -> [ped]
+
+            #cols = self.temporal_embedding_agents(cols.view(num_ped, -1)).squeeze(1)
+            cols = cols.sum(0)
+
             collisions.append(cols)
 
         return torch.cat(collisions, dim=0).cuda()
 
-    def get_min_distance_scene(self, pred_pos, seq_start_end, scene_information, seq_scene, minimum_distance=0.2, mode='binary'):
+    def get_min_distance_scene(self, pred_pos, seq_start_end, seq_scene_ids):
         """
         Input:
         - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
@@ -122,14 +145,14 @@ class TrajectoryCritic(nn.Module):
         seq_length = pred_pos.size(0)
         pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
         collisions = []
+        seq_scenes = [self.pooling.pooling_list[1].static_scene_feature_extractor.list_data_files[num] for num in seq_scene_ids]
         for i, (start, end) in enumerate(seq_start_end):
             start = start.item()
             end = end.item()
             num_ped = end - start
 
             curr_seqs = pred_pos_perm[start:end]
-
-            scene = scene_information[seq_scene[i]]
+            scene = self.pooling.pooling_list[1].static_scene_feature_extractor.scene_information[seq_scenes[i]]
             num_points = scene.size(0)
 
             curr_seqs_switch = curr_seqs.transpose(0, 1)
@@ -137,13 +160,13 @@ class TrajectoryCritic(nn.Module):
             scene_rows_rep = scene.repeat(1, num_ped * seq_length).view(num_ped * seq_length, -1, 2)
 
             distance = torch.norm(scene_rows_rep - X_cols_rep, dim=2, p=2).view(seq_length, num_points, num_ped)
-            min_distance = distance.min(1)[0]
-            min_distance_all = min_distance.min(0)[0]
+            grid = torch.zeros_like(distance)  # [t X num_points X ped]
+            grid[distance < self.occupancy_threshold] = 1
 
-            cols = self.spatial_embedding_scene(min_distance_all.unsqueeze(1))
-            # cols = torch.zeros_like(min_distance_all)
-            # cols[min_distance_all < minimum_distance] = 1
-            collisions.append(cols.squeeze())
+            cols = grid.sum(1)
+            #cols = self.temporal_embedding_scene(cols.view(num_ped, -1)).squeeze(1)
+            cols = cols.sum(0)
+            collisions.append(cols)
 
         return torch.cat(collisions, dim=0).cuda()
 
@@ -170,8 +193,7 @@ class TrajectoryCritic(nn.Module):
             scores = self.real_classifier(classifier_input)
 
         elif self.c_type == 'local':
-            rewards = -1 * collision_error(traj, seq_start_end, minimum_distance=self.collision_threshold,mode='binary').unsqueeze(1) + 1
-            scores = self.real_classifier(rewards)
-            # scores = self.spatial_embedding(rewards)
+            scores1 = self.final_embedding_agents(self.get_min_distance_agents(traj, seq_start_end).view(-1, 1))
+            scores2 = self.final_embedding_scene(self.get_min_distance_scene(traj, seq_start_end, seq_scene_ids).view(-1, 1))
 
-        return scores
+        return scores1, scores2

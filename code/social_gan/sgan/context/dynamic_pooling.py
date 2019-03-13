@@ -11,7 +11,7 @@ from sgan.utils import get_device
 
 device = get_device()
 
-visualize_attention = True
+visualize_attention = False
 if visualize_attention:
     import os
     import matplotlib.pyplot as plt

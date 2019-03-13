@@ -13,7 +13,7 @@ class TrajectoryGeneratorEvaluator():
         self.module_count += 1
 
     def get_loss(self, traj, traj_rel, seq_start_end, seq_scene_ids):
-        loss = 0
+        loss = 0 
         for i in range(self.module_count):
            out = self.modules[i].forward(traj, traj_rel, seq_start_end, seq_scene_ids)
            loss += self.weights[i]*self.functions[i](out)

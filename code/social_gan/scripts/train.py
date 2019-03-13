@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 from sgan.data.loader import data_loader
 from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, l2_loss, g_critic_loss_function
+from sgan.evaluation.rewards import collision_rewards
 from sgan.losses import displacement_error, final_displacement_error
 from scripts.collision_checking import collision_error, occupancy_error
 from scripts.helper_get_generator import helper_get_generator
@@ -48,7 +49,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='sdd', type=str)
+    parser.add_argument('--dataset_name', default='ucy', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -96,7 +97,7 @@ def get_argument_parser():
 
     # Pooling Options
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
-    parser.add_argument('--down_samples', default=200, type=int)
+    parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
     parser.add_argument('--bottleneck_dim', default=8, type=int)
@@ -106,18 +107,18 @@ def get_argument_parser():
     parser.add_argument('--neighborhood_size', default=2.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
-    parser.add_argument('--static_pooling_type', default='grid', type=str) # random, polar, raycast, physical_attention_with_encoder
-    parser.add_argument('--dynamic_pooling_type', default=None, type=str) # social_pooling, pool_hidden_net, social_pooling_attention
+    parser.add_argument('--static_pooling_type', default=None, type=str) # random, polar, raycast, physical_attention_with_encoder
+    parser.add_argument('--dynamic_pooling_type', default='social_pooling_attention', type=str) # social_pooling, pool_hidden_net, social_pooling_attention
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
     parser.add_argument('--d_loss_weight', default=0.0, type=float)
     parser.add_argument('--c_loss_weight', default=0.0, type=float)
     parser.add_argument('--best_k', default=20, type=int)
-    parser.add_argument('--loss_type', default='bce', type=str)
+    parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "models_sdd/temp")
+    parser.add_argument('--output_dir', default= "models_ucy/temp")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
@@ -233,8 +234,6 @@ def main(args):
         restore_path = args.checkpoint_start_from
     elif args.restore_from_checkpoint == 1:
         restore_path = os.path.join(get_root_dir(), args.output_dir,'%s_with_model.pt' % args.checkpoint_name)
-
-    model_name = '%s_with_model.pt'
 
     if restore_path is not None and os.path.isfile(restore_path):
         logger.info('Restoring from checkpoint {}'.format(restore_path))
@@ -399,7 +398,7 @@ def main(args):
         checkpoint['losses_ts'].append(t)
 
         # Maybe save a checkpoint
-        if t > 0:
+        if t > 0 and epoch % 20 == 0:
             checkpoint['counters']['t'] = t
             checkpoint['counters']['epoch'] = epoch
             checkpoint['sample_ts'].append(t)
@@ -447,14 +446,14 @@ def main(args):
             checkpoint['d_optim_state'] = optimizer_d.state_dict()
             checkpoint['c_state'] = critic.state_dict()
             checkpoint['c_optim_state'] = optimizer_c.state_dict()
-            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, model_name % args.checkpoint_name)
+            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '{}_{}_with_model.pt'.format(args.checkpoint_name, epoch))
             logger.info('Saving checkpoint to {}'.format(checkpoint_path))
             torch.save(checkpoint, checkpoint_path)
             logger.info('Done.')
 
             # Save a checkpoint with no model weights by making a shallow
             # copy of the checkpoint excluding some items
-            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '%s_no_model.pt' % args.checkpoint_name)
+            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '{}_{}_no_model.pt'.format(args.checkpoint_name, epoch))
             logger.info('Saving checkpoint to {}'.format(checkpoint_path))
             key_blacklist = [
                 'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
@@ -597,13 +596,15 @@ def generator_step(args, batch, generator, optimizer_g, trajectory_evaluator):
             _g_l2_loss_rel = torch.min(_g_l2_loss_rel) / torch.sum(loss_mask[start:end]) # min among all best_k samples, sum loss_mask = num_peds * seq_len
             g_l2_loss_sum_rel += _g_l2_loss_rel
         losses['G_l2_loss_rel'] = g_l2_loss_sum_rel.item()
-        loss += (1 - args.d_loss_weight) * g_l2_loss_sum_rel
+        loss += g_l2_loss_sum_rel
 
     traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
-    evaluator_loss = trajectory_evaluator.get_loss(pred_traj_fake, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
-    loss += evaluator_loss
+    #evaluator_loss = trajectory_evaluator.get_loss(pred_traj_fake, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
+    #loss += evaluator_loss
+    #loss -= collision_rewards(pred_traj_fake, seq_start_end)
+
     losses['G_total_loss'] = loss.item()
 
     optimizer_g.zero_grad()

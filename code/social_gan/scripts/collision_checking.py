@@ -7,6 +7,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
     - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
     - minimum_distance: Minimum between people
     last pos
+    - mode: 'binary' gives a score of 1 if at least one timestep is in collision. 'all' sums collisions for each time step
     Output:
     - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
     """
@@ -26,12 +27,19 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
         distance = distance.clone().view(seq_length, num_ped, num_ped)
 
         distance[distance == 0] = minimum_distance  # exclude distance between people and themself
-        min_distance = distance.min(1)[0]  # [t X ped]
-        min_distance_all = min_distance.min(0)[0]
-        cols = torch.zeros_like(min_distance_all)
-        cols[min_distance_all < minimum_distance] = 1
-        collisions.append(cols)
 
+        if mode == 'binary':
+            min_distance = distance.min(1)[0] # [t X ped]
+            min_distance_all = min_distance.min(0)[0]
+            cols = torch.zeros_like(min_distance_all)
+            cols[min_distance_all < minimum_distance] = 1
+
+        elif mode == 'all':
+            cols = torch.zeros(seq_length, num_ped, num_ped)
+            cols[distance < minimum_distance] = 1
+            cols = cols.sum(1).sum(0)
+
+        collisions.append(cols)
     return torch.cat(collisions, dim=0).cuda()
 
 
@@ -62,12 +70,17 @@ def occupancy_error(pred_pos, seq_start_end, scene_information, seq_scene, minim
         scene_rows_rep = scene.repeat(1, num_ped * seq_length).view(num_ped * seq_length, -1, 2)
 
         distance = torch.norm(scene_rows_rep - X_cols_rep, dim=2, p=2).view(seq_length, num_points, num_ped)
-        min_distance = distance.min(1)[0]
-        min_distance_all = min_distance.min(0)[0]
+        if mode == 'binary':
+            min_distance = distance.min(1)[0] # [t X ped]
+            min_distance_all = min_distance.min(0)[0]
+            cols = torch.zeros_like(min_distance_all)
+            cols[min_distance_all < minimum_distance] = 1
 
-        cols = torch.zeros_like(min_distance_all)
-        cols[min_distance_all < minimum_distance] = 1
+        elif mode == 'all':
+            cols = torch.zeros(seq_length, num_points, num_ped)
+            cols[distance < minimum_distance] = 1
+            cols = cols.sum(1).sum(0)
+
         collisions.append(cols)
-
     return torch.cat(collisions, dim=0).cuda()
 
