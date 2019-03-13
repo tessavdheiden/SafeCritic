@@ -14,7 +14,7 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 from sgan.data.loader import data_loader
-from scripts.helper_get_generator import helper_get_generator
+from scripts.helper_get_generator import get_generator
 from sgan.models_static_scene import get_homography_and_map
 from sgan.utils import relative_to_abs
 from sgan.folder_utils import get_root_dir, get_test_data_path, get_dset_name, get_dset_group_name
@@ -35,14 +35,6 @@ def get_coordinates_traj(dataset_name, data, h_matrix, annotated_image):
         pixels = np.stack((annotated_image.shape[1]/2+pixels[:, 0], annotated_image.shape[0]/2-pixels[:, 1])).T
     return pixels
 
-
-def get_generator(checkpoint_in, args):
-    test_path = get_test_data_path(args.dataset_name)
-    generator = helper_get_generator(args, test_path)
-    generator.load_state_dict(checkpoint_in['g_best_state'])
-    generator.cuda()
-    generator.eval()
-    return generator
 
 
 def evaluate_helper(error, seq_start_end, min=True):
@@ -366,21 +358,6 @@ def move_figure(f, x, y):
     return f
 
 
-def evaluate_training_metric(args1, checkpoint1, checkpoint2, metric='cols'):
-    ade1 = checkpoint1['metrics_val'][metric]
-    ade2 = checkpoint2['metrics_val'][metric]
-    ade_gt1 = checkpoint1['metrics_val']['{}_gt'.format(metric)]
-    ade_gt2 = checkpoint2['metrics_val']['{}_gt'.format(metric)]
-    epochs1 = torch.arange(len(ade1)).cpu().numpy()
-    epochs2 = torch.arange(len(ade2)).cpu().numpy()
-    plt.plot(epochs1[::1], ade1[::1], label='cp1')
-    plt.plot(epochs2[::1], ade2[::1], label='cp2')
-    if metric == 'cols' or metric == 'occs':
-        plt.plot(epochs1[::1], ade_gt1[::1], label='cp1_gt')
-        plt.plot(epochs2[::1], ade_gt2[::1], label='cp2_gt')
-    plt.legend()
-    plt.show()
-
 def evaluate_test_ade(data_set, scene, batch=0):
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
     seq_start_end = load_pickle('seq_start_end', batch, data_set)
@@ -405,6 +382,7 @@ def evaluate_test_ade(data_set, scene, batch=0):
     ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj * pred_len)
     return ade1, ade2
 
+
 def evaluate_test_fde(data_set, scene, batch=0):
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
     seq_start_end = load_pickle('seq_start_end', batch, data_set)
@@ -427,6 +405,7 @@ def evaluate_test_fde(data_set, scene, batch=0):
     ade1 = evaluate_helper(ade1, seq_start_end) / total_traj
     ade2 = evaluate_helper(ade2, seq_start_end) / total_traj
     return ade1, ade2
+
 
 def evaluate_test_cols(data_set, scene, batch=1):
     pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set)
@@ -518,8 +497,6 @@ def main():
                     cols2 += ade2
                     counter += 1.0
             print('ADE model 1: {:.6f} model 2: {:.6f}'.format(cols1/counter, cols2/counter))
-        elif test_case == 3:
-            evaluate_training_metric(args1, checkpoint1, checkpoint2, 'ade')
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
