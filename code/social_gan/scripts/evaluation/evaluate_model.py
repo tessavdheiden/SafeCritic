@@ -190,7 +190,7 @@ def load_pickle(name, num, data_set):
     return list
 
 
-def collect_generated_samples(args, generator1, generator2, data_dir, data_set, skip=2):
+def collect_generated_samples(args, generator1, generator2, data_dir, data_set, selected_batch=2):
     num_samples = 20 # args.best_k
     _, loader = data_loader(args, data_dir, shuffle=False)
 
@@ -198,8 +198,8 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
         for b, batch in enumerate(loader):
             print('batch = {}'.format(b))
             batch = [tensor.cuda() for tensor in batch]
-#            if b != 5:
-#                continue
+            if b != selected_batch:
+               continue
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
@@ -292,7 +292,7 @@ def evaluate_trajectory_quality(data_set, selection=-1, batch=5):
         traj_gt = pred_traj_gt.permute(1, 0, 2)[start:end]
 
         cols_gt, cols1, cols2 = 0, 0, 0
-        for p in range(np.minimum(num_ped, 3)):
+        for p in range(np.minimum(num_ped, 5)):
             if True: #p == 0 or p==1 or p==2:
                 plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
                 plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
@@ -458,11 +458,11 @@ def evaluate_test_occs(data_set, scene, batch=1):
 
 def main():
 
-    test_case = 3
+    test_case = 1
     precompute_required = False
-    data_set = 'SDD'
+    data_set = 'UCY'
 
-    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_Discriminator'.format(data_set))
+    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_DP'.format(data_set))
 
     if os.path.isdir(os.path.join(model_path)):
         filenames = sorted(os.listdir(model_path))
@@ -482,15 +482,15 @@ def main():
         generator2 = get_generator(checkpoint2, args2)
 
         if precompute_required:
-            collect_generated_samples(args1, generator1, generator2, data_dir, data_set)
+            collect_generated_samples(args1, generator1, generator2, data_dir, data_set, selected_batch=2)
 
         if test_case == 1:
-            occs1, occs2 = evaluate_trajectory_quality(data_set, selection=-1, batch=1 )
+            occs1, occs2 = evaluate_trajectory_quality(data_set, selection=-1, batch=2 )
             print('Collisions model 1: {:.2f} model 2: {:.2f}'.format(occs1, occs2))
         elif test_case == 2:
             cols1, cols2, counter = 0, 0, 0
             for batch in range(0, 9):
-                ade1, ade2 = evaluate_test_cols(data_set, 'bookstore_3', batch)
+                ade1, ade2 = evaluate_test_cols(data_set, 'students_3', batch)
                 print('ADE model 1: {:.6f} model 2: {:.6f}'.format(ade1, ade2))
                 if ade1 > 0 and ade2 > 0:
                     cols1 += ade1

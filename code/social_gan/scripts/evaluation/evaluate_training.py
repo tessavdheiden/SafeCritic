@@ -6,13 +6,13 @@ from attrdict import AttrDict
 from sgan.folder_utils import get_root_dir, get_test_data_path
 
 
-def evaluate_training_metric(args1, checkpoint1, checkpoint2, metric='cols'):
-    ade1 = checkpoint1['metrics_val'][metric]
-    ade2 = checkpoint2['metrics_val'][metric]
-    ade_gt1 = checkpoint1['metrics_val']['{}_gt'.format(metric)]
-    ade_gt2 = checkpoint2['metrics_val']['{}_gt'.format(metric)]
-    epochs1 = torch.arange(len(ade1)).cpu().numpy()
-    epochs2 = torch.arange(len(ade2)).cpu().numpy()
+def evaluate_training_metric(args1, checkpoint1, checkpoint2, metric='cols', type='val'):
+    ade1 = checkpoint1['metrics_{}'.format(type)][metric]
+    ade2 = checkpoint2['metrics_{}'.format(type)][metric]
+    ade_gt1 = checkpoint1['metrics_{}'.format(type)]['{}_gt'.format(metric)]
+    ade_gt2 = checkpoint2['metrics_{}'.format(type)]['{}_gt'.format(metric)]
+    epochs1 = torch.arange(len(ade1)).cpu().numpy() / len(ade1) * checkpoint1['counters']['epoch']
+    epochs2 = torch.arange(len(ade2)).cpu().numpy() / len(ade2) * checkpoint2['counters']['epoch']
     plt.plot(epochs1[::1], ade1[::1], label='cp1')
     plt.plot(epochs2[::1], ade2[::1], label='cp2')
     if metric == 'cols' or metric == 'occs':
@@ -42,7 +42,7 @@ def main():
         args2 = AttrDict(checkpoint2['args'])
         print('Loading model from path: ' + paths[1])
 
-        evaluate_training_metric(args1, checkpoint1, checkpoint2, 'ade')
+        evaluate_training_metric(args1, checkpoint1, checkpoint2, 'cols', 'val')
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
