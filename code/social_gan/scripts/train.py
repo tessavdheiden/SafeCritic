@@ -603,7 +603,7 @@ def generator_step(args, batch, generator, optimizer_g, trajectory_evaluator):
 
     #evaluator_loss = trajectory_evaluator.get_loss(pred_traj_fake, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
     #loss += evaluator_loss
-    #loss -= collision_rewards(pred_traj_fake, seq_start_end)
+    loss -= collision_rewards(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold, gamma=1.0).mean() #pred_pos, seq_start_end, minimum_distance=0.1, gamma=0.9
 
     losses['G_total_loss'] = loss.item()
 
