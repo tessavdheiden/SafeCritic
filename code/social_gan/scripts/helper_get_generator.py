@@ -1,5 +1,6 @@
 from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder
 from sgan.decoder_builder import DecoderBuilder
+from sgan.folder_utils import get_test_data_path
 
 def helper_get_generator(args, data_path):    
     # build decoder
@@ -58,4 +59,13 @@ def helper_get_generator(args, data_path):
     if args.dynamic_pooling_type is not None:
         g_builder.with_dynamic_pooling()
     generator = g_builder.build()
+    return generator
+
+
+def get_generator(checkpoint_in, args):
+    test_path = get_test_data_path(args.dataset_name)
+    generator = helper_get_generator(args, test_path)
+    generator.load_state_dict(checkpoint_in['g_best_state'])
+    generator.cuda()
+    generator.eval()
     return generator
