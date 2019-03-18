@@ -165,7 +165,6 @@ class TrajectoryCriticBuilder(object):
          self.pooling.add(NullPooling())
          self.pooling_output_dim = h_dim
 
- 
     def with_static_pooling(self, data_dir):
          physical_pooling = PhysicalPooling(
                 embedding_dim=self.embedding_dim,
@@ -189,7 +188,7 @@ class TrajectoryCriticBuilder(object):
                 embedding_dim=self.embedding_dim,
                 h_dim=self.h_dim,
                 mlp_dim=self.mlp_dim,
-                bottleneck_dim=self.bottleneck_dim,
+                bottleneck_dim=self.h_dim,
                 activation=self.activation,
                 batch_norm=self.batch_norm,
                 pooling_dim=self.pooling_dim,
@@ -199,13 +198,23 @@ class TrajectoryCriticBuilder(object):
          elif self.dynamic_pooling_type == 'social_pooling': 
             self.pooling.add(SocialPooling(
                 h_dim=self.h_dim,
-                bottleneck_dim=self.bottleneck_dim,
+                bottleneck_dim=self.h_dim,
                 activation=self.activation,
                 batch_norm=self.batch_norm,
                 dropout=self.dropout,
                 neighborhood_size=self.neighborhood_size,
                 grid_size=self.grid_size))
-         self.pooling_output_dim += self.bottleneck_dim
+
+         elif self.dynamic_pooling_type == 'social_pooling_attention':
+            self.pooling.add(SocialPoolingAttention(
+                h_dim=self.h_dim,
+                bottleneck_dim=self.h_dim,
+                activation=self.activation,
+                batch_norm=self.batch_norm,
+                dropout=self.dropout,
+                neighborhood_size=self.neighborhood_size,
+                grid_size=self.grid_size))
+         self.pooling_output_dim += self.h_dim
          print('Dynamic pooling added, pooling_output_dim: {}'.format(self.pooling_output_dim))
 
     def build(self):
