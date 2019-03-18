@@ -3,7 +3,7 @@ import torch.nn as nn
 from sgan.utils import relative_to_abs
 from sgan.losses import l2_loss
 from sgan.utils import get_device
-
+from scripts.visualization import sanity_check
 from scripts.train_utils import cal_l2_losses, cal_cols, cal_occs, cal_ade, cal_fde
 
 device = get_device()
