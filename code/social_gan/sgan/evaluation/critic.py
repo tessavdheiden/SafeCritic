@@ -43,13 +43,21 @@ class TrajectoryCritic(nn.Module):
         )
 
         if c_type == 'global':
-            real_classifier_dims = [self.pooling_output_dim, mlp_dim, 1]
+            real_classifier_dims = [h_dim, mlp_dim, 1]
             self.real_classifier = make_mlp(
                 real_classifier_dims,
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout
             )
+            mlp_dims = [self.pooling_output_dim, mlp_dim, h_dim]
+            self.context2hidden = make_mlp(
+                mlp_dims,
+                activation=activation,
+                batch_norm=batch_norm,
+                dropout=dropout)
+            self.decoder = nn.LSTM(2, h_dim, num_layers, dropout=dropout)
+
 
         elif self.c_type == 'local':
             real_classifier_dims = [1, mlp_dim, 1]
@@ -170,6 +178,10 @@ class TrajectoryCritic(nn.Module):
 
         return torch.cat(collisions, dim=0).cuda()
 
+    def init_hidden(self, batch):
+        return (torch.zeros(1, batch, self.h_dim).to(device), torch.zeros(1, batch, self.h_dim).to(device))
+
+
     def forward(self, traj, traj_rel, seq_start_end=None, seq_scene_ids=None):
         """
         Inputs:discriminator
@@ -180,19 +192,50 @@ class TrajectoryCritic(nn.Module):
         - scores: Tensor of shape (batch,) with real/fake scores
         """
 
-        final_encoder_h = self.encoder(traj_rel)
+
         # Note: In case of 'global' option we are using start_pos as opposed to
         # end_pos. The intution being that hidden state has the whole
         # trajectory and relative postion at the start when combined with
         # trajectory information should help in discriminative behavior.
 
+
         if self.c_type == 'global':
-            end_pos = traj[-1, :, :]
-            rel_pos = traj_rel[-1, :, :]
-            classifier_input = self.pooling.aggregate_context(final_encoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
-            scores = self.real_classifier(classifier_input)
+            scores = 0
+            batch = traj_rel.size(1)
+            state_tuple = self.init_hidden(batch)
+            for t in range(self.seq_len):
+                end_pos = traj[t, :, :]
+                rel_pos = traj_rel[t, :, :]
+
+                output, state_tuple = self.decoder(rel_pos.view(1, -1, 2), state_tuple)
+                decoder_h = state_tuple[0]
+
+                context_information = self.pooling.aggregate_context(decoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
+
+                decoder_h = self.context2hidden(context_information)
+                decoder_h = torch.unsqueeze(decoder_h, 0)
+                state_tuple = (decoder_h, state_tuple[1])
+
+                current_score = self.real_classifier(output.view(-1, self.h_dim))
+                scores += current_score
+
+            scores1, scores2 = scores, scores
+
+        elif self.c_type == 'global_fast':
+            scores = 0
+            final_encoder_h = self.encoder(traj_rel)
+            for t in range(self.seq_len):
+                end_pos = traj[t, :, :]
+                rel_pos = traj_rel[t, :, :]
+
+                context_information = self.pooling.aggregate_context(final_encoder_h, seq_start_end, end_pos, rel_pos,
+                                                                     seq_scene_ids)
+                scores += self.context2scores(context_information)
+
+            scores1, scores2 = scores, scores
 
         elif self.c_type == 'local':
+
             scores1 = self.final_embedding_agents(self.get_min_distance_agents(traj, seq_start_end).view(-1, 1))
             scores2 = self.final_embedding_scene(self.get_min_distance_scene(traj, seq_start_end, seq_scene_ids).view(-1, 1))
 
