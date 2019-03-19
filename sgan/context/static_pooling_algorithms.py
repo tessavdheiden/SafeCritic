@@ -180,3 +180,4 @@ def get_raycast_grid_points(ped_positions, boundary_points, num_rays, radius, re
     cartesian_grid_points = torch.stack((x_boundaries_chosen, y_boundaries_chosen)).transpose(0, 1)
 
     return cartesian_grid_points
+

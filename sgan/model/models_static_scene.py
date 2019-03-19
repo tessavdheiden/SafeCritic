@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import os
 import matplotlib.pyplot as plt
-from sgan.model.folder_utils import get_dset_group_name
+from sgan.model.folder_utils import get_dset_group_name, get_root_dir
 
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
@@ -23,10 +23,7 @@ def load_bin_map(path_name):
 
 
 def get_homography_and_map(dset, annotated_points_name = '/world_points_boundary.npy'):
-    _dir = os.path.dirname(os.path.realpath(__file__))
-    _dir = _dir.split("/")[:-1]
-    _dir = "/".join(_dir)
-    directory = _dir + '/datasets/safegan_dataset/'
+    directory = get_root_dir() + '/datasets/safegan_dataset/'
     path_group = os.path.join(directory, get_dset_group_name(dset))
     path = os.path.join(path_group, dset)
     h_matrix = pd.read_csv(path + '/{}_homography.txt'.format(dset), delim_whitespace=True, header=None).values
@@ -52,7 +49,7 @@ def on_occupied(pixel, map):
     else:
         return 0
 
-#############
+'''
 def get_pixels_from_world(pts_wrd, h, divide_depth=False):
     ones_vec = torch.ones(pts_wrd.shape[0]).cuda()
 
@@ -78,7 +75,38 @@ def get_world_from_pixels(pts_img, h, multiply_depth=False):
 
     # print('image_in = \n{},\nworld_out = \n{}'.format(pts_img, pts_wrd_back))
     return pts_wrd_back
+'''
 
+def get_world_from_pixels(pts_img, h, multiply_depth=False):
+    ones_vec = np.ones(pts_img.shape[0])
+
+    if multiply_depth:
+        pts_img = pts_img.copy()
+        pts_3d = np.dot(np.linalg.inv(h), np.ones((pts_img.shape[0], 3)).T).T
+        pts_img[:, 0] *= pts_3d[:, 2]
+        pts_img[:, 1] *= pts_3d[:, 2]
+        ones_vec = pts_3d[:, 2]
+    pts_img_3d = np.stack((pts_img[:, 0], pts_img[:, 1], ones_vec))
+    pts_wrd_back = np.around(np.dot(h, pts_img_3d)[0:2].T, decimals=2)
+
+    # print('image_in = \n{},\nworld_out = \n{}'.format(pts_img, pts_wrd_back))
+    return pts_wrd_back
+
+
+def get_pixels_from_world(pts_wrd, h, divide_depth=False):
+    ones_vec = np.ones(pts_wrd.shape[0])
+
+    pts_wrd_3d = np.stack((pts_wrd[:, 0], pts_wrd[:, 1], ones_vec))
+
+    if divide_depth:
+        pts_img_back_3d = np.around(np.dot(np.linalg.inv(h), pts_wrd_3d)[0:3, :].T, decimals=2)
+        pts_img_back = np.stack((np.divide(pts_img_back_3d[:, 0], pts_img_back_3d[:, 2]),
+                                 np.divide(pts_img_back_3d[:, 1], pts_img_back_3d[:, 2]))).T
+    else:
+        pts_img_back = np.around(np.dot(np.linalg.inv(h), pts_wrd_3d)[0:2].T, decimals=2)
+
+    # print('world_in = \n{},\nimage_out = \n{}'.format(pts_wrd, pts_img_back))
+    return pts_img_back
 
 def repeat_row(tensor, num_reps):
     """

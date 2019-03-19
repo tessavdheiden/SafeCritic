@@ -10,8 +10,7 @@ import os
 import torch
 from attrdict import AttrDict
 
-from sgan.model.models_static_scene import get_homography_and_map
-from datasets.calculate_static_scene_boundaries import get_pixels_from_world
+from sgan.model.models_static_scene import get_homography_and_map, get_pixels_from_world
 from sgan.model.folder_utils import get_root_dir
 from sgan.model.utils import get_device
 

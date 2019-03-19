@@ -32,8 +32,6 @@ from sgan.model.utils import int_tuple, bool_flag, get_total_norm, get_device
 from sgan.model.folder_utils import get_dset_path, get_root_dir, get_dset_name
 from sgan.model.losses import gan_g_loss, gan_d_loss, critic_loss, g_critic_loss_function
 
-
-
 torch.backends.cudnn.benchmark = True
 
 FORMAT = '[%(levelname)s: %(filename)s: %(lineno)4d]: %(message)s'
@@ -105,7 +103,7 @@ def get_argument_parser():
     parser.add_argument('--neighborhood_size', default=2.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
-    parser.add_argument('--static_pooling_type', default='grid', type=str) # random, grid, polar, raycast, physical_attention_with_encoder
+    parser.add_argument('--static_pooling_type', default=None, type=str) # random, grid, polar, raycast, physical_attention_with_encoder
     parser.add_argument('--dynamic_pooling_type', default=None, type=str) # social_pooling, pool_hidden_net, social_pooling_attention
 
     # Loss Options
@@ -116,7 +114,7 @@ def get_argument_parser():
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN_SP")
+    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
