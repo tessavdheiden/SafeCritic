@@ -12,7 +12,7 @@ Check the results of the three networks:
 - With context and the critic and discriminator evaluators (ContextPoolingEvaluator)
 
 Baseline models:
-|[SocialGAN](https://arxiv.org/pdf/1803.10892.pdf)  | [SoPhie](https://arxiv.org/pdf/1806.01482.pdf) |
+| SocialGAN | SoPhie |
 |------------- | -------------|
 | 0.61 | 0.54 |
 | 1.21 | 1.15 |
