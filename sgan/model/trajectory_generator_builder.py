@@ -1,4 +1,4 @@
-from sgan.models import TrajectoryGenerator
+from sgan.model.models import TrajectoryGenerator
 from sgan.evaluation.critic import TrajectoryCritic
 
 from sgan.context.composite_pooling import CompositePooling

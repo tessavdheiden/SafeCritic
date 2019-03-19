@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from sgan.utils import relative_to_abs
+from sgan.model.utils import relative_to_abs
 
 
 def discriminator_step(args, batch, generator, discriminator, d_loss_fn, optimizer_d):

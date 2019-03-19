@@ -2,7 +2,7 @@ import os
 
 def get_root_dir():
    path_this_file = os.path.dirname(os.path.realpath(__file__))
-   return ('/').join(path_this_file.split('/')[:-1])
+   return ('/').join(path_this_file.split('/')[:-2])
 
 def get_name_this_file():
    path_this_file = os.path.dirname(os.path.realpath(__file__))
@@ -20,10 +20,7 @@ def get_static_information_path(training_dataset_name):
 
 
 def get_dset_path(dataset_path, dset_name, dset_type):
-    _dir = os.path.dirname(os.path.realpath(__file__))
-    _dir = _dir.split("/")[:-1]
-    _dir = "/".join(_dir)
-    return _dir + dataset_path + '/' + get_dset_group_name(dset_name) + '/' + dset_name + '/Training/'+ dset_type
+    return get_root_dir() + dataset_path + '/' + get_dset_group_name(dset_name) + '/' + dset_name + '/Training/'+ dset_type
 
 def get_dset_name(name):
     '''

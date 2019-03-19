@@ -2,12 +2,10 @@ import torch
 import torch.nn as nn
 
 
-from sgan.mlp import make_mlp
+from sgan.model.mlp import make_mlp
 from sgan.context.physical_attention import Attention_Decoder
-
-from sgan.folder_utils import get_dset_name, get_root_dir, get_test_data_path
-
-from sgan.utils import get_device
+from sgan.model.folder_utils import get_dset_name, get_root_dir, get_test_data_path
+from sgan.model.utils import get_device
 
 device = get_device()
 

@@ -1,5 +1,5 @@
 
-from sgan.decoder import Decoder
+from sgan.model.decoder import Decoder
 
 from sgan.context.composite_pooling import CompositePooling
 from sgan.context.null_pooling import NullPooling

@@ -5,7 +5,7 @@ import torch
 from torch import nn
 import torchvision
 
-from sgan.utils import get_device
+from sgan.model.utils import get_device
 
 device = get_device()
 

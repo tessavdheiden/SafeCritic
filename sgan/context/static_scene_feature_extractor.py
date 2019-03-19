@@ -6,8 +6,8 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from sgan.context.static_pooling_algorithms import make_mlp, get_polar_grid_points, get_raycast_grid_points, repeat
 from sgan.context.physical_attention import Attention_Encoder, Attention_Decoder
-from sgan.folder_utils import get_dset_name, get_dset_group_name
-from sgan.utils import get_device
+from sgan.model.folder_utils import get_dset_name, get_dset_group_name
+from sgan.model.utils import get_device
 
 device = get_device()
 class StaticSceneFeatureExtractorRandom(nn.Module):

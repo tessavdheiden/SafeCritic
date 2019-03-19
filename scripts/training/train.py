@@ -16,21 +16,23 @@ import torch.optim as optim
 current_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
-from sgan.data.loader import data_loader
-from sgan.losses import gan_g_loss, gan_d_loss, critic_loss, g_critic_loss_function
-from scripts.helper_get_generator import helper_get_generator
-from scripts.helper_get_critic import helper_get_critic
-from scripts.visualization import initialize_plot, reset_plot, sanity_check, plot_static_net_tensorboardX
+from scripts.helpers.helper_get_generator import helper_get_generator
+from scripts.helpers.helper_get_critic import helper_get_critic
+from scripts.evaluation.visualization import reset_plot
+
+from scripts.training.train_critic import critic_step, check_accuracy_critic
+from scripts.training.train_discriminator import discriminator_step, check_accuracy_discriminator
+from scripts.training.train_generator import generator_step, check_accuracy_generator
 
 from sgan.evaluation.discriminator import TrajectoryDiscriminator
 from sgan.evaluation.trajectory_generator_evaluator import TrajectoryGeneratorEvaluator
 
-from sgan.utils import int_tuple, bool_flag, get_total_norm, get_device
-from sgan.folder_utils import get_dset_path, get_root_dir, get_dset_name
+from sgan.data.loader import data_loader
+from sgan.model.utils import int_tuple, bool_flag, get_total_norm, get_device
+from sgan.model.folder_utils import get_dset_path, get_root_dir, get_dset_name
+from sgan.model.losses import gan_g_loss, gan_d_loss, critic_loss, g_critic_loss_function
 
-from scripts.train_critic import critic_step, check_accuracy_critic
-from scripts.train_discriminator import discriminator_step, check_accuracy_discriminator
-from scripts.train_generator import generator_step, check_accuracy_generator
+
 
 torch.backends.cudnn.benchmark = True
 
@@ -45,7 +47,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='ucy', type=str)
+    parser.add_argument('--dataset_name', default='all', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -114,14 +116,13 @@ def get_argument_parser():
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "models_ucy/temp")
+    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN_DP")
     parser.add_argument('--print_every', default=50, type=int)
     parser.add_argument('--checkpoint_every', default=50, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
     parser.add_argument('--num_samples_check', default=100, type=int)
-    parser.add_argument('--evaluation_dir', default='../results')
     parser.add_argument('--sanity_check', default=0, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="results/sanity_check")
     parser.add_argument('--summary_writer_name', default=None, type=str)
@@ -397,7 +398,7 @@ def main(args):
         checkpoint['losses_ts'].append(t)
 
         # Maybe save a checkpoint
-        if t > 0 and epoch % 20 == 0:
+        if t > 0:
             checkpoint['counters']['t'] = t
             checkpoint['counters']['epoch'] = epoch
             checkpoint['sample_ts'].append(t)

@@ -1,4 +1,4 @@
-from sgan.trajectory_generator_builder import TrajectoryCriticBuilder
+from sgan.model.trajectory_generator_builder import TrajectoryCriticBuilder
 
 
 def helper_get_critic(args, data_path):

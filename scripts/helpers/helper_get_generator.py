@@ -1,6 +1,6 @@
-from sgan.trajectory_generator_builder import TrajectoryGeneratorBuilder
-from sgan.decoder_builder import DecoderBuilder
-from sgan.folder_utils import get_test_data_path
+from sgan.model.trajectory_generator_builder import TrajectoryGeneratorBuilder
+from sgan.model.decoder_builder import DecoderBuilder
+from sgan.model.folder_utils import get_test_data_path
 
 def helper_get_generator(args, data_path):    
     # build decoder

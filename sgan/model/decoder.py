@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 
-from sgan.mlp import make_mlp
-
-from sgan.utils import get_device
+from sgan.model.mlp import make_mlp
+from sgan.model.utils import get_device
 
 device = get_device()
 

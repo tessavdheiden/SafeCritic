@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 
-from sgan.mlp import make_mlp
-from sgan.encoder import Encoder
+from sgan.model.mlp import make_mlp
+from sgan.model.encoder import Encoder
 
-from sgan.utils import get_device
+from sgan.model.utils import get_device
 
 device = get_device()
 def get_noise(shape, noise_type):

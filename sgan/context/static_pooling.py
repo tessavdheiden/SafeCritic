@@ -4,12 +4,12 @@ import numpy as np
 
 import os
 
-from scripts.visualization import visualize_attention_weights
+from scripts.evaluation.visualization import visualize_attention_weights
 from sgan.context.static_scene_feature_extractor import StaticSceneFeatureExtractorRandom, StaticSceneFeatureExtractorGrid, StaticSceneFeatureExtractorCNN, StaticSceneFeatureExtractorRaycast, StaticSceneFeatureExtractorPolar, StaticSceneFeatureExtractorAttention
-from sgan.utils import get_device
-from sgan.folder_utils import get_dset_name, get_dset_group_name, get_root_dir
+from sgan.model.utils import get_device
+from sgan.model.folder_utils import get_dset_name, get_dset_group_name, get_root_dir
 from sgan.context.physical_attention import Attention_Decoder
-from sgan.mlp import make_mlp
+from sgan.model.mlp import make_mlp
 device = get_device()
 
 visualize_attention = False

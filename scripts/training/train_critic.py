@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-from scripts.train_utils import cal_occs, cal_cols
-from sgan.utils import get_device
+from scripts.training.train_utils import cal_occs, cal_cols
+from sgan.model.utils import get_device
 
 device = get_device()
 

@@ -3,9 +3,9 @@ import torch.nn as nn
 import os
 import numpy as np
 
-from sgan.encoder import Encoder
-from sgan.mlp import make_mlp
-from sgan.folder_utils import get_root_dir, get_dset_name, get_dset_group_name
+from sgan.model.encoder import Encoder
+from sgan.model.mlp import make_mlp
+from sgan.model.folder_utils import get_root_dir, get_dset_name, get_dset_group_name
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
