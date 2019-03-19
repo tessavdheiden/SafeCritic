@@ -11,6 +11,12 @@ Check the results of the three networks:
 - With dynamic and static context pooling (ContextPooling)
 - With context and the critic and discriminator evaluators (ContextPoolingEvaluator)
 
+Baseline models:
+| [SocialGAN](https://arxiv.org/pdf/1803.10892.pdf) |  [SoPhie](https://arxiv.org/pdf/1806.01482.pdf) |
+| ---- | ---- |
+| 0.61 | 0.54 |
+| 1.21 | 1.15 |
+
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
 ![safeGAN](architecture.png)
