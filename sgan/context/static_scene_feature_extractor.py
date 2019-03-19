@@ -6,7 +6,7 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from sgan.context.static_pooling_algorithms import make_mlp, get_polar_grid_points, get_raycast_grid_points, repeat
 from sgan.context.physical_attention import Attention_Encoder, Attention_Decoder
-from sgan.model.folder_utils import get_dset_name, get_dset_group_name
+from sgan.model.folder_utils import get_dset_name, get_dset_group_name, get_root_dir
 from sgan.model.utils import get_device
 
 device = get_device()
@@ -477,10 +477,7 @@ class StaticSceneFeatureExtractorAttention(nn.Module):
     def set_dset_list(self, data_dir):
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
-        _dir = os.path.dirname(os.path.realpath(__file__))
-        _dir = _dir.split("/")[:-2]
-        _dir = "/".join(_dir)
-        directory = _dir + '/datasets/safegan_dataset/'
+        directory = get_root_dir() + '/datasets/safegan_dataset/'
 
         self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
         for name in self.list_data_files:
