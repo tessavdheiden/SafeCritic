@@ -197,10 +197,8 @@ class TrajectoryCritic(nn.Module):
         # end_pos. The intution being that hidden state has the whole
         # trajectory and relative postion at the start when combined with
         # trajectory information should help in discriminative behavior.
-
-
         if self.c_type == 'global':
-            scores = 0
+            scores = []
             batch = traj_rel.size(1)
             state_tuple = self.init_hidden(batch)
             for t in range(self.seq_len):
@@ -217,8 +215,8 @@ class TrajectoryCritic(nn.Module):
                 state_tuple = (decoder_h, state_tuple[1])
 
                 current_score = self.real_classifier(output.view(-1, self.h_dim))
-                scores += current_score
-
+                scores.append(current_score.view(batch, -1))
+            scores = torch.stack(scores, dim=0)
             scores1, scores2 = scores, scores
 
         elif self.c_type == 'global_fast':

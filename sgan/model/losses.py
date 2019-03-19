@@ -70,12 +70,20 @@ def critic_loss(scores_real, y_real, loss='mse'):
     Output:
     - loss: Tensor of shape (,) giving GAN discriminator loss
     """
+    seq_len, _, _ = scores_real.size()
+    loss = y_real.permute(1, 0, 2) - scores_real.permute(1, 0, 2)
+    loss = loss**2
+
+    loss = torch.sqrt(loss.sum(dim=2)).sum(dim=1)
+    return loss
+    '''
     if loss == 'mse':
         loss_real = torch.sqrt((scores_real - y_real) ** 2)
         return loss_real.mean()
     elif loss == 'bce':
         loss_real = bce_loss(scores_real, y_real)
         return loss_real
+    '''
 
 
 def l2_loss(pred_traj, pred_traj_gt, loss_mask, random=0, mode='average'):

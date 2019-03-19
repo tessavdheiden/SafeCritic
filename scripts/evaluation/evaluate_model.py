@@ -305,8 +305,10 @@ def evaluate_trajectory_quality(data_set, scene, model_name, batch=5, selection=
             return 0, 0
 
         for p in range(np.minimum(num_ped, 5)):
-                plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
-                plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
+            plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
+            plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
+            if len(photo_list) > i + 12:
+                plot_pixel(ax4, traj_gt, p, h, a=1, last=True, first=False, intermediate=True, size=10, colors=colors)
 
         for sample in range(0, 20 - 2, 3):
             plot_photo(ax2, photo, 'model1')

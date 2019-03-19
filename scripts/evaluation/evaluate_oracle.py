@@ -11,8 +11,38 @@ current_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 
-from sgan.folder_utils import get_root_dir, get_test_data_path
-from scripts.helper_get_critic import helper_get_critic
+from sgan.model.folder_utils import get_test_data_path
+from scripts.helpers.helper_get_critic import helper_get_critic
+
+
+fig, (ax1) = plt.subplots(1, 1, figsize=(8, 8), num=1)
+
+def plot_prediction(traj, seq_start_end, scores, labels):
+    """
+    Input:
+    - traj: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - labels: List of Tensors with shapes (batch, seq_len, batch). Predicted last pos.
+    """
+    traj = traj.permute(1, 0, 2)
+    for i, (start, end) in enumerate(seq_start_end):
+        ax1.cla()
+        start = start.item()
+        end = end.item()
+        num_ped = end-start
+        cols = labels[i].sum(0).permute(1, 0)
+        current_traj = traj[start:end]
+
+        mask = cols > 0
+        ax1.scatter(current_traj[:, :, 0], current_traj[:, :, 1])
+        if mask.sum(1).sum(0) > 0:
+            colliding_traj = current_traj[mask]
+            ax1.scatter(colliding_traj[:, 0], colliding_traj[:, 1], c='r', s=700, alpha=.1, edgecolors='none')
+            ax1.scatter(colliding_traj[:, 0], colliding_traj[:, 1], c='r', s=500, alpha=.2, edgecolors='none')
+            ax1.scatter(colliding_traj[:, 0], colliding_traj[:, 1], c='r', s=300, alpha=.3, edgecolors='none')
+        ax1.set_xlabel('Num Peds: {} Num Cols: {}'.format(num_ped, mask.sum(1).sum(0)))
+        ax1.axis('square')
+        plt.waitforbuttonpress()
+        plt.draw()
 
 
 def get_critic(checkpoint_in, args):
@@ -37,40 +67,9 @@ def calc_confusion_matrix(cols_true_pred, cols_estimated_pred):
     return tp, tn, fp, fn
 
 
-def confution_to_accuracy(tp, tn, fn, fp):
+def confusion_to_accuracy(tp, tn, fn, fp):
     precision = tp.item() / (tp.item() + fp.item())
     recall = tp.item() / (tp.item() + fn.item())
     return precision, recall
 
 
-def evaluate_training_ade(checkpoint1, checkpoint2):
-    y1 = checkpoint1['C_losses']['C_total_loss']
-    y2 = checkpoint1['metrics_val']['cols_gt']
-    y3 = checkpoint1['metrics_val']['occs_gt']
-    x1 = torch.arange(len(y1)).cpu().numpy()
-    x2 = torch.arange(len(y2)).cpu().numpy()
-    x3 = torch.arange(len(y3)).cpu().numpy()
-    plt.plot(x1, y1, label='cp1')
-    plt.plot(x2, y2, label='cp2')
-    plt.plot(x3, y3, label='cp2')
-    plt.legend()
-    plt.show()
-
-
-
-def main():
-    data_set = 'UCY'
-    model_path = os.path.join(get_root_dir(), 'models_ucy/temp')
-
-    if os.path.isdir(model_path):
-        filenames = sorted(os.listdir(model_path))
-        paths = [os.path.join(model_path, file_) for file_ in filenames]
-        data_dir = get_test_data_path(data_set.lower())
-
-        checkpoint1 = torch.load(paths[0])
-        args1 = AttrDict(checkpoint1['args'])
-        print('Loading model from path: ' + paths[0])
-        critic = get_critic(checkpoint1, args1)
-        evaluate_training_ade(checkpoint1, checkpoint1)
-if __name__ == '__main__':
-    main()

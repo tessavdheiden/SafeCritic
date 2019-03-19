@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from scripts.training.train_utils import cal_occs, cal_cols
 from sgan.model.utils import get_device
+from scripts.evaluation.evaluate_oracle import plot_prediction
 
 device = get_device()
 
@@ -18,9 +20,15 @@ def critic_step(args, batch, critic, c_loss_fn, optimizer_c, data_dir=None):
     traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
 
     scores_real_col, scores_real_occ = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
-    labels_real_col = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold).unsqueeze(1)
+    labels_real_col = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold, mode='sequential')
+
+    plot_prediction(traj_real, seq_start_end, scores_real_col, labels_real_col)
+    labels_real_col = labels_real_col.sum(2) # (batch, seq_len, num_ped) --> (batch, seq_len, 1)
+    labels_real_col = labels_real_col.permute(1, 0, 2) # -->  (seq_len, batch, 1)
+
     # Compute loss with optional loss function
-    data_loss_cols = c_loss_fn(scores_real_col, labels_real_col)
+    data_loss_cols = c_loss_fn(scores_real_col, labels_real_col) # (seq_len, batch, 1)
+    data_loss_cols = data_loss_cols.sum(0)
     losses['C_cols_loss'] = data_loss_cols
     loss += data_loss_cols
 
@@ -44,8 +52,6 @@ def critic_step(args, batch, critic, c_loss_fn, optimizer_c, data_dir=None):
 
     return losses
 
-
-
 def check_accuracy_critic(args, loader, critic, c_loss_fn, limit=False):
     def normalize_rewards(rewards):
         mean = rewards.mean(dim=0, keepdim=True)
@@ -65,19 +71,20 @@ def check_accuracy_critic(args, loader, critic, c_loss_fn, limit=False):
 
             loss_mask = loss_mask[:, args.obs_len:]
 
-            cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold)
-            collisions_gt.append(cols_gt.sum().item())
-
             traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
             traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
 
             rewards_real_cols, rewards_real_occs = critic(traj_real, traj_real_rel, seq_start_end, seq_scene_ids)
-            labels_real_cols = cols_gt.unsqueeze(1)
+            labels_real_col = cal_cols(traj_real, seq_start_end, minimum_distance=args.collision_threshold,
+                                       mode='sequential')
+            collisions_gt.append(labels_real_col.sum(1).sum(0).item())
+            labels_real_cols = labels_real_col.unsqueeze(2).permute(1, 0, 2)
             #labels_real_cols = normalize_rewards(labels_real_cols)
             #print('rewards_cols= ', rewards_real_cols[:10])
             #print('labels_cols= ', labels_real_cols[:10])
 
             c_loss = c_loss_fn(rewards_real_cols, labels_real_cols)
+            c_loss = c_loss.sum(0)
 
             if args.static_pooling_type is not None:
                 seq_scenes = [critic.pooling.pooling_list[1].static_scene_feature_extractor.list_data_files[num] for num in
@@ -105,3 +112,35 @@ def check_accuracy_critic(args, loader, critic, c_loss_fn, limit=False):
     metrics['c_loss'] = sum(c_losses) / len(c_losses)
 
     return metrics
+
+from sgan.model.folder_utils import get_dset_path
+from sgan.data.loader import data_loader
+from scripts.helpers.helper_get_critic import helper_get_critic
+from scripts.training.train_utils import init_weights, get_dtypes, get_argument_parser
+from sgan.model.losses import critic_loss
+
+def main(args):
+    args.collision_threshold = 0.3
+    args.neighborhood_size = .3
+    args.grid_size = 3
+    args.dataset_name = 'ucy'
+
+    long_dtype, float_dtype = get_dtypes(args)
+
+    train_path = get_dset_path(args.dataset_path, args.dataset_name, 'train')
+    train_dset, train_loader = data_loader(args, train_path, shuffle=True)
+
+    critic = helper_get_critic(args, train_path)
+    critic.apply(init_weights)
+    critic.type(float_dtype).train()
+    optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
+    c_loss_fn = critic_loss
+    for epoch in range(args.num_epochs):
+        for batch in train_loader:
+            losses_c = critic_step(args, batch, critic, c_loss_fn, optimizer_c)
+
+
+if __name__ == '__main__':
+    parser = get_argument_parser()
+    args = parser.parse_args()
+    main(args)
