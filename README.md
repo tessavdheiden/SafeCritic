@@ -25,8 +25,8 @@ Our benchmark is against DESIRE, SocialGAN and SoPhie. These generating models h
 
 ## Train and evaluate model
 ```bash
-python3 -m scripts.train               # Trains the model
-python3 -m scripts.evaluate_model      # Evaluates a trained model
+python3 -m scripts.training.train               # Trains the model
+python3 -m scripts.evaluation.evaluate_model      # Evaluates a trained model
 ```
 
 ## Folder structure
