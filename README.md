@@ -17,6 +17,11 @@ Baseline models:
 | 0.61 | 0.54 |
 | 1.21 | 1.15 |
 
+First Header  | Second Header
+------------- | -------------
+Content Cell  | Content Cell
+Content Cell  | Content Cell
+
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
 ![safeGAN](architecture.png)
