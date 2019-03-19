@@ -1,12 +1,19 @@
 import torch
 import matplotlib.pyplot as plt
 import os
-from attrdict import AttrDict
+import sys
+import argparse
 
-from sgan.folder_utils import get_root_dir, get_test_data_path
+current_path = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
+from sgan.model.folder_utils import get_root_dir
 
-def evaluate_training_metric(args1, checkpoint1, checkpoint2, metric='cols', type='val'):
+parser = argparse.ArgumentParser()
+parser.add_argument('--metric', default='ade', type=str)
+parser.add_argument('--model_folder', default='SafeGAN', type=str)
+
+def evaluate_training_metric(checkpoint1, checkpoint2, metric='cols', type='val'):
     ade1 = checkpoint1['metrics_{}'.format(type)][metric]
     ade2 = checkpoint2['metrics_{}'.format(type)][metric]
     ade_gt1 = checkpoint1['metrics_{}'.format(type)]['{}_gt'.format(metric)]
@@ -22,29 +29,26 @@ def evaluate_training_metric(args1, checkpoint1, checkpoint2, metric='cols', typ
     plt.show()
 
 
-def main():
-    data_set = 'UCY'
-
-    model_path = os.path.join(get_root_dir(), 'results/models/{}/safeGAN_DP'.format(data_set))
-
-    if os.path.isdir(os.path.join(model_path)):
+def main(args):
+    data_set = 'ALL'
+    model_path = os.path.join(get_root_dir(), 'results/models/{}/{}'.format(data_set, args.model_folder))
+    if os.path.isdir(model_path):
         filenames = sorted(os.listdir(model_path))
         paths = [os.path.join(model_path, file_) for file_ in filenames]
-        data_dir = get_test_data_path(data_set.lower())
+        paths = [path for path in paths if 'no_model' not in path]
 
         # load checkpoint of first model and arguments
         checkpoint1 = torch.load(paths[0])
-        args1 = AttrDict(checkpoint1['args'])
         print('Loading model from path: ' + paths[0])
 
         # load checkpoing of second model
         checkpoint2 = torch.load(paths[1])
-        args2 = AttrDict(checkpoint2['args'])
         print('Loading model from path: ' + paths[1])
 
-        evaluate_training_metric(args1, checkpoint1, checkpoint2, 'cols', 'val')
+        evaluate_training_metric(checkpoint1, checkpoint2, args.metric, 'val')
         print('Check folder name {}'.format(os.path.join(model_path)))
 
 if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    main(args)
 
