@@ -12,10 +12,10 @@ Check the results of the three networks:
 - With context and the critic and discriminator evaluators (ContextPoolingEvaluator)
 
 Baseline models:
-| SocialGAN | SoPhie |
-|------------- | -------------|
-| 0.61 | 0.54 |
-| 1.21 | 1.15 |
+| Model | SocialGAN  | SoPhie  |
+| :-----: | :-: | :-: |
+| ADE |  0.61 | 0.54 |
+| FDE |   1.21 | 1.15 |
 
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
