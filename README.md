@@ -12,6 +12,10 @@ Check the results of the three networks:
 - With context and the critic and discriminator evaluators (ContextPoolingEvaluator)
 
 Baseline models:
+| Attempt | #1  | #2  |
+| :-----: | :-: | :-: |
+| Seconds | 301 | 283 |
+
 | Model | SocialGAN  | SoPhie  |
 | :-----: | :-: | :-: |
 | ADE |  0.61 | 0.54 |
