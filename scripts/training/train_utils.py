@@ -114,7 +114,7 @@ def get_argument_parser():
     parser.add_argument('--grid_size', default=8, type=int)
 
     parser.add_argument('--static_pooling_type', default=None, type=str) # random, grid, polar, raycast, physical_attention_with_encoder
-    parser.add_argument('--dynamic_pooling_type', default=None, type=str) # social_pooling, pool_hidden_net, social_pooling_attention
+    parser.add_argument('--dynamic_pooling_type', default='social_pooling_attention', type=str) # social_pooling, pool_hidden_net, social_pooling_attention
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)

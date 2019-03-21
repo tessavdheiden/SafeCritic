@@ -15,7 +15,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
     """
     pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
     seq_length = pred_pos.size(0)
-    collisions = []
+    collisions, collisions_per_agent = [], []
     if mode == 'sequential':
         index = []
     for i, (start, end) in enumerate(seq_start_end):
@@ -44,15 +44,19 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
             cols = cols.sum(1).sum(0)
         elif mode == 'sequential':
             cols = torch.zeros(seq_length, num_ped, num_ped)
-            cols[distance < minimum_distance] = 1
+            cols[distance < minimum_distance] = 10
+            cols[distance > minimum_distance] = -1
             cols = cols.view(num_ped, seq_length, num_ped) # so we can append and concat along batch dim
-            #cols = cols.sum(1).view(num_ped, -1)
+            collisions_per_agent.append(cols)
+            cols = cols.sum(0).view(num_ped, -1)
+
 
         collisions.append(cols)
     if mode != 'sequential':
         return torch.cat(collisions, dim=0).to(device)
     else:
-        return collisions
+        collisions = torch.cat(collisions, dim=0).to(device)
+        return collisions, collisions_per_agent
 
 
 def occupancy_error(pred_pos, seq_start_end, scene_information, seq_scene, minimum_distance=0.2, mode='binary'):

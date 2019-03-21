@@ -17,32 +17,46 @@ from scripts.helpers.helper_get_critic import helper_get_critic
 
 fig, (ax1) = plt.subplots(1, 1, figsize=(8, 8), num=1)
 
-def plot_prediction(traj, seq_start_end, scores, labels):
+def plot_prediction(traj, seq_start_end, scores, labels, path=None):
     """
     Input:
     - traj: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - scores: List of Tensors with shapes (seq_len, batch, 1). Predicted last pos.
     - labels: List of Tensors with shapes (batch, seq_len, batch). Predicted last pos.
     """
     traj = traj.permute(1, 0, 2)
+    (batch_size, seq_len, _) = traj.size()
+    scores = scores.permute(1, 0, 2).squeeze(2)
+    tot_cols = 0
+    tot_pred_cols = 0
     for i, (start, end) in enumerate(seq_start_end):
         ax1.cla()
         start = start.item()
         end = end.item()
         num_ped = end-start
-        cols = labels[i].sum(0).permute(1, 0)
+        cols = labels[i].sum(0).permute(1, 0) # (num_ped, seq_len, num_ped) ==> (seq_len, num_ped) ==>(num_ped, seq_len)
+        current_score = scores[start:end]
+
         current_traj = traj[start:end]
 
         mask = cols > 0
+        mask2 = current_score > 0
         ax1.scatter(current_traj[:, :, 0], current_traj[:, :, 1])
         if mask.sum(1).sum(0) > 0:
             colliding_traj = current_traj[mask]
             ax1.scatter(colliding_traj[:, 0], colliding_traj[:, 1], c='r', s=700, alpha=.1, edgecolors='none')
             ax1.scatter(colliding_traj[:, 0], colliding_traj[:, 1], c='r', s=500, alpha=.2, edgecolors='none')
             ax1.scatter(colliding_traj[:, 0], colliding_traj[:, 1], c='r', s=300, alpha=.3, edgecolors='none')
-        ax1.set_xlabel('Num Peds: {} Num Cols: {}'.format(num_ped, mask.sum(1).sum(0)))
+        if mask2.sum(1).sum(0) > 1:
+            predicted_colliding_traj = current_traj[mask2]
+            ax1.scatter(predicted_colliding_traj[:, 0], predicted_colliding_traj[:, 1], c='green', s=300, alpha=.5, edgecolors='none')
+        tot_cols += mask.sum(1).sum(0)
+        tot_pred_cols += mask2.sum(1).sum(0)
+        ax1.set_xlabel('Num Peds: {} Num Cols: {}, Pred Num Cols: {}'.format(num_ped, tot_cols, tot_pred_cols))
         ax1.axis('square')
-        plt.waitforbuttonpress()
+        plt.pause(.0001)
         plt.draw()
+    plt.savefig(path)
 
 
 def get_critic(checkpoint_in, args):
