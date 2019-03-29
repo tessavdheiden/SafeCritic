@@ -27,7 +27,7 @@ Baseline models results TrajNet data:
 
 | Model | RED v2 | sr LSTM  |
 | :-----: | :-: | :-: |
-| ADE | 0.78 |  0.81 |
+| ADE | 0.359 |  0.37 |
 
 
 ## Model 
