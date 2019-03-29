@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(current_path, os.path.pardir))
 
 from scripts.helpers.helper_get_generator import helper_get_generator
 from scripts.helpers.helper_get_critic import helper_get_critic
-from scripts.evaluation.visualization import reset_plot
+from scripts.evaluation.visualization import get_figure
 
 from scripts.training.train_critic import critic_step, check_accuracy_critic
 from scripts.training.train_discriminator import discriminator_step, check_accuracy_discriminator
@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 device = get_device()
 
 def main(args):
+    if args.sanity_check:
+        fig = get_figure(cols=4, rows=3, num=1)
+
     if args.summary_writer_name is not None:
         writer = SummaryWriter(args.summary_writer_name)
 
@@ -55,7 +58,7 @@ def main(args):
     train_dset, train_loader = data_loader(args, train_path, shuffle=True)
 
     logger.info("Initializing val dataset")
-    val_dset, val_loader = data_loader(args, val_path, shuffle=True)
+    val_dset, val_loader = data_loader(args, val_path, shuffle=False)
 
     steps = max(args.g_steps, args.c_steps)
     steps = max(steps, args.d_steps)
@@ -76,6 +79,7 @@ def main(args):
     logger.info(generator)
     g_loss_fn = gan_g_loss
     optimizer_g = optim.Adam(filter(lambda x: x.requires_grad, generator.parameters()), lr=args.g_learning_rate)
+
 
     # build trajectory
     discriminator = TrajectoryDiscriminator(
@@ -105,7 +109,7 @@ def main(args):
     critic.type(float_dtype).train()
     logger.info('Here is the critic:')
     logger.info(critic)
-    c_loss_fn = critic_loss
+    c_loss_fn = gan_d_loss
     optimizer_c = optim.Adam(filter(lambda x: x.requires_grad, critic.parameters()), lr=args.c_learning_rate)
     
     trajectory_evaluator = TrajectoryGeneratorEvaluator()
@@ -113,7 +117,7 @@ def main(args):
         logger.info('Discrimintor loss')
         trajectory_evaluator.add_module(discriminator, gan_g_loss, args.d_loss_weight)
     if args.c_loss_weight > 0:
-        logger.info('Oracle loss')
+        logger.info('Critic loss')
         trajectory_evaluator.add_module(critic, g_critic_loss_function, args.c_loss_weight)
 
     # Maybe restore from checkpoint
@@ -189,8 +193,7 @@ def main(args):
         avg_losses_c = {}
         avg_losses_g = {}
 
-        if args.sanity_check:
-            reset_plot(args)
+
         logger.info('Starting epoch {}  -  [{}]'.format(epoch, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         for batch in train_loader:
             if args.timing == 1:
@@ -214,7 +217,7 @@ def main(args):
 
             elif c_steps_left > 0:
                 step_type = 'c'
-                losses_c = critic_step(args, batch, critic, c_loss_fn, optimizer_c)
+                losses_c = critic_step(args, batch, generator, critic, c_loss_fn, optimizer_c)
                 checkpoint['norm_c'].append(get_total_norm(critic.parameters()))
                 c_steps_left -= 1
                 if len(avg_losses_c) == 0:
@@ -293,26 +296,26 @@ def main(args):
             metrics_train, metrics_val = {}, {}
             if args.g_steps > 0:
                 logger.info('Checking G stats on train ...')
-                metrics_train = check_accuracy_generator('train', epoch, args, train_loader, generator, limit=False)
+                metrics_train = check_accuracy_generator('train', epoch, args, train_loader, generator, True)
 
                 logger.info('Checking G stats on val ...')
-                metrics_val = check_accuracy_generator('val', epoch, args, val_loader, generator, limit=False)
+                metrics_val = check_accuracy_generator('val', epoch, args, val_loader, generator, True)
 
             if args.c_steps > 0:
                 logger.info('Checking C stats on train ...')
-                metrics_train_c = check_accuracy_critic(args, train_loader, critic, c_loss_fn, limit=False)
+                metrics_train_c = check_accuracy_critic(args, train_loader, generator, critic, c_loss_fn, True)
                 metrics_train.update(metrics_train_c)
 
                 logger.info('Checking C stats on val ...')
-                metrics_val_c = check_accuracy_critic(args, val_loader, critic, c_loss_fn, limit=False)
+                metrics_val_c = check_accuracy_critic(args, val_loader, generator, critic, c_loss_fn, True)
                 metrics_val.update(metrics_val_c)
             if args.d_steps > 0:
                 logger.info('Checking D stats on train ...')
-                metrics_train_d = check_accuracy_discriminator(args, train_loader, generator, discriminator, d_loss_fn, limit=True)
+                metrics_train_d = check_accuracy_discriminator(args, train_loader, generator, discriminator, d_loss_fn, True)
                 metrics_train.update(metrics_train_d)
 
                 logger.info('Checking D stats on val ...')
-                metrics_val_d = check_accuracy_discriminator(args, val_loader, generator, discriminator, d_loss_fn, limit=True)
+                metrics_val_d = check_accuracy_discriminator(args, val_loader, generator, discriminator, d_loss_fn, True)
                 metrics_val.update(metrics_val_d)
 
             for k, v in sorted(metrics_val.items()):

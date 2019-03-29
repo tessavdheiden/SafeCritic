@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 from sgan.model.utils import relative_to_abs
 from sgan.model.losses import l2_loss
 from sgan.model.utils import get_device
-from scripts.evaluation.visualization import sanity_check
+from scripts.evaluation.visualization import sanity_check, plot_prediction, get_figure
 from scripts.training.train_utils import cal_l2_losses, cal_cols, cal_occs, cal_ade, cal_fde
+from sgan.context.dynamic_pooling_algorithms import make_grid
 
 device = get_device()
 
@@ -45,9 +47,8 @@ def generator_step(args, batch, generator, optimizer_g, trajectory_evaluator):
     traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
     traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
 
-    # evaluator_loss = trajectory_evaluator.get_loss(pred_traj_fake, pred_traj_fake_rel, seq_start_end, seq_scene_ids)
-    # loss += evaluator_loss
-    # loss -= collision_rewards(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold, gamma=1.0).mean() #pred_pos, seq_start_end, minimum_distance=0.1, gamma=0.9
+    evaluator_loss = trajectory_evaluator.get_loss(traj_fake, traj_fake_rel, seq_start_end, seq_scene_ids)
+    loss += evaluator_loss
 
     losses['G_total_loss'] = loss.item()
 
@@ -96,13 +97,8 @@ def check_accuracy_generator(string, epoch, args, loader, generator, limit=False
                 pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped
             )
 
-            cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold)
-            cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold)
-
-            traj_real = torch.cat([obs_traj, pred_traj_gt], dim=0)
-            traj_real_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
-            traj_fake = torch.cat([obs_traj, pred_traj_fake], dim=0)
-            traj_fake_rel = torch.cat([obs_traj_rel, pred_traj_fake_rel], dim=0)
+            cols_pred = cal_cols(pred_traj_fake, seq_start_end, minimum_distance=args.collision_threshold, mode='all')
+            cols_gt = cal_cols(pred_traj_gt, seq_start_end, minimum_distance=args.collision_threshold, mode='all')
 
             g_l2_losses_abs.append(g_l2_loss_abs.item())
             g_l2_losses_rel.append(g_l2_loss_rel.item())
@@ -122,24 +118,8 @@ def check_accuracy_generator(string, epoch, args, loader, generator, limit=False
             total_traj_l += torch.sum(linear_ped).item()
             total_traj_nl += torch.sum(non_linear_ped).item()
 
-            if args.static_pooling_type is not None:
-                seq_scenes = [generator.pooling.pooling_list[1].static_scene_feature_extractor.list_data_files[num] for
-                              num in seq_scene_ids]
-                scene_information = generator.pooling.pooling_list[1].static_scene_feature_extractor.scene_information
-                occs_pred = cal_occs(pred_traj_fake, seq_start_end, scene_information, seq_scenes,
-                                     minimum_distance=args.occupancy_threshold)
-                occs_gt = cal_occs(pred_traj_gt, seq_start_end, scene_information, seq_scenes,
-                                   minimum_distance=args.occupancy_threshold)
-                occupancies_gt.append(occs_gt.sum().item())
-                occupancies_pred.append(occs_pred.sum().item())
-
-            if args.sanity_check and (b == len(loader) - 1 or (
-                    limit and total_traj >= args.num_samples_check)):  # not checking all trajectories
-                if args.static_pooling_type is not None:
-                    sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string,
-                                 generator.static_net.scene_information, seq_scenes)
-                else:
-                    sanity_check(args, pred_traj_fake, obs_traj, pred_traj_gt, seq_start_end, b, epoch, string)
+            #if args.sanity_check:
+            #   plot_prediction(args, obs_traj, pred_traj_gt, pred_traj_fake, seq_start_end[:5])
 
             if limit and total_traj >= args.num_samples_check:
                 break

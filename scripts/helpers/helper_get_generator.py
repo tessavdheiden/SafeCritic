@@ -29,6 +29,11 @@ def helper_get_generator(args, data_path):
             decoder_builder.with_dynamic_pooling()
     decoder = decoder_builder.build()
 
+    num_grid_cells = args.grid_size**2
+    num_poolings = decoder.pooling.get_pooling_count()-1
+    print("num grid cells = {}, bottleneck_dim = {}".format( num_grid_cells*num_poolings, args.bottleneck_dim))
+    assert(args.bottleneck_dim >= num_grid_cells*num_poolings)
+
     # build trajectory
     g_builder = TrajectoryGeneratorBuilder(
         obs_len=args.obs_len,
@@ -43,7 +48,6 @@ def helper_get_generator(args, data_path):
         noise_mix_type=args.noise_mix_type,
         dropout=args.dropout,
         bottleneck_dim=args.bottleneck_dim,
-        activation=args.activation,
         batch_norm=args.batch_norm,
         dynamic_pooling_type=args.dynamic_pooling_type,
         static_pooling_type=args.static_pooling_type,

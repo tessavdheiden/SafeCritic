@@ -44,7 +44,7 @@ def collision_error(pred_pos, seq_start_end, minimum_distance=0.2, mode='binary'
             cols = cols.sum(1).sum(0)
         elif mode == 'sequential':
             cols = torch.zeros(seq_length, num_ped, num_ped)
-            cols[distance < minimum_distance] = 10
+            cols[distance < minimum_distance] = 1
             cols[distance > minimum_distance] = -1
             cols = cols.view(num_ped, seq_length, num_ped) # so we can append and concat along batch dim
             collisions_per_agent.append(cols)

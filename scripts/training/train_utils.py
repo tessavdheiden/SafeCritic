@@ -55,7 +55,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='all', type=str)
+    parser.add_argument('--dataset_name', default='ucy', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -68,7 +68,7 @@ def get_argument_parser():
     parser.add_argument('--num_epochs', default=201, type=int)
 
     # Model Options
-    parser.add_argument('--embedding_dim', default=16, type=int)
+    parser.add_argument('--embedding_dim', default=64, type=int)
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout', default=0, type=float)
     parser.add_argument('--batch_norm', default=1, type=bool_flag)
@@ -83,13 +83,13 @@ def get_argument_parser():
     parser.add_argument('--noise_mix_type', default='global')
     parser.add_argument('--clipping_threshold_g', default=2.0, type=float)
     parser.add_argument('--g_learning_rate', default=0.0001, type=float)
-    parser.add_argument('--g_steps', default=0, type=int)
+    parser.add_argument('--g_steps', default=5, type=int)
 
     # Discriminator Options
-    parser.add_argument('--d_type', default='global_hidden', type=str)
+    parser.add_argument('--d_type', default='local', type=str)
     parser.add_argument('--encoder_h_dim_d', default=16, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--d_steps', default=0, type=int)
+    parser.add_argument('--d_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
     # Critic Options
@@ -97,8 +97,8 @@ def get_argument_parser():
     parser.add_argument('--encoder_h_dim_c', default=16, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
     parser.add_argument('--c_steps', default=1, type=int)
-    parser.add_argument('--clipping_threshold_c', default=0, type=float)
-    parser.add_argument('--collision_threshold', default=.50, type=float)
+    parser.add_argument('--clipping_threshold_c', default=1.0, type=float)
+    parser.add_argument('--collision_threshold', default=.5, type=float)
     parser.add_argument('--occupancy_threshold', default=.05, type=float)
 
     # Pooling Options
@@ -106,11 +106,11 @@ def get_argument_parser():
     parser.add_argument('--down_samples', default=-1, type=int)
 
     # Pool Net Option
-    parser.add_argument('--bottleneck_dim', default=8, type=int)
+    parser.add_argument('--bottleneck_dim', default=64, type=int)
     parser.add_argument('--pooling_dim', default=2, type=int)
 
     # Social Pooling Options
-    parser.add_argument('--neighborhood_size', default=2.0, type=float)
+    parser.add_argument('--neighborhood_size', default=4.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
     parser.add_argument('--static_pooling_type', default=None, type=str) # random, grid, polar, raycast, physical_attention_with_encoder
@@ -118,9 +118,9 @@ def get_argument_parser():
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-    parser.add_argument('--d_loss_weight', default=0.0, type=float)
-    parser.add_argument('--c_loss_weight', default=0.0, type=float)
-    parser.add_argument('--best_k', default=20, type=int)
+    parser.add_argument('--d_loss_weight', default=0.1, type=float)
+    parser.add_argument('--c_loss_weight', default=0.1, type=float)
+    parser.add_argument('--best_k', default=1, type=int)
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
@@ -131,7 +131,7 @@ def get_argument_parser():
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
     parser.add_argument('--num_samples_check', default=100, type=int)
-    parser.add_argument('--sanity_check', default=0, type=bool_flag)
+    parser.add_argument('--sanity_check', default=1, type=bool_flag)
     parser.add_argument('--sanity_check_dir', default="results/sanity_check")
     parser.add_argument('--summary_writer_name', default=None, type=str)
 

@@ -13,8 +13,121 @@ from attrdict import AttrDict
 from sgan.model.models_static_scene import get_homography_and_map, get_pixels_from_world
 from sgan.model.folder_utils import get_root_dir
 from sgan.model.utils import get_device
+from sgan.context.dynamic_pooling_algorithms import make_grid
 
 device = get_device()
+
+
+def get_figure(rows=1, cols=1, num=1):
+    fig, ax = plt.subplots(rows, cols, figsize=(16, 16), num=num)
+    return fig
+
+def plot_prediction(args, obs_traj, traj, pred_traj, seq_start_end, time=0, target=0):
+    """
+    Input:
+    - traj: Tensor of shape (seq_len, batch, 2). Predicted last pos.
+    - scores: List of Tensors with shapes (seq_len, batch, 1). Predicted last pos.
+    - labels: List of Tensors with shapes (batch, seq_len, batch). Predicted last pos.
+    """
+    neighborhood_size = args.neighborhood_size
+    (seq_len, batch_size, _) = traj.size()
+    traj = traj.permute(1, 0, 2)
+    pred_traj = pred_traj.permute(1, 0, 2)
+    obs_traj = obs_traj.permute(1, 0, 2)
+
+    for i, (start, end) in enumerate(seq_start_end):
+        ax = plt.gcf().get_axes()
+        for a in ax:
+            a.cla()
+
+        j = 0
+        ax[j].axis('off')
+
+        start = start.item()
+        end = end.item()
+        num_ped = end - start
+
+        current_traj = traj[start:end]
+        current_pred_traj = pred_traj[start:end]
+        current_obs_traj = obs_traj[start:end]
+
+        j = 1
+        ax[j].scatter(current_obs_traj[:, :, 0], current_obs_traj[:, :, 1], s=1)
+        ax[j].text(current_obs_traj[target, -1, 0], current_obs_traj[target, -1, 1], '{}'.format(target))
+        rect_location = (current_obs_traj[target, -1, 0] - neighborhood_size / 2, current_obs_traj[target, -1, 1] - neighborhood_size / 2)
+        rect = patches.Rectangle(rect_location, neighborhood_size, neighborhood_size, edgecolor='r', linewidth=1, facecolor='none')
+        ax[j].add_patch(rect)
+        ax[j].set_xlabel('obs traj')
+        ax[j].axis('square')
+
+        j = 2
+        ax[j].scatter(current_traj[:, :, 0], current_traj[:, :, 1], s=1)
+        ax[j].text(current_traj[target, time, 0], current_traj[target, time, 1], '{}'.format(target))
+        rect_location = (current_traj[target, time, 0] - neighborhood_size / 2, current_traj[target, time, 1] - neighborhood_size / 2)
+        rect = patches.Rectangle(rect_location, neighborhood_size, neighborhood_size, edgecolor='r', linewidth=1, facecolor='none')
+        ax[j].add_patch(rect)
+        ax[j].set_xlabel('ground truth')
+        ax[j].axis('square')
+
+        j = 3
+        ax[j].scatter(current_pred_traj[:, :, 0], current_pred_traj[:, :, 1], s=1)
+        ax[j].text(current_pred_traj[target, time, 0], current_pred_traj[target, time, 1], '{}'.format(target))
+        rect_location = (current_pred_traj[target, time, 0] - neighborhood_size / 2, current_pred_traj[target, time, 1] - neighborhood_size / 2)
+        rect = patches.Rectangle(rect_location, neighborhood_size, neighborhood_size, edgecolor='r', linewidth=1, facecolor='none')
+        ax[j].add_patch(rect)
+        ax[j].set_xlabel('prediction')
+        ax[j].axis('square')
+
+        j = 5
+        curr_hidden = torch.ones(num_ped, 1).to(device)
+        grid_gts = make_grid(curr_end_pos=current_obs_traj[:, -1, :], curr_hidden=curr_hidden, num_ped=num_ped,
+                             grid_size=args.grid_size, seq_start_end=seq_start_end, neighborhood_size=neighborhood_size)
+        grid_gt = grid_gts.squeeze(1)
+        total_grid_size = args.grid_size**2
+        grid_gt_target = grid_gt[target*total_grid_size:(target+1)*total_grid_size]
+        draw_grid(ax[j], grid_gt_target, args.grid_size)
+        ax[j].set_xlabel('grid obs traj')
+
+        j = 6
+        curr_hidden = torch.ones(num_ped, 1).to(device)
+        grid_gts = make_grid(curr_end_pos=current_traj[:, time, :], curr_hidden=curr_hidden, num_ped=num_ped,
+                             grid_size=args.grid_size, seq_start_end=seq_start_end, neighborhood_size=neighborhood_size)
+        grid_gt = grid_gts.squeeze(1)
+        total_grid_size = args.grid_size**2
+        grid_gt_target = grid_gt[target*total_grid_size:(target+1)*total_grid_size]
+        draw_grid(ax[j], grid_gt_target, args.grid_size)
+        ax[j].set_xlabel('grid g truth traj')
+
+        j = 7
+        grid_gts = make_grid(curr_end_pos=current_pred_traj[:, time, :], curr_hidden=curr_hidden, num_ped=num_ped,
+                             grid_size=args.grid_size, seq_start_end=seq_start_end, neighborhood_size=neighborhood_size)
+        grid_gt = grid_gts.squeeze(1)
+        total_grid_size = args.grid_size**2
+        grid_gt_target = grid_gt[target*total_grid_size:(target+1)*total_grid_size]
+        draw_grid(ax[j], grid_gt_target, args.grid_size)
+        ax[j].set_xlabel('grid predicted traj')
+
+
+        plt.draw()
+        plt.pause(0.001)
+
+
+
+def draw_grid(ax, grid, grid_size):
+    img = grid.view((grid_size, grid_size)).cpu().numpy()
+    width, height = img.shape
+    ax.imshow(img, cmap='gray')
+
+    # display the pixel values in that image
+    thresh = img.max() / 2.5
+    for x in range(width):
+        for y in range(height):
+            val = round(img[x][y], 2) if img[x][y] != 0 else 0
+            ax.annotate(str(val), xy=(y, x),
+                         horizontalalignment='center',
+                         verticalalignment='center',
+                         color='white' if img[x][y] < thresh else 'black')
+
 
 def my_plot(ax, o, p, g, annotated_points):
     ax.scatter(o[:, 0], o[:, 1], c='orange', s=1)
