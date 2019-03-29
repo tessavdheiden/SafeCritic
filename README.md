@@ -11,12 +11,24 @@ Check the results of the three networks:
 - With dynamic and static context pooling (ContextPooling)
 - With context and the critic and discriminator evaluators (ContextPoolingEvaluator)
 
-Baseline models:
+Baseline models results UCY data:
 
 | Model | SocialGAN  | SoPhie  |
 | :-----: | :-: | :-: |
-| ADE |  0.61 | 0.54 |
-| FDE |   1.21 | 1.15 |
+| minADE |  0.45 | 0.40 |
+
+Baseline models results SDD data:
+
+| Model | SocialGAN  | SoPhie  |
+| :-----: | :-: | :-: |
+| minADE pixels | 27.246 |  16.27 |
+
+Baseline models results TrajNet data:
+
+| Model | RED v2 | sr LSTM  |
+| :-----: | :-: | :-: |
+| ADE | 0.78 |  0.81 |
+
 
 ## Model 
 SafeGAN synergizes generative adversarial networks (GAN) for generating multiple “real” trajectories with a reward network to generate plausible trajectories penalizing collisions. The reward network, Oracle, is environmentally aware to prune trajectories which result in collision.
