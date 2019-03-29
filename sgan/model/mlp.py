@@ -16,6 +16,7 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
             layers.append(nn.LeakyReLU().to(device))
         if dropout > 0:
             layers.append(nn.Dropout(p=dropout).to(device))
+    #layers.append(nn.Linear(dim_list[-1], dim_list[-1]).to(device))
     return nn.Sequential(*layers).to(device)
 
 

@@ -44,6 +44,7 @@ class Decoder(nn.Module):
         self.spatial_embedding = nn.Linear(2, embedding_dim).to(device)
         self.hidden2pos = nn.Linear(h_dim, 2)
 
+
     def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end, seq_scene_ids=None):
         """
         Inputs:
@@ -55,7 +56,7 @@ class Decoder(nn.Module):
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
         """
         batch = last_pos.size(0)
-        pred_traj_fake_rel, indxs = [], []
+        pred_traj_fake_rel = []
         decoder_input = self.spatial_embedding(last_pos_rel.to(device))
         decoder_input = decoder_input.view(1, batch, self.embedding_dim) # [1, ped, h_dim]
 
@@ -66,16 +67,14 @@ class Decoder(nn.Module):
 
             if self.pool_every_timestep: #and counter % 6 == 0:
                 decoder_h = state_tuple[0]
+                # context information at t+1, since input is curr_pos^(t+1)
                 context_information = self.pooling.aggregate_context(decoder_h, seq_start_end, curr_pos, rel_pos, seq_scene_ids)
-                decoder_h = context_information
 
-                decoder_h = self.mlp(decoder_h)
+                decoder_h = self.mlp(context_information)
                 decoder_h = torch.unsqueeze(decoder_h, 0)
                 state_tuple = (decoder_h, state_tuple[1])
 
-            embedding_input = rel_pos
-
-            decoder_input = self.spatial_embedding(embedding_input)
+            decoder_input = self.spatial_embedding(rel_pos)
             decoder_input = decoder_input.view(1, batch, self.embedding_dim)
             pred_traj_fake_rel.append(rel_pos.view(batch, -1))
             last_pos = curr_pos

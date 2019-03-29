@@ -6,6 +6,7 @@ import numpy as np
 from sgan.model.encoder import Encoder
 from sgan.model.mlp import make_mlp
 from sgan.model.folder_utils import get_root_dir, get_dset_name, get_dset_group_name
+from sgan.model.models import get_noise
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -42,47 +43,16 @@ class TrajectoryCritic(nn.Module):
             dropout=dropout
         )
 
-        if c_type == 'global':
-            real_classifier_dims = [h_dim, mlp_dim, 1]
-            self.real_classifier = make_mlp(
+        real_classifier_dims = [self.pooling_output_dim, mlp_dim, 1]
+        self.real_classifier = make_mlp(
                 real_classifier_dims,
-                activation=activation,
-                batch_norm=batch_norm,
-                dropout=dropout
-            )
-            mlp_dims = [self.pooling_output_dim, mlp_dim, h_dim]
-            self.context2hidden = make_mlp(
-                mlp_dims,
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout)
-            self.decoder = nn.LSTM(2, h_dim, num_layers, dropout=dropout)
 
-
-        elif self.c_type == 'local':
-            real_classifier_dims = [1, mlp_dim, 1]
-            self.final_embedding_agents = nn.Sequential(
-                nn.Linear(1, mlp_dim),
-                nn.ReLU(),
-                nn.Linear(mlp_dim, 1)
-            )
-            self.final_embedding_scene = nn.Sequential(
-                nn.Linear(1, mlp_dim),
-                nn.ReLU(),
-                nn.Linear(mlp_dim, 1)
-            )
-            self.temporal_embedding_agents = nn.Sequential(
-                nn.Linear(self.seq_len, mlp_dim),
-                nn.ReLU(),
-                nn.Linear(mlp_dim, 1)
-            )
-            self.temporal_embedding_scene = nn.Sequential(
-                nn.Linear(self.seq_len, mlp_dim),
-                nn.ReLU(),
-                nn.Linear(mlp_dim, 1)
-            )
-            self.real_classifier = make_mlp(
-                real_classifier_dims,
+        mlp_dims = [self.pooling_output_dim, mlp_dim, 64]
+        self.mlp = make_mlp(
+                mlp_dims,
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout)
@@ -104,84 +74,6 @@ class TrajectoryCritic(nn.Module):
                 map = sampled[:down_samples]
             self.scene_information[name] = torch.from_numpy(map).type(torch.float).to(device)
 
-    def get_min_distance_agents(self, pred_pos, seq_start_end):
-        """
-        Input:
-        - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
-        - minimum_distance: Minimum between people
-        last pos
-        Output:
-        - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
-        """
-        pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
-        seq_length = pred_pos.size(0)
-        collisions = []
-        for i, (start, end) in enumerate(seq_start_end):
-            start = start.item()
-            end = end.item()
-            num_ped = end - start
-            curr_seqs = pred_pos_perm[start:end]
-
-            curr_seqs_switch = curr_seqs.transpose(0, 1)
-            X_cols_rep = curr_seqs_switch.repeat(1, 1, num_ped)  # repeat cols x1(t1) x1(t1) x2(t1) x2(t1) x1(t2) x1(t2) x2(t2) x2(t2)
-            X_rows_rep = curr_seqs_switch.repeat(1, num_ped, 1)  # repeat rows x1(t1) x2(t1) x1(t1) x2(t1)
-            distance = torch.norm(X_rows_rep.view(seq_length, num_ped, num_ped, 2) - X_cols_rep.view(seq_length, num_ped, num_ped, 2), dim=3)
-            distance = distance.clone().view(seq_length, num_ped, num_ped)
-
-            distance[distance == 0] = self.collision_threshold  # exclude distance between people and themself
-            grid = torch.zeros_like(distance) # [t X ped X ped]
-            grid[distance < self.collision_threshold] = 1
-
-            cols = grid.sum(1) # [t X ped X ped] -> [t X ped] -> [ped]
-
-            #cols = self.temporal_embedding_agents(cols.view(num_ped, -1)).squeeze(1)
-            cols = cols.sum(0)
-
-            collisions.append(cols)
-
-        return torch.cat(collisions, dim=0).cuda()
-
-    def get_min_distance_scene(self, pred_pos, seq_start_end, seq_scene_ids):
-        """
-        Input:
-        - pred_pos: Tensor of shape (seq_len, batch, 2). Predicted last pos.
-        - minimum_distance: Minimum between people
-        last pos
-        Output:
-        - loss: gives the collision error for all pedestrians (batch * number of ped in batch)
-        """
-        seq_length = pred_pos.size(0)
-        pred_pos_perm = pred_pos.permute(1, 0, 2)  # (batch, seq_len, 2)
-        collisions = []
-        seq_scenes = [self.pooling.pooling_list[1].static_scene_feature_extractor.list_data_files[num] for num in seq_scene_ids]
-        for i, (start, end) in enumerate(seq_start_end):
-            start = start.item()
-            end = end.item()
-            num_ped = end - start
-
-            curr_seqs = pred_pos_perm[start:end]
-            scene = self.pooling.pooling_list[1].static_scene_feature_extractor.scene_information[seq_scenes[i]]
-            num_points = scene.size(0)
-
-            curr_seqs_switch = curr_seqs.transpose(0, 1)
-            X_cols_rep = curr_seqs_switch.repeat(1, num_points, 1).view(-1, num_points, 2)
-            scene_rows_rep = scene.repeat(1, num_ped * seq_length).view(num_ped * seq_length, -1, 2)
-
-            distance = torch.norm(scene_rows_rep - X_cols_rep, dim=2, p=2).view(seq_length, num_points, num_ped)
-            grid = torch.zeros_like(distance)  # [t X num_points X ped]
-            grid[distance < self.occupancy_threshold] = 1
-
-            cols = grid.sum(1)
-            #cols = self.temporal_embedding_scene(cols.view(num_ped, -1)).squeeze(1)
-            cols = cols.sum(0)
-            collisions.append(cols)
-
-        return torch.cat(collisions, dim=0).cuda()
-
-    def init_hidden(self, batch):
-        return (torch.zeros(1, batch, self.h_dim).to(device), torch.zeros(1, batch, self.h_dim).to(device))
-
-
     def forward(self, traj, traj_rel, seq_start_end=None, seq_scene_ids=None):
         """
         Inputs:discriminator
@@ -191,50 +83,14 @@ class TrajectoryCritic(nn.Module):
         Output:
         - scores: Tensor of shape (batch,) with real/fake scores
         """
-
-
+        final_h = self.encoder(traj_rel)
         # Note: In case of 'global' option we are using start_pos as opposed to
         # end_pos. The intution being that hidden state has the whole
         # trajectory and relative postion at the start when combined with
         # trajectory information should help in discriminative behavior.
-        if self.c_type == 'global':
-            scores = []
-            batch = traj_rel.size(1)
-            state_tuple = self.init_hidden(batch)
-            for t in range(self.seq_len):
-                end_pos = traj[t, :, :]
-                rel_pos = traj_rel[t, :, :]
+        classifier_input = self.pooling.aggregate_context(final_h, seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids)
+        scores = self.real_classifier(classifier_input)
 
-                output, state_tuple = self.decoder(rel_pos.view(1, -1, 2), state_tuple)
-                decoder_h = state_tuple[0]
-
-                context_information = self.pooling.aggregate_context(decoder_h, seq_start_end, end_pos, rel_pos, seq_scene_ids)
-
-                decoder_h = self.context2hidden(context_information)
-                decoder_h = torch.unsqueeze(decoder_h, 0)
-                state_tuple = (decoder_h, state_tuple[1])
-
-                current_score = self.real_classifier(output.view(-1, self.h_dim))
-                scores.append(current_score.view(batch, -1))
-            scores = torch.stack(scores, dim=0)
-            scores1, scores2 = scores, scores
-
-        elif self.c_type == 'global_fast':
-            scores = 0
-            final_encoder_h = self.encoder(traj_rel)
-            for t in range(self.seq_len):
-                end_pos = traj[t, :, :]
-                rel_pos = traj_rel[t, :, :]
-
-                context_information = self.pooling.aggregate_context(final_encoder_h, seq_start_end, end_pos, rel_pos,
-                                                                     seq_scene_ids)
-                scores += self.context2scores(context_information)
-
-            scores1, scores2 = scores, scores
-
-        elif self.c_type == 'local':
-
-            scores1 = self.final_embedding_agents(self.get_min_distance_agents(traj, seq_start_end).view(-1, 1))
-            scores2 = self.final_embedding_scene(self.get_min_distance_scene(traj, seq_start_end, seq_scene_ids).view(-1, 1))
-
-        return scores1, scores2
+        mlp_input = self.pooling.aggregate_context(final_h, seq_start_end, traj[8], traj_rel[8], seq_scene_ids)
+        grids = self.mlp(mlp_input)
+        return scores

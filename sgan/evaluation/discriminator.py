@@ -31,7 +31,6 @@ class TrajectoryDiscriminator(nn.Module):
             dropout=dropout
         )
 
-
         real_classifier_dims = [h_dim, mlp_dim, 1]
         self.real_classifier = make_mlp(
             real_classifier_dims,
@@ -39,26 +38,6 @@ class TrajectoryDiscriminator(nn.Module):
             batch_norm=batch_norm,
             dropout=dropout
         )
-        if d_type == 'global_hidden':
-            self.pool_net = PoolHiddenNet(
-                embedding_dim=embedding_dim,
-                h_dim=h_dim,
-                mlp_dim=mlp_dim,
-                bottleneck_dim=h_dim,
-                activation=activation,
-                batch_norm=batch_norm,
-                dropout=dropout
-            )
-        if d_type == 'global_social':
-            self.pool_net = SocialPoolingAttention(
-                h_dim=h_dim,
-                bottleneck_dim=h_dim,
-                activation=activation,
-                batch_norm=batch_norm,
-                dropout=dropout,
-                neighborhood_size=neighborhood_size,
-                grid_size=grid_size
-            )
 
     def forward(self, traj, traj_rel, seq_start_end=None, seq_scene_ids=None):
         """
@@ -74,16 +53,7 @@ class TrajectoryDiscriminator(nn.Module):
         # end_pos. The intution being that hidden state has the whole
         # trajectory and relative postion at the start when combined with
         # trajectory information should help in discriminative behavior.
-        if self.d_type == 'local':
-            classifier_input = final_h.squeeze()
-        elif self.d_type == 'global_hidden':
-            classifier_input = self.pool_net(
-                final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
-            )
-        elif self.d_type == 'global_social':
-            classifier_input = self.pool_net(
-                final_h.squeeze(), seq_start_end, traj[-1], traj_rel[-1]
-            )
+        classifier_input = final_h.squeeze()
         scores = self.real_classifier(classifier_input)
         return scores
 
