@@ -42,9 +42,6 @@ logger = logging.getLogger(__name__)
 device = get_device()
 
 def main(args):
-    if args.sanity_check:
-        fig = get_figure(cols=4, rows=3, num=1)
-
     if args.summary_writer_name is not None:
         writer = SummaryWriter(args.summary_writer_name)
 
@@ -183,6 +180,7 @@ def main(args):
     while t < args.num_iterations:
         if epoch == args.num_epochs:
             break
+
         gc.collect()
         d_steps_left = args.d_steps
         g_steps_left = args.g_steps
@@ -192,7 +190,6 @@ def main(args):
         avg_losses_d = {}
         avg_losses_c = {}
         avg_losses_g = {}
-
 
         logger.info('Starting epoch {}  -  [{}]'.format(epoch, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         for batch in train_loader:
@@ -260,123 +257,119 @@ def main(args):
             d_steps_left = args.d_steps
             g_steps_left = args.g_steps
             c_steps_left = args.c_steps
-            if t >= 25*args.num_iterations: #check every 25 epochs
-                break
 
-        # Save weights and biases for visualization:
-        #if args.summary_writer_name is not None:
-        #    plot_static_net_tensorboardX(writer, generator, args.static_pooling_type, epoch)
-
-        # Save losses
-        logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
-        if args.d_steps > 0:
-            for k, v in sorted(avg_losses_d.items()):
-                logger.info('  [D] {}: {:.3f}'.format(k, v))
-                checkpoint['D_losses'][k].append(v)
-                if args.summary_writer_name is not None:
-                    writer.add_scalar('Train/' + k, v, epoch)
-        for k, v in sorted(avg_losses_g.items()):
-            logger.info('  [G] {}: {:.3f}'.format(k, v))
-            checkpoint['G_losses'][k].append(v)
-            if args.summary_writer_name is not None:
-                writer.add_scalar('Train/' + k, v, epoch)
-        if args.c_steps > 0:
-            for k, v in sorted(avg_losses_c.items()):
-                logger.info('  [C] {}: {:.3f}'.format(k, v))
-                checkpoint['C_losses'][k].append(v)
-                if args.summary_writer_name is not None:
-                    writer.add_scalar('Train/' + k, v, epoch)
-        checkpoint['losses_ts'].append(t)
-
-        # Maybe save a checkpoint
-        if t > 0:
-            checkpoint['counters']['t'] = t
-            checkpoint['counters']['epoch'] = epoch
-            checkpoint['sample_ts'].append(t)
-            metrics_train, metrics_val = {}, {}
-            if args.g_steps > 0:
-                logger.info('Checking G stats on train ...')
-                metrics_train = check_accuracy_generator('train', epoch, args, train_loader, generator, True)
-
-                logger.info('Checking G stats on val ...')
-                metrics_val = check_accuracy_generator('val', epoch, args, val_loader, generator, True)
-
-            if args.c_steps > 0:
-                logger.info('Checking C stats on train ...')
-                metrics_train_c = check_accuracy_critic(args, train_loader, generator, critic, c_loss_fn, True)
-                metrics_train.update(metrics_train_c)
-
-                logger.info('Checking C stats on val ...')
-                metrics_val_c = check_accuracy_critic(args, val_loader, generator, critic, c_loss_fn, True)
-                metrics_val.update(metrics_val_c)
+        if epoch >= args.print_every:
+            # Save losses
+            logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
             if args.d_steps > 0:
-                logger.info('Checking D stats on train ...')
-                metrics_train_d = check_accuracy_discriminator(args, train_loader, generator, discriminator, d_loss_fn, True)
-                metrics_train.update(metrics_train_d)
-
-                logger.info('Checking D stats on val ...')
-                metrics_val_d = check_accuracy_discriminator(args, val_loader, generator, discriminator, d_loss_fn, True)
-                metrics_val.update(metrics_val_d)
-
-            for k, v in sorted(metrics_val.items()):
-                logger.info('  [val] {}: {:.3f}'.format(k, v))
-                checkpoint['metrics_val'][k].append(v)
-                if args.summary_writer_name is not None:
-                    writer.add_scalar('Validation/' + k, v, epoch)
-            for k, v in sorted(metrics_train.items()):
-                logger.info('  [train] {}: {:.3f}'.format(k, v))
-                checkpoint['metrics_train'][k].append(v)
+                for k, v in sorted(avg_losses_d.items()):
+                    logger.info('  [D] {}: {:.3f}'.format(k, v))
+                    checkpoint['D_losses'][k].append(v)
+                    if args.summary_writer_name is not None:
+                        writer.add_scalar('Train/' + k, v, epoch)
+            for k, v in sorted(avg_losses_g.items()):
+                logger.info('  [G] {}: {:.3f}'.format(k, v))
+                checkpoint['G_losses'][k].append(v)
                 if args.summary_writer_name is not None:
                     writer.add_scalar('Train/' + k, v, epoch)
+            if args.c_steps > 0:
+                for k, v in sorted(avg_losses_c.items()):
+                    logger.info('  [C] {}: {:.3f}'.format(k, v))
+                    checkpoint['C_losses'][k].append(v)
+                    if args.summary_writer_name is not None:
+                        writer.add_scalar('Train/' + k, v, epoch)
+            checkpoint['losses_ts'].append(t)
 
-            # Save another checkpoint with model weights and
-            # optimizer state
-            checkpoint['g_state'] = generator.state_dict()
-            checkpoint['g_optim_state'] = optimizer_g.state_dict()
-            checkpoint['d_state'] = discriminator.state_dict()
-            checkpoint['d_optim_state'] = optimizer_d.state_dict()
-            checkpoint['c_state'] = critic.state_dict()
-            checkpoint['c_optim_state'] = optimizer_c.state_dict()
-            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '{}_{}_with_model.pt'.format(args.checkpoint_name, epoch))
-            logger.info('Saving checkpoint to {}'.format(checkpoint_path))
-            torch.save(checkpoint, checkpoint_path)
-            logger.info('Done.')
+        if epoch >= args.checkpoint_every:
+            # Maybe save a checkpoint
+            if t > 0:
+                checkpoint['counters']['t'] = t
+                checkpoint['counters']['epoch'] = epoch
+                checkpoint['sample_ts'].append(t)
+                metrics_train, metrics_val = {}, {}
+                if args.g_steps > 0:
+                    logger.info('Checking G stats on train ...')
+                    metrics_train = check_accuracy_generator('train', epoch, args, train_loader, generator, True)
 
-            # Save a checkpoint with no model weights by making a shallow
-            # copy of the checkpoint excluding some items
-            checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '{}_{}_no_model.pt'.format(args.checkpoint_name, epoch))
-            logger.info('Saving checkpoint to {}'.format(checkpoint_path))
-            key_blacklist = [
-                'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
-                'g_optim_state', 'd_optim_state', 'd_best_state',
-                'd_best_nl_state', 'c_optim_state', 'c_best_state'
-            ]
-            small_checkpoint = {}
-            for k, v in checkpoint.items():
-                if k not in key_blacklist:
-                    small_checkpoint[k] = v
-            torch.save(small_checkpoint, checkpoint_path)
-            logger.info('Done.')
+                    logger.info('Checking G stats on val ...')
+                    metrics_val = check_accuracy_generator('val', epoch, args, val_loader, generator, True)
 
-            if args.g_steps < 1:
-                continue
-
-            min_ade = min(checkpoint['metrics_val']['ade'])
-            min_ade_nl = min(checkpoint['metrics_val']['ade_nl'])
-
-            if metrics_val['ade'] == min_ade:
-                logger.info('New low for avg_disp_error')
-                checkpoint['best_t'] = t
-                checkpoint['g_best_state'] = generator.state_dict()
-                checkpoint['d_best_state'] = discriminator.state_dict()
                 if args.c_steps > 0:
-                    checkpoint['c_best_state'] = critic.state_dict()
+                    logger.info('Checking C stats on train ...')
+                    metrics_train_c = check_accuracy_critic(args, train_loader, generator, critic, c_loss_fn, True)
+                    metrics_train.update(metrics_train_c)
 
-            if metrics_val['ade_nl'] == min_ade_nl:
-                logger.info('New low for avg_disp_error_nl')
-                checkpoint['best_t_nl'] = t
-                checkpoint['g_best_nl_state'] = generator.state_dict()
-                checkpoint['d_best_nl_state'] = discriminator.state_dict()
+                    logger.info('Checking C stats on val ...')
+                    metrics_val_c = check_accuracy_critic(args, val_loader, generator, critic, c_loss_fn, True)
+                    metrics_val.update(metrics_val_c)
+                if args.d_steps > 0:
+                    logger.info('Checking D stats on train ...')
+                    metrics_train_d = check_accuracy_discriminator(args, train_loader, generator, discriminator, d_loss_fn, True)
+                    metrics_train.update(metrics_train_d)
+
+                    logger.info('Checking D stats on val ...')
+                    metrics_val_d = check_accuracy_discriminator(args, val_loader, generator, discriminator, d_loss_fn, True)
+                    metrics_val.update(metrics_val_d)
+
+                for k, v in sorted(metrics_val.items()):
+                    logger.info('  [val] {}: {:.3f}'.format(k, v))
+                    checkpoint['metrics_val'][k].append(v)
+                    if args.summary_writer_name is not None:
+                        writer.add_scalar('Validation/' + k, v, epoch)
+                for k, v in sorted(metrics_train.items()):
+                    logger.info('  [train] {}: {:.3f}'.format(k, v))
+                    checkpoint['metrics_train'][k].append(v)
+                    if args.summary_writer_name is not None:
+                        writer.add_scalar('Train/' + k, v, epoch)
+
+                # Save another checkpoint with model weights and
+                # optimizer state
+                checkpoint['g_state'] = generator.state_dict()
+                checkpoint['g_optim_state'] = optimizer_g.state_dict()
+                checkpoint['d_state'] = discriminator.state_dict()
+                checkpoint['d_optim_state'] = optimizer_d.state_dict()
+                checkpoint['c_state'] = critic.state_dict()
+                checkpoint['c_optim_state'] = optimizer_c.state_dict()
+                checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '{}_{}_with_model.pt'.format(args.checkpoint_name, epoch))
+                logger.info('Saving checkpoint to {}'.format(checkpoint_path))
+                torch.save(checkpoint, checkpoint_path)
+                logger.info('Done.')
+
+                # Save a checkpoint with no model weights by making a shallow
+                # copy of the checkpoint excluding some items
+                checkpoint_path = os.path.join(get_root_dir(), args.output_dir, '{}_{}_no_model.pt'.format(args.checkpoint_name, epoch))
+                logger.info('Saving checkpoint to {}'.format(checkpoint_path))
+                key_blacklist = [
+                    'g_state', 'd_state', 'c_state', 'g_best_state', 'g_best_nl_state',
+                    'g_optim_state', 'd_optim_state', 'd_best_state',
+                    'd_best_nl_state', 'c_optim_state', 'c_best_state'
+                ]
+                small_checkpoint = {}
+                for k, v in checkpoint.items():
+                    if k not in key_blacklist:
+                        small_checkpoint[k] = v
+                torch.save(small_checkpoint, checkpoint_path)
+                logger.info('Done.')
+
+                if args.g_steps < 1:
+                    continue
+
+                min_ade = min(checkpoint['metrics_val']['ade'])
+                min_ade_nl = min(checkpoint['metrics_val']['ade_nl'])
+
+                if metrics_val['ade'] == min_ade:
+                    logger.info('New low for avg_disp_error')
+                    checkpoint['best_t'] = t
+                    checkpoint['g_best_state'] = generator.state_dict()
+                    checkpoint['d_best_state'] = discriminator.state_dict()
+                    if args.c_steps > 0:
+                        checkpoint['c_best_state'] = critic.state_dict()
+
+                if metrics_val['ade_nl'] == min_ade_nl:
+                    logger.info('New low for avg_disp_error_nl')
+                    checkpoint['best_t_nl'] = t
+                    checkpoint['g_best_nl_state'] = generator.state_dict()
+                    checkpoint['d_best_nl_state'] = discriminator.state_dict()
 
     if args.summary_writer_name is not None:
         writer.close()

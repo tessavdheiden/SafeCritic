@@ -90,7 +90,4 @@ class TrajectoryCritic(nn.Module):
         # trajectory information should help in discriminative behavior.
         classifier_input = self.pooling.aggregate_context(final_h, seq_start_end, traj[-1], traj_rel[-1], seq_scene_ids)
         scores = self.real_classifier(classifier_input)
-
-        mlp_input = self.pooling.aggregate_context(final_h, seq_start_end, traj[8], traj_rel[8], seq_scene_ids)
-        grids = self.mlp(mlp_input)
         return scores

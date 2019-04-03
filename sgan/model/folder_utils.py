@@ -9,12 +9,12 @@ def get_name_this_file():
    return path_this_file.split('/')[-1]
 
 def get_test_data_path(training_dataset_name):
-    path_prefix = os.path.join(get_root_dir(), 'datasets', 'safegan_dataset')
+    path_prefix = os.path.join(get_root_dir(), 'data')
     group_name = get_dset_group_name(training_dataset_name)
     return os.path.join(path_prefix, group_name, training_dataset_name, 'Training', 'test')
 
 def get_static_information_path(training_dataset_name):
-    path_prefix = os.path.join(get_root_dir(), 'datasets', 'safegan_dataset')
+    path_prefix = os.path.join(get_root_dir(), 'data')
     group_name = get_dset_group_name(training_dataset_name)
     return os.path.join(path_prefix, group_name, training_dataset_name)
 

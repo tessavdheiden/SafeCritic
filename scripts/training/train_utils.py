@@ -54,8 +54,8 @@ def get_argument_parser():
     parser = argparse.ArgumentParser()
 
     # Dataset options
-    parser.add_argument('--dataset_path', default='/datasets/safegan_dataset', type=str)
-    parser.add_argument('--dataset_name', default='ucy', type=str)
+    parser.add_argument('--dataset_path', default='/data', type=str)
+    parser.add_argument('--dataset_name', default='all', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -72,12 +72,12 @@ def get_argument_parser():
     parser.add_argument('--num_layers', default=1, type=int)
     parser.add_argument('--dropout', default=0, type=float)
     parser.add_argument('--batch_norm', default=1, type=bool_flag)
-    parser.add_argument('--mlp_dim', default=16, type=int)
+    parser.add_argument('--mlp_dim', default=64, type=int)
     parser.add_argument('--activation', default='leakyrelu')
 
     # Generator Options
-    parser.add_argument('--encoder_h_dim_g', default=32, type=int)
-    parser.add_argument('--decoder_h_dim_g', default=32, type=int)
+    parser.add_argument('--encoder_h_dim_g', default=64, type=int)
+    parser.add_argument('--decoder_h_dim_g', default=64, type=int)
     parser.add_argument('--noise_dim', default=(8, ), type=int_tuple) #(8,)
     parser.add_argument('--noise_type', default='gaussian')
     parser.add_argument('--noise_mix_type', default='global')
@@ -87,19 +87,19 @@ def get_argument_parser():
 
     # Discriminator Options
     parser.add_argument('--d_type', default='local', type=str)
-    parser.add_argument('--encoder_h_dim_d', default=16, type=int)
+    parser.add_argument('--encoder_h_dim_d', default=64, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
     parser.add_argument('--d_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
     # Critic Options
     parser.add_argument('--c_type', default='global', type=str)
-    parser.add_argument('--encoder_h_dim_c', default=16, type=int)
+    parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--c_steps', default=1, type=int)
+    parser.add_argument('--c_steps', default=0, type=int)
     parser.add_argument('--clipping_threshold_c', default=1.0, type=float)
-    parser.add_argument('--collision_threshold', default=.5, type=float)
-    parser.add_argument('--occupancy_threshold', default=.05, type=float)
+    parser.add_argument('--collision_threshold', default=.1, type=float)
+    parser.add_argument('--occupancy_threshold', default=.1, type=float)
 
     # Pooling Options
     parser.add_argument('--pool_every_timestep', default=0, type=bool_flag)
@@ -110,7 +110,7 @@ def get_argument_parser():
     parser.add_argument('--pooling_dim', default=2, type=int)
 
     # Social Pooling Options
-    parser.add_argument('--neighborhood_size', default=4.0, type=float)
+    parser.add_argument('--neighborhood_size', default=2.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
     parser.add_argument('--static_pooling_type', default=None, type=str) # random, grid, polar, raycast, physical_attention_with_encoder
@@ -119,14 +119,14 @@ def get_argument_parser():
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
     parser.add_argument('--d_loss_weight', default=0.1, type=float)
-    parser.add_argument('--c_loss_weight', default=0.1, type=float)
+    parser.add_argument('--c_loss_weight', default=0.0, type=float)
     parser.add_argument('--best_k', default=1, type=int)
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
     parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN")
-    parser.add_argument('--print_every', default=50, type=int)
-    parser.add_argument('--checkpoint_every', default=50, type=int)
+    parser.add_argument('--print_every', default=10, type=int)
+    parser.add_argument('--checkpoint_every', default=20, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')
     parser.add_argument('--checkpoint_start_from', default=None)
     parser.add_argument('--restore_from_checkpoint', default=0, type=int)
