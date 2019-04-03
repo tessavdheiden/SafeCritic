@@ -86,17 +86,15 @@ def get_argument_parser():
     parser.add_argument('--g_steps', default=5, type=int)
 
     # Discriminator Options
-    parser.add_argument('--d_type', default='local', type=str)
     parser.add_argument('--encoder_h_dim_d', default=64, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
     parser.add_argument('--d_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
     # Critic Options
-    parser.add_argument('--c_type', default='global', type=str)
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--c_steps', default=0, type=int)
+    parser.add_argument('--c_steps', default=1, type=int)
     parser.add_argument('--clipping_threshold_c', default=1.0, type=float)
     parser.add_argument('--collision_threshold', default=.1, type=float)
     parser.add_argument('--occupancy_threshold', default=.1, type=float)
@@ -119,12 +117,12 @@ def get_argument_parser():
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
     parser.add_argument('--d_loss_weight', default=0.1, type=float)
-    parser.add_argument('--c_loss_weight', default=0.0, type=float)
-    parser.add_argument('--best_k', default=1, type=int)
+    parser.add_argument('--c_loss_weight', default=0.1, type=float)
+    parser.add_argument('--best_k', default=20, type=int)
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN")
+    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN_Critic")
     parser.add_argument('--print_every', default=10, type=int)
     parser.add_argument('--checkpoint_every', default=20, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')

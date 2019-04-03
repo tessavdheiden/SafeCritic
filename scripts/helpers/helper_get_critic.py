@@ -13,7 +13,6 @@ def helper_get_critic(args, data_path):
             dropout=args.dropout,
             activation=args.activation,
             batch_norm=args.batch_norm,
-            c_type=args.c_type,
             collision_threshold=args.collision_threshold,
             occupancy_threshold=args.occupancy_threshold,
             dynamic_pooling_type=args.dynamic_pooling_type,

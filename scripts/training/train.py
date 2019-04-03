@@ -89,7 +89,6 @@ def main(args):
         dropout=args.dropout,
         activation=args.activation,
         batch_norm=args.batch_norm,
-        d_type=args.d_type,
         grid_size=args.grid_size,
         neighborhood_size=args.neighborhood_size)
 
@@ -258,7 +257,7 @@ def main(args):
             g_steps_left = args.g_steps
             c_steps_left = args.c_steps
 
-        if epoch >= args.print_every:
+        if epoch % args.print_every == 0 and epoch > 0:
             # Save losses
             logger.info('t = {} / {}'.format(t + 1, args.num_iterations))
             if args.d_steps > 0:
@@ -280,7 +279,7 @@ def main(args):
                         writer.add_scalar('Train/' + k, v, epoch)
             checkpoint['losses_ts'].append(t)
 
-        if epoch >= args.checkpoint_every:
+        if epoch % args.checkpoint_every == 0 and epoch > 0:
             # Maybe save a checkpoint
             if t > 0:
                 checkpoint['counters']['t'] = t
