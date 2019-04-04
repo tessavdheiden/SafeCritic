@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import numpy as np
 from sgan.model.utils import relative_to_abs
 from sgan.model.losses import l2_loss
 from sgan.model.utils import get_device
@@ -9,6 +10,32 @@ from scripts.training.train_utils import cal_l2_losses, cal_cols, cal_occs, cal_
 from sgan.context.dynamic_pooling_algorithms import make_grid
 
 device = get_device()
+
+R0 = torch.tensor([[1, 0], [0, 1]]).type(torch.FloatTensor).to(device)
+R90 = torch.tensor([[0, -1], [1, 0]]).type(torch.FloatTensor).to(device)
+R180 = torch.tensor([[-1, 0], [0, -1]]).type(torch.FloatTensor).to(device)
+R270 = torch.tensor([[0, 1], [-1, 0]]).type(torch.FloatTensor).to(device)
+DICT = {}
+
+DICT[0] = R0
+DICT[1] = R90
+DICT[2] = R180
+DICT[3] = R270
+
+def rotate_traj(traj, traj_rel):
+    R = DICT[np.random.randint(4)]
+    seq_len = traj.size(0)
+    traj = torch.mm(traj.view(-1, 2), R)
+    traj = traj.view(seq_len, -1, 2)
+    traj_rel[1:] = traj[1:] - traj[:-1] # displacement cannot be rotated similarly
+    return traj, traj_rel
+
+def get_batch(obs_len, traj, traj_rel):
+    obs_traj = traj[:obs_len]
+    pred_traj_gt = traj[obs_len:]
+    obs_traj_rel = traj_rel[:obs_len]
+    pred_traj_gt_rel = traj_rel[obs_len:]
+    return obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel
 
 
 def generator_step(args, batch, generator, optimizer_g, trajectory_evaluator):
@@ -20,6 +47,13 @@ def generator_step(args, batch, generator, optimizer_g, trajectory_evaluator):
     g_l2_loss_rel = []
 
     loss_mask = loss_mask[:, args.obs_len:]
+
+    '''
+    traj = torch.cat([obs_traj, pred_traj_gt], dim=0)
+    traj_rel = torch.cat([obs_traj_rel, pred_traj_gt_rel], dim=0)
+    traj, traj_rel = rotate_traj(traj, traj_rel)
+    obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel = get_batch(args.obs_len, traj, traj_rel)
+    '''
 
     for _ in range(args.best_k):
         pred_traj_fake_rel = generator(obs_traj, obs_traj_rel, seq_start_end, seq_scene_ids)
