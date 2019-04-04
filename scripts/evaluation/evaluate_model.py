@@ -22,8 +22,8 @@ from sgan.model.losses import displacement_error, final_displacement_error
 from scripts.training.collision_checking import collision_error, occupancy_error
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--metric', default='quality', type=str)
-parser.add_argument('--scene', default='zara_2', type=str)
+parser.add_argument('--metric', default='ade_pixel', type=str)
+parser.add_argument('--scene', default='bookstore_3', type=str)
 parser.add_argument('--precompute_required', default=0, type=bool_flag)
 parser.add_argument('--model_folder', default='SafeGAN', type=str)
 parser.add_argument('--model_name1', default='checkpoint_100_with_model.pt', type=str)
@@ -58,7 +58,7 @@ def get_trajectories(generator, obs_traj, obs_traj_rel, seq_start_end, pred_traj
 
 
 def get_path(dset):
-    directory = get_root_dir() + '/datasets/safegan_dataset/'
+    directory = get_root_dir() + '/data/'
     path_group = os.path.join(directory, get_dset_group_name(dset))
     path = os.path.join(path_group, dset)
     return path
@@ -376,9 +376,62 @@ def evaluate_test_ade(data_set, scene, model_name, batch=0):
     if not (scene_name == scene).all():
         return 0, 0
     for i in range(num_samples):
-        ade1.append(displacement_error(pred_traj_fake1_list[i], pred_traj_gt, mode='raw'))
-        ade2.append(displacement_error(pred_traj_fake2_list[i], pred_traj_gt, mode='raw'))
+        displacement_error1 = displacement_error(pred_traj_fake1_list[i], pred_traj_gt, mode='raw')
+        displacement_error2 = displacement_error(pred_traj_fake2_list[i], pred_traj_gt, mode='raw')
+        ade1.append(displacement_error1)
+        ade2.append(displacement_error2)
     total_traj = pred_traj_gt.size(1)
+    pred_len = pred_traj_gt.size(0)
+    ade1 = evaluate_helper(ade1, seq_start_end) / (total_traj * pred_len)
+    ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj * pred_len)
+    return ade1, ade2
+
+def evaluate_test_pixel_ade(data_set, scene, model_name, batch=0):
+    pred_traj_gt = load_pickle('pred_traj_gt', scene, batch, data_set, model_name)
+    seq_start_end = load_pickle('seq_start_end', scene, batch, data_set, model_name)
+    scene_name_list = load_pickle('scene_name_list', scene, batch, data_set, model_name)
+
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', scene, batch, data_set, model_name)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', scene, batch, data_set, model_name)
+
+    homography_list = load_pickle('homography_list', scene, batch, data_set, model_name)
+
+    num_samples = len(pred_traj_fake1_list)
+    ade1 = []
+    ade2 = []
+    scene_name = np.unique(scene_name_list)
+    print(scene_name)
+    if not (scene_name == scene).all():
+        return 0, 0
+
+    for s in range(num_samples): # seq_len, batch, 2
+        traj1_pixels, traj2_pixels, traj_gt_pixels = [], [], []
+        total_traj = pred_traj_gt.size(1)
+        for i, (start, end) in enumerate(seq_start_end):
+            # get homography of current scene
+            h = homography_list[i]
+            num_ped = end - start
+            # calculate pixels for a sample in a scene
+            pixels_t1 = get_pixels_from_world(pred_traj_fake1_list[s][:, start:end].contiguous().view(-1, 2), h)
+            pixels_t2 = get_pixels_from_world(pred_traj_fake2_list[s][:, start:end].contiguous().view(-1, 2), h)
+            pixels_gt = get_pixels_from_world(pred_traj_gt[:, start:end].contiguous().view(-1, 2), h)
+            t1 = torch.from_numpy(pixels_t1).view(-1, num_ped, 2) # time, peds in scene, 2
+            t2 = torch.from_numpy(pixels_t2).view(-1, num_ped, 2)
+            tg = torch.from_numpy(pixels_gt).view(-1, num_ped, 2)
+
+            traj1_pixels.append(t1)
+            traj2_pixels.append(t2)
+            traj_gt_pixels.append(tg)
+
+        # concatignate along batch dimension
+        traj1_pixels = torch.cat(traj1_pixels, dim=1)
+        traj2_pixels = torch.cat(traj2_pixels, dim=1)
+        traj_gt_pixels = torch.cat(traj_gt_pixels, dim=1)
+
+        # (seq_len, batch, 2) for each sample we calculate displacement error
+        ade1.append(displacement_error(traj1_pixels.view(-1, total_traj, 2), traj_gt_pixels.view(-1, total_traj, 2), mode='raw'))
+        ade2.append(displacement_error(traj2_pixels.view(-1, total_traj, 2), traj_gt_pixels.view(-1, total_traj, 2), mode='raw'))
+
     pred_len = pred_traj_gt.size(0)
     ade1 = evaluate_helper(ade1, seq_start_end) / (total_traj * pred_len)
     ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj * pred_len)
@@ -480,20 +533,24 @@ def main(args):
     generator2 = get_generator(checkpoint2, args2)
 
     if args.precompute_required:
-        collect_generated_samples(args1, generator1, generator2, data_dir, data_set, args.scene, args.model_folder)
+        collect_generated_samples(args1, generator1, generator2, data_dir, data_set, args.scene, args.model_folder, selected_batch=0)
 
     m1, m2, counter = 0, 0, 0
-    for batch in range(50, 51):
+    for batch in range(0, 10):
+        print('testing data_set = {}, scene = {}, batch = {}'.format(data_set, args.scene, batch))
 
         if args.metric == 'ade':
             out1, out2 = evaluate_test_ade(data_set, args.scene, args.model_folder, batch)
         elif args.metric == 'fde':
             out1, out2 = evaluate_test_fde(data_set, args.scene, args.model_folder, batch)
+        elif args.metric == 'ade_pixel':
+            out1, out2 = evaluate_test_pixel_ade(data_set, args.scene, args.model_folder, batch)
         elif args.metric == 'cols':
             out1, out2 = evaluate_test_cols(data_set, args.scene, args.model_folder, batch)
         elif args.metric == 'quality':
             evaluate_trajectory_quality(data_set, args.scene, args.model_folder, batch)
         if out1 > 0. and out2 > 0.:
+            print('{} model 1: {:.6f} model 2: {:.6f}'.format(args.metric, out1, out2))
             m1 += out1
             m2 += out2
             counter += 1
