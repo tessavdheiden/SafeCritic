@@ -100,10 +100,11 @@ class StaticFeatures:
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
 
-        directory = get_root_dir() + '/datasets/safegan_dataset/'
+        directory = get_root_dir() + '/data/'
 
         self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
         for name in self.list_data_files:
+            print(name)
             path_group = os.path.join(directory, get_dset_group_name(name))
 
             """ The inputs are the boundary points between the traversable and non-traversable areas. It is 

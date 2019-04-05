@@ -57,6 +57,8 @@ def get_dset_group_name(name):
         return 'UCY'
     elif name == 'sdd':
         return 'SDD'
+    elif name == 'trajnet':
+        return 'TRAJNET'
     elif name == 'all':
         return 'ALL'
     elif name == 'bookstore_0' or name == 'bookstore_1' or name == 'bookstore_2' or name == 'bookstore_3':

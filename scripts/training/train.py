@@ -51,11 +51,11 @@ def main(args):
 
     long_dtype, float_dtype = get_dtypes(args)
 
-    logger.info("Initializing train dataset")
-    train_dset, train_loader = data_loader(args, train_path, shuffle=True)
-
     logger.info("Initializing val dataset")
     val_dset, val_loader = data_loader(args, val_path, shuffle=False)
+
+    logger.info("Initializing train dataset")
+    train_dset, train_loader = data_loader(args, train_path, shuffle=True)
 
     steps = max(args.g_steps, args.c_steps)
     steps = max(steps, args.d_steps)
@@ -191,7 +191,7 @@ def main(args):
         avg_losses_g = {}
 
         logger.info('Starting epoch {}  -  [{}]'.format(epoch, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
-        for batch in train_loader:
+        for batch_num, batch in enumerate(train_loader):
             if args.timing == 1:
                 torch.cuda.synchronize()
                 t1 = time.time()

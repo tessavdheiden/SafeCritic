@@ -1,11 +1,13 @@
 import argparse
 import torch
 import torch.nn as nn
+import numpy as np
 
 from scripts.training.collision_checking import collision_error, occupancy_error
 from sgan.evaluation.rewards import collision_rewards
 from sgan.model.losses import l2_loss, displacement_error, final_displacement_error
-
+from sgan.model.utils import get_device
+device = get_device()
 
 def init_weights(m):
     classname = m.__class__.__name__
@@ -48,6 +50,34 @@ def cal_fde(pred_traj_gt, pred_traj_fake, linear_ped, non_linear_ped):
     fde_nl = final_displacement_error(pred_traj_fake[-1], pred_traj_gt[-1], non_linear_ped)
     return fde, fde_l, fde_nl
 
+R0 = torch.tensor([[1, 0], [0, 1]]).type(torch.FloatTensor).to(device)
+R90 = torch.tensor([[0, -1], [1, 0]]).type(torch.FloatTensor).to(device)
+R180 = torch.tensor([[-1, 0], [0, -1]]).type(torch.FloatTensor).to(device)
+R270 = torch.tensor([[0, 1], [-1, 0]]).type(torch.FloatTensor).to(device)
+DICT = {}
+
+DICT[0] = R0
+DICT[1] = R90
+DICT[2] = R180
+DICT[3] = R270
+
+def rotate_traj(traj, traj_rel):
+    #R = DICT[np.random.randint(4)]
+    angle = np.random.randn(1)*2*np.pi
+    R = torch.tensor([[np.cos(angle[0]), -np.sin(angle[0])], [np.sin(angle[0]), np.cos(angle[0])]]).type(torch.FloatTensor).to(device)
+    seq_len = traj.size(0)
+    traj = torch.mm(traj.view(-1, 2), R)
+    traj = traj.view(seq_len, -1, 2)
+    traj_rel[1:] = traj[1:] - traj[:-1] # displacement cannot be rotated similarly
+    return traj, traj_rel
+
+def get_batch(obs_len, traj, traj_rel):
+    obs_traj = traj[:obs_len]
+    pred_traj_gt = traj[obs_len:]
+    obs_traj_rel = traj_rel[:obs_len]
+    pred_traj_gt_rel = traj_rel[obs_len:]
+    return obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel
+
 from sgan.model.utils import int_tuple, bool_flag
 
 def get_argument_parser():
@@ -55,12 +85,13 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/data', type=str)
-    parser.add_argument('--dataset_name', default='all', type=str)
+    parser.add_argument('--dataset_name', default='trajnet', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
     parser.add_argument('--pred_len', default=12, type=int)
     parser.add_argument('--skip', default=1, type=int)
+    parser.add_argument('--augment', default=0, type=bool_flag)
 
     # Optimization
     parser.add_argument('--batch_size', default=32, type=int)
@@ -83,18 +114,18 @@ def get_argument_parser():
     parser.add_argument('--noise_mix_type', default='global')
     parser.add_argument('--clipping_threshold_g', default=2.0, type=float)
     parser.add_argument('--g_learning_rate', default=0.0001, type=float)
-    parser.add_argument('--g_steps', default=5, type=int)
+    parser.add_argument('--g_steps', default=1, type=int)
 
     # Discriminator Options
     parser.add_argument('--encoder_h_dim_d', default=64, type=int)
     parser.add_argument('--d_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--d_steps', default=1, type=int)
+    parser.add_argument('--d_steps', default=0, type=int)
     parser.add_argument('--clipping_threshold_d', default=0.0, type=float)
 
     # Critic Options
     parser.add_argument('--encoder_h_dim_c', default=64, type=int)
     parser.add_argument('--c_learning_rate', default=5e-3, type=float)
-    parser.add_argument('--c_steps', default=1, type=int)
+    parser.add_argument('--c_steps', default=0, type=int)
     parser.add_argument('--clipping_threshold_c', default=1.0, type=float)
     parser.add_argument('--collision_threshold', default=.1, type=float)
     parser.add_argument('--occupancy_threshold', default=.1, type=float)
@@ -111,18 +142,18 @@ def get_argument_parser():
     parser.add_argument('--neighborhood_size', default=2.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
-    parser.add_argument('--static_pooling_type', default=None, type=str) # random, grid, polar, raycast, physical_attention_with_encoder
-    parser.add_argument('--dynamic_pooling_type', default='social_pooling_attention', type=str) # social_pooling, pool_hidden_net, social_pooling_attention
+    parser.add_argument('--static_pooling_type', default='grid', type=str) # random, grid, polar, raycast, physical_attention_with_encoder
+    parser.add_argument('--dynamic_pooling_type', default=None, type=str) # social_pooling, pool_hidden_net, social_pooling_attention
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
-    parser.add_argument('--d_loss_weight', default=0.1, type=float)
-    parser.add_argument('--c_loss_weight', default=0.1, type=float)
-    parser.add_argument('--best_k', default=20, type=int)
+    parser.add_argument('--d_loss_weight', default=0.0, type=float)
+    parser.add_argument('--c_loss_weight', default=0.0, type=float)
+    parser.add_argument('--best_k', default=1, type=int)
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN_Critic")
+    parser.add_argument('--output_dir', default= "results/models/TRAJNET/SafeGAN_SP")
     parser.add_argument('--print_every', default=10, type=int)
     parser.add_argument('--checkpoint_every', default=20, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')

@@ -107,10 +107,8 @@ class StaticSceneFeatureExtractorGrid(nn.Module):
     def set_dset_list(self, data_dir, down_sampling=True):
         """ Fill scene_information with the static environment features that will be used as part of the input of Static
                  Scene Feature Extractor module in SafeGAN"""
-        _dir = os.path.dirname(os.path.realpath(__file__))
-        _dir = _dir.split("/")[:-2]
-        _dir = "/".join(_dir)
-        directory = _dir + '/datasets/safegan_dataset/'
+
+        directory = get_root_dir() + '/data/'
 
         self.list_data_files = sorted([get_dset_name(os.path.join(data_dir, _path).split("/")[-1]) for _path in os.listdir(data_dir)])
         for name in self.list_data_files:

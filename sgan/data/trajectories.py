@@ -52,10 +52,16 @@ def read_file(_path, delim='\t'):
     elif delim == 'space':
         delim = ' '
     with open(_path, 'r') as f:
+        prev_line = f.readline().strip().split(delim)[:4]
         for line in f:
             line = line.strip().split(delim)[:4]
-            line = [float(i) for i in line]
+            if '?' not in line:
+                line = [float(i) for i in line]
+            else:
+                line = [float(i) if i !='?' else 0.0 for i in line]
+                line[-2:] = [float(i) for i in prev_line[-2:]]
             data.append(line)
+            prev_line = line
     return np.asarray(data)
 
 

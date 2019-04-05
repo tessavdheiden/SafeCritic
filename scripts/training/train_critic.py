@@ -80,8 +80,8 @@ def check_accuracy_critic(args, loader, generator, critic, c_loss_fn, limit=Fals
             loss_mask_sum += torch.numel(loss_mask.data)
             total_traj += pred_traj_gt.size(1)
 
-            if args.sanity_check:
-                plot_prediction(args, obs_traj, pred_traj_gt, pred_traj_fake, seq_start_end[:5])
+#            if args.sanity_check:
+#                plot_prediction(args, obs_traj, pred_traj_gt, pred_traj_fake, seq_start_end[:5])
 
             if limit and total_traj >= args.num_samples_check:
                 break
