@@ -165,4 +165,14 @@ class TrajectoryGenerator(nn.Module):
         return pred_traj_fake_rel
 
 
+class CollisionPredictor(nn.Module):
+    def __init__(self, obs_len, pred_len):
+        super(CollisionPredictor, self).__init__()
+        self.obs_len = obs_len
+        self.pred_len = pred_len
+        self.encoder = nn.LSTM(2, 2, 1)
+
+    def forward(self, traj_rel):
+        final_h = self.encoder(traj_rel)
+
 

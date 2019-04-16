@@ -17,17 +17,17 @@ from sgan.model.utils import bool_flag
 from scripts.helpers.helper_get_generator import get_generator
 from sgan.model.models_static_scene import get_homography_and_map, get_pixels_from_world
 from sgan.model.utils import relative_to_abs
-from sgan.model.folder_utils import get_root_dir, get_test_data_path, get_dset_name, get_dset_group_name
+from sgan.model.folder_utils import get_root_dir, get_test_data_path, get_dset_name, get_dset_group_name, get_sdd_dir
 from sgan.model.losses import displacement_error, final_displacement_error
 from scripts.training.collision_checking import collision_error, occupancy_error
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--metric', default='ade_pixel', type=str)
+parser.add_argument('--metric', default='quality', type=str)
 parser.add_argument('--scene', default='bookstore_3', type=str)
 parser.add_argument('--precompute_required', default=0, type=bool_flag)
-parser.add_argument('--model_folder', default='SafeGAN', type=str)
-parser.add_argument('--model_name1', default='checkpoint_100_with_model.pt', type=str)
-parser.add_argument('--model_name2', default='checkpoint_150_with_model.pt', type=str)
+parser.add_argument('--model_folder', default='SafeGAN_DP_SP', type=str)
+parser.add_argument('--model_name1', default='SafeGAN_DP_K10_E180.pt', type=str)
+parser.add_argument('--model_name2', default='SafeGAN_DP_SP_K10_E200.pt', type=str)
 
 colors = np.asarray([[.75, 0, 0], [0, .75, 0], [0, 0, .75], [.75, 0, 0], [0, .75, 0],[0, 0, .75], [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.5, 0, 0], [0, 0, .5], [0, 0.5, 0]])
 
@@ -62,7 +62,6 @@ def get_path(dset):
     path_group = os.path.join(directory, get_dset_group_name(dset))
     path = os.path.join(path_group, dset)
     return path
-
 
 # ------------------------------- PLOT COMMON -------------------------------
 
@@ -193,8 +192,8 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
         for b, batch in enumerate(loader):
             print('batch = {}'.format(b))
             batch = [tensor.cuda() for tensor in batch]
-            if b != selected_batch:
-               continue
+            #if b != selected_batch:
+            #   continue
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
@@ -205,7 +204,7 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
             for i, (start, end) in enumerate(seq_start_end):
                 dataset_name = seq_scenes[i]
                 path = get_path(dataset_name)
-                reader = imageio.get_reader(path + "/video.mov".format(dataset_name), 'ffmpeg')
+                reader = imageio.get_reader(get_sdd_dir(dataset_name, 'video'), 'ffmpeg')
                 annotated_points, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
                 homography_list.append(h)
                 annotated_points_list.append(annotated_points)
@@ -264,7 +263,7 @@ def evaluate_trajectory_quality(data_set, scene, model_name, batch=5, selection=
     annotated_points_list = load_pickle('annotated_points_list', scene, batch, data_set, model_name)
     scene_name_list = load_pickle('scene_name_list', scene, batch, data_set, model_name)
 
-    fig, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8), (ax9, ax10, ax11, ax12)) = plt.subplots(3, 4, figsize=(16, 4), num=1)
+    fig, ((ax1, ax14), (ax15, ax4)) = plt.subplots(2, 2, figsize=(32, 32), num=1)
 
     num_samples = len(pred_traj_fake1_list)
     for i, (start, end) in enumerate(seq_start_end):
@@ -282,44 +281,24 @@ def evaluate_trajectory_quality(data_set, scene, model_name, batch=5, selection=
         subsample = annotated_points.shape[0] // 500
 
         plt.cla()
-        plot_photo(ax1, photo, 'observed')
-        plot_photo(ax2, photo, 'model1')
-        plot_photo(ax3, photo, 'model2')
-        if len(photo_list) > i+12:
-            plot_photo(ax4, photo_list[i+12], 'model2')
-
-        plot_photo(ax6, photo, 'model1')
-        plot_photo(ax7, photo, 'model2')
-
-        plot_photo(ax10, photo, 'model1')
-        plot_photo(ax11, photo, 'model2')
-
-
         traj_obs = obs_traj.permute(1, 0, 2)[start:end]
         traj_gt = pred_traj_gt.permute(1, 0, 2)[start:end]
 
-        cols_gt, cols1, cols2 = 0, 0, 0
         scene_name = np.unique(scene_name_list)
         print(scene_name)
-        if not (scene_name == scene).all():
-            return 0, 0
-
+        #if not (scene_name == scene).all():
+        #    return 0, 0
+        plot_photo(ax1, photo, 'model1')
+        plot_photo(ax4, photo, 'model2')
         for p in range(np.minimum(num_ped, 5)):
             plot_pixel(ax1, traj_obs, p, h, a=1, last=False, first=False, intermediate=True, size=10, colors=colors)
             plot_pixel(ax1, traj_gt, p, h, a=.1, last=True, first=False, intermediate=False, size=10, colors=colors)
-            if len(photo_list) > i + 12:
-                plot_pixel(ax4, traj_gt, p, h, a=1, last=True, first=False, intermediate=True, size=10, colors=colors)
+            plot_pixel(ax4, traj_gt, p, h, a=1, last=True, first=False, intermediate=True, size=10, colors=colors)
 
-        for sample in range(0, 20 - 2, 3):
-            plot_photo(ax2, photo, 'model1')
-            plot_photo(ax3, photo, 'model2')
+        plot_photo(ax14, photo, 'model1')
+        plot_photo(ax15, photo, 'model2')
 
-            plot_photo(ax6, photo, 'model1')
-            plot_photo(ax7, photo, 'model2')
-
-            plot_photo(ax10, photo, 'model1')
-            plot_photo(ax11, photo, 'model2')
-
+        for sample in range(1):
             traj_pred1 = pred_traj_fake1_list[sample + 0].permute(1, 0, 2)[start:end]
             traj_pred2 = pred_traj_fake1_list[sample + 1].permute(1, 0, 2)[start:end]
             traj_pred3 = pred_traj_fake1_list[sample + 2].permute(1, 0, 2)[start:end]
@@ -329,36 +308,39 @@ def evaluate_trajectory_quality(data_set, scene, model_name, batch=5, selection=
             traj_pred33 = pred_traj_fake2_list[sample + 2].permute(1, 0, 2)[start:end]
 
 
-            for p in range(np.minimum(num_ped, 5)):
+            for p in range(np.minimum(num_ped, 3)):
                 if True: #p == 0 or p==1 or p==2:
-                    plot_pixel(ax2, traj_pred1, p, h, a=1, last=False, first=False, size=10, colors=colors)
-                    plot_pixel(ax6, traj_pred2, p, h, a=1, last=False, first=False, size=10, colors=colors)
-                    plot_pixel(ax10, traj_pred3, p, h, a=1, last=False, first=False, size=10, colors=colors)
+                    plot_pixel(ax14, traj_pred1, p, h, a=1, last=False, first=False, size=10, colors=colors)
+                    plot_pixel(ax14, traj_pred2, p, h, a=1, last=False, first=False, size=10, colors=colors)
+                    plot_pixel(ax14, traj_pred3, p, h, a=1, last=False, first=False, size=10, colors=colors)
 
-                    plot_pixel(ax3, traj_pred11, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
-                    plot_pixel(ax7, traj_pred22, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
-                    plot_pixel(ax11, traj_pred33, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
+                    plot_pixel(ax15, traj_pred11, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
+                    plot_pixel(ax15, traj_pred22, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
+                    plot_pixel(ax15, traj_pred33, p, h, a=1, last=False, first=False, size=10, colors=colors, linestyle='-')
 
-                    plt.waitforbuttonpress()
-                    plt.draw()
 
-        ax3.scatter(annotated_points[::subsample, 0], annotated_points[::subsample, 1], marker='.', color='white', s=1)
-        ax1.set_xlabel('frame {}'.format(str(batch * len(seq_start_end) + i)))
+        #ax3.scatter(annotated_points[::subsample, 0], annotated_points[::subsample, 1], marker='.', color='white', s=1)
         #_, _, _ = plot_cols(ax2, ax3, ax4, traj_gt, traj_pred1, traj_pred2, cols_gt, cols1, cols2, h)
         #_, _, _ = plot_occs(annotated_points, h, ax2, ax3, ax4, traj_gt, traj1, traj2, cols_gt, cols1, cols2)
         plt.waitforbuttonpress()
         plt.draw()
         #plt.pause(.001)
+        directory = '/results/plots/{}/'.format(data_set)
+        frame = batch * len(seq_start_end) + i
+        save_sample(fig, ax1, directory, model_name, scene, model_variant='OBS', frame=frame, sample='-')
+        save_sample(fig, ax4, directory, model_name, scene, model_variant='GT', frame=frame, sample='-')
+        save_sample(fig, ax14, directory, model_name, scene, model_variant='DP', frame=frame, sample='123')
+        save_sample(fig, ax15, directory, model_name, scene, model_variant='DP_SP', frame=frame, sample='123')
 
-        if False:
-            plt.show()
-            extent = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-            fig.savefig(get_root_dir() + '/results/plots/SDD/safeGAN_DP/frame_{}_obs_sample_{}.png'.format(batch * len(seq_start_end) + i, sample),bbox_inches=extent)
-
-            extent = ax3.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-            fig.savefig(get_root_dir() + '/results/plots/SDD/safeGAN_DP/frame_{}_pred_safe_sample_{}.png'.format(batch * len(seq_start_end) + i, sample), bbox_inches=extent)
 
     return 0, 0
+
+
+def save_sample(fig, ax, directory, model_name, scene, model_variant, frame, sample):
+    extent = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+    fig.savefig(get_root_dir() + directory + '{}/scene_{}_variant_{}_frame_{}_sample_{}.png'.format(model_name, scene, model_variant, frame, sample), bbox_inches=extent)
+
+
 
 def evaluate_test_ade(data_set, scene, model_name, batch=0):
     pred_traj_gt = load_pickle('pred_traj_gt', scene, batch, data_set, model_name)
@@ -533,10 +515,11 @@ def main(args):
     generator2 = get_generator(checkpoint2, args2)
 
     if args.precompute_required:
-        collect_generated_samples(args1, generator1, generator2, data_dir, data_set, args.scene, args.model_folder, selected_batch=0)
+        for batch in range(6, 100):
+            collect_generated_samples(args1, generator1, generator2, data_dir, data_set, args.scene, args.model_folder, selected_batch=batch)
 
     m1, m2, counter = 0, 0, 0
-    for batch in range(0, 10):
+    for batch in range(0, 9):
         print('testing data_set = {}, scene = {}, batch = {}'.format(data_set, args.scene, batch))
 
         if args.metric == 'ade':

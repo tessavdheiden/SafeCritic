@@ -4,6 +4,17 @@ def get_root_dir():
    path_this_file = os.path.dirname(os.path.realpath(__file__))
    return ('/').join(path_this_file.split('/')[:-2])
 
+external_hardware_location = '/media/q392358/ba2b8f54-91f6-4e35-8323-e164edb98d11/'
+
+def get_sdd_dir(scene, case='video'):
+    scene_without_number = scene[:-2]
+    scene_number = scene[-1]
+    if case == 'video':
+        return external_hardware_location + 'stanford_campus_dataset/videos/{}/video{}/video.mov'.format(scene_without_number, scene_number)
+    elif case == 'annotation':
+        return external_hardware_location + 'stanford_campus_dataset/annotations/{}/video{}/annotations.txt'.format(scene_without_number, scene_number)
+
+
 def get_name_this_file():
    path_this_file = os.path.dirname(os.path.realpath(__file__))
    return path_this_file.split('/')[-1]

@@ -77,11 +77,11 @@ def get_world_from_pixels(pts_img, h, multiply_depth=False):
     return pts_wrd_back
 '''
 
-def get_world_from_pixels(pts_img, h, multiply_depth=False):
+def get_world_from_pixels(pts_img, h, multiply_depth=True):
     ones_vec = np.ones(pts_img.shape[0])
 
     if multiply_depth:
-        pts_img = pts_img.copy()
+        pts_img = pts_img.copy().astype(float)
         pts_3d = np.dot(np.linalg.inv(h), np.ones((pts_img.shape[0], 3)).T).T
         pts_img[:, 0] *= pts_3d[:, 2]
         pts_img[:, 1] *= pts_3d[:, 2]
@@ -93,7 +93,7 @@ def get_world_from_pixels(pts_img, h, multiply_depth=False):
     return pts_wrd_back
 
 
-def get_pixels_from_world(pts_wrd, h, divide_depth=False):
+def get_pixels_from_world(pts_wrd, h, divide_depth=True):
     ones_vec = np.ones(pts_wrd.shape[0])
 
     pts_wrd_3d = np.stack((pts_wrd[:, 0], pts_wrd[:, 1], ones_vec))
