@@ -58,6 +58,8 @@ def get_dset_name(name):
         return name[:-8]
     elif '.txt' in name:
         return name[:-4]
+    elif '_added.txt' in name:
+        return name[:10]
     else:
         return name
 
@@ -68,6 +70,8 @@ def get_dset_group_name(name):
         return 'UCY'
     elif name == 'sdd':
         return 'SDD'
+    elif name == 'trajnetpixel':
+        return 'TRAJNETPIXEL'
     elif name == 'trajnet':
         return 'TRAJNET'
     elif name == 'all':

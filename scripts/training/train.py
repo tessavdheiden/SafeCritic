@@ -119,7 +119,7 @@ def main(args):
     # Maybe restore from checkpoint
     restore_path = None
     if args.checkpoint_start_from is not None:
-        restore_path = args.checkpoint_start_from
+        restore_path = os.path.join(get_root_dir(), args.output_dir, args.checkpoint_start_from)
     elif args.restore_from_checkpoint == 1:
         restore_path = os.path.join(get_root_dir(), args.output_dir,'%s_with_model.pt' % args.checkpoint_name)
 

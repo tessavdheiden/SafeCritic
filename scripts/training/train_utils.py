@@ -85,7 +85,7 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/data', type=str)
-    parser.add_argument('--dataset_name', default='all', type=str)
+    parser.add_argument('--dataset_name', default='trajnet', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
     parser.add_argument('--obs_len', default=8, type=int)
@@ -142,8 +142,8 @@ def get_argument_parser():
     parser.add_argument('--neighborhood_size', default=2.0, type=float)
     parser.add_argument('--grid_size', default=8, type=int)
 
-    parser.add_argument('--static_pooling_type', default='grid', type=str) # random, grid, polar, raycast, physical_attention_with_encoder
-    parser.add_argument('--dynamic_pooling_type', default='social_pooling_attention', type=str) # social_pooling, pool_hidden_net, social_pooling_attention
+    parser.add_argument('--static_pooling_type', default=None, type=str) # random, grid, polar, raycast, physical_attention_with_encoder
+    parser.add_argument('--dynamic_pooling_type', default='social_pooling', type=str) # social_pooling, pool_hidden_net, social_pooling_attention
 
     # Loss Options
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
@@ -153,7 +153,7 @@ def get_argument_parser():
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "results/models/ALL/SafeGAN_DP_SP_K10")
+    parser.add_argument('--output_dir', default= "results/models/TRAJNET/SafeGAN_DP")
     parser.add_argument('--print_every', default=10, type=int)
     parser.add_argument('--checkpoint_every', default=20, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')

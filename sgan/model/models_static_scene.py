@@ -22,6 +22,14 @@ def load_bin_map(path_name):
     return static_map
 
 
+def get_homography(dset):
+    directory = get_root_dir() + '/data/'
+    path_group = os.path.join(directory, get_dset_group_name(dset))
+    path = os.path.join(path_group, dset)
+    h_matrix = pd.read_csv(path + '/{}_homography.txt'.format(dset), delim_whitespace=True, header=None).values
+    return h_matrix
+
+
 def get_homography_and_map(dset, annotated_points_name = '/world_points_boundary.npy'):
     directory = get_root_dir() + '/data/'
     path_group = os.path.join(directory, get_dset_group_name(dset))

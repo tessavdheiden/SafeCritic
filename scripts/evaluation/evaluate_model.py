@@ -21,14 +21,6 @@ from sgan.model.folder_utils import get_root_dir, get_test_data_path, get_dset_n
 from sgan.model.losses import displacement_error, final_displacement_error
 from scripts.training.collision_checking import collision_error, occupancy_error
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--metric', default='quality', type=str)
-parser.add_argument('--scene', default='bookstore_3', type=str)
-parser.add_argument('--precompute_required', default=0, type=bool_flag)
-parser.add_argument('--model_folder', default='SafeGAN_DP_SP', type=str)
-parser.add_argument('--model_name1', default='SafeGAN_DP_K10_E180.pt', type=str)
-parser.add_argument('--model_name2', default='SafeGAN_DP_SP_K10_E200.pt', type=str)
-
 colors = np.asarray([[.75, 0, 0], [0, .75, 0], [0, 0, .75], [.75, 0, 0], [0, .75, 0],[0, 0, .75], [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.5, 0, 0], [0, .5, 0], [0, 0, .5], [.5, 0, 0], [0, 0, .5], [0, 0.5, 0]])
 
 
@@ -184,16 +176,17 @@ def load_pickle(name, scene, num, data_set, model_name):
     return list
 
 
-def collect_generated_samples(args, generator1, generator2, data_dir, data_set, scene, model_name, selected_batch=50):
-    num_samples = 20 # args.best_k
+def collect_generated_samples(args, generator1, generator2, data_dir, data_set, model_name, selected_scene=None, selected_batch=-1):
+    num_samples = 10 # args.best_k
     _, loader = data_loader(args, data_dir, shuffle=False)
 
     with torch.no_grad():
         for b, batch in enumerate(loader):
             print('batch = {}'.format(b))
             batch = [tensor.cuda() for tensor in batch]
-            #if b != selected_batch:
-            #   continue
+            if b != selected_batch and selected_batch != -1:
+               continue
+
             (obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel,
              non_linear_ped, loss_mask, traj_frames, seq_start_end, seq_scene_ids) = batch
 
@@ -218,20 +211,19 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
                 photo_list.append(photo)
 
             scene_name = np.unique(scene_name_list)
-
-            if not (scene_name == scene).all():
-                print(scene, ' is not in current batch ', scene_name)
+            if selected_scene != None and not (scene_name == selected_scene).all():
+                print(selected_scene, ' is not in current batch ', scene_name)
                 continue
 
-            save_pickle(obs_traj, 'obs_traj', scene, b, data_set, model_name)
-            save_pickle(pred_traj_gt, 'pred_traj_gt', scene, b, data_set, model_name)
-            save_pickle(seq_start_end, 'seq_start_end', scene, b, data_set, model_name)
+            save_pickle(obs_traj, 'obs_traj', selected_scene, b, data_set, model_name)
+            save_pickle(pred_traj_gt, 'pred_traj_gt', selected_scene, b, data_set, model_name)
+            save_pickle(seq_start_end, 'seq_start_end', selected_scene, b, data_set, model_name)
 
-            save_pickle(homography_list, 'homography_list', scene, b, data_set, model_name)
-            save_pickle(annotated_points_list, 'annotated_points_list', scene, b, data_set, model_name)
-            save_pickle(photo_list, 'photo_list', scene, b, data_set, model_name)
-            save_pickle(scene_name_list, 'scene_name_list', scene, b, data_set, model_name)
-            save_pickle(scene_information, 'scene_information', scene, b, data_set, model_name)
+            save_pickle(homography_list, 'homography_list', selected_scene, b, data_set, model_name)
+            save_pickle(annotated_points_list, 'annotated_points_list', selected_scene, b, data_set, model_name)
+            save_pickle(photo_list, 'photo_list', selected_scene, b, data_set, model_name)
+            save_pickle(scene_name_list, 'scene_name_list', selected_scene, b, data_set, model_name)
+            save_pickle(scene_information, 'scene_information', selected_scene, b, data_set, model_name)
 
             pred_traj_fake1_list, pred_traj_fake2_list = [], []
 
@@ -246,8 +238,8 @@ def collect_generated_samples(args, generator1, generator2, data_dir, data_set, 
                 pred_traj_fake1_list.append(pred_traj_fake1)
                 pred_traj_fake2_list.append(pred_traj_fake2)
 
-            save_pickle(pred_traj_fake1_list, 'pred_traj_fake1_list', scene, b, data_set, model_name)
-            save_pickle(pred_traj_fake2_list, 'pred_traj_fake2_list', scene, b, data_set, model_name)
+            save_pickle(pred_traj_fake1_list, 'pred_traj_fake1_list', selected_scene, b, data_set, model_name)
+            save_pickle(pred_traj_fake2_list, 'pred_traj_fake2_list', selected_scene, b, data_set, model_name)
 
 
 def evaluate_trajectory_quality(data_set, scene, model_name, batch=5, selection=-1):
@@ -342,21 +334,20 @@ def save_sample(fig, ax, directory, model_name, scene, model_variant, frame, sam
 
 
 
-def evaluate_test_ade(data_set, scene, model_name, batch=0):
-    pred_traj_gt = load_pickle('pred_traj_gt', scene, batch, data_set, model_name)
-    seq_start_end = load_pickle('seq_start_end', scene, batch, data_set, model_name)
-    scene_name_list = load_pickle('scene_name_list', scene, batch, data_set, model_name)
+def evaluate_test_ade(data_set, model_name, selected_scene=None, selected_batch=-1):
+    pred_traj_gt = load_pickle('pred_traj_gt', selected_scene, selected_batch, data_set, model_name)
+    seq_start_end = load_pickle('seq_start_end', selected_scene, selected_batch, data_set, model_name)
+    scene_name_list = load_pickle('scene_name_list', selected_scene, selected_batch, data_set, model_name)
 
-    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', scene, batch, data_set, model_name)
-    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', scene, batch, data_set, model_name)
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', selected_scene, selected_batch, data_set, model_name)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', selected_scene, selected_batch, data_set, model_name)
 
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
     scene_name = np.unique(scene_name_list)
     print(scene_name)
-    if not (scene_name == scene).all():
-        return 0, 0
+
     for i in range(num_samples):
         displacement_error1 = displacement_error(pred_traj_fake1_list[i], pred_traj_gt, mode='raw')
         displacement_error2 = displacement_error(pred_traj_fake2_list[i], pred_traj_gt, mode='raw')
@@ -368,23 +359,21 @@ def evaluate_test_ade(data_set, scene, model_name, batch=0):
     ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj * pred_len)
     return ade1, ade2
 
-def evaluate_test_pixel_ade(data_set, scene, model_name, batch=0):
-    pred_traj_gt = load_pickle('pred_traj_gt', scene, batch, data_set, model_name)
-    seq_start_end = load_pickle('seq_start_end', scene, batch, data_set, model_name)
-    scene_name_list = load_pickle('scene_name_list', scene, batch, data_set, model_name)
+def evaluate_test_pixel_ade(data_set, model_name, selected_scene=None, selected_batch=-1):
+    pred_traj_gt = load_pickle('pred_traj_gt', selected_scene, selected_batch, data_set, model_name)
+    seq_start_end = load_pickle('seq_start_end', selected_scene, selected_batch, data_set, model_name)
+    scene_name_list = load_pickle('scene_name_list', selected_scene, selected_batch, data_set, model_name)
 
-    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', scene, batch, data_set, model_name)
-    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', scene, batch, data_set, model_name)
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', selected_scene, selected_batch, data_set, model_name)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', selected_scene, selected_batch, data_set, model_name)
 
-    homography_list = load_pickle('homography_list', scene, batch, data_set, model_name)
+    homography_list = load_pickle('homography_list', selected_scene, selected_batch, data_set, model_name)
 
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
     scene_name = np.unique(scene_name_list)
     print(scene_name)
-    if not (scene_name == scene).all():
-        return 0, 0
 
     for s in range(num_samples): # seq_len, batch, 2
         traj1_pixels, traj2_pixels, traj_gt_pixels = [], [], []
@@ -420,21 +409,20 @@ def evaluate_test_pixel_ade(data_set, scene, model_name, batch=0):
     return ade1, ade2
 
 
-def evaluate_test_fde(data_set, scene, model_name, batch=0):
-    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set, model_name)
-    seq_start_end = load_pickle('seq_start_end', batch, data_set, model_name)
-    scene_name_list = load_pickle('scene_name_list', batch, data_set, model_name)
+def evaluate_test_fde(data_set, model_name, selected_scene=None, selected_batch=-1):
+    pred_traj_gt = load_pickle('pred_traj_gt', selected_scene, selected_batch, data_set, model_name)
+    seq_start_end = load_pickle('seq_start_end', selected_scene, selected_batch, data_set, model_name)
+    scene_name_list = load_pickle('scene_name_list', selected_scene, selected_batch, data_set, model_name)
 
-    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set, model_name)
-    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set, model_name)
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', selected_scene, selected_batch, data_set, model_name)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', selected_scene, selected_batch, data_set, model_name)
 
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
     scene_name = np.unique(scene_name_list)
     print(scene_name)
-    if not (scene_name == scene).all():
-        return 0, 0
+
     for i in range(num_samples):
         ade1.append(final_displacement_error(pred_traj_fake1_list[i][-1], pred_traj_gt[-1], mode='raw'))
         ade2.append(final_displacement_error(pred_traj_fake2_list[i][-1], pred_traj_gt[-1], mode='raw'))
@@ -443,22 +431,71 @@ def evaluate_test_fde(data_set, scene, model_name, batch=0):
     ade2 = evaluate_helper(ade2, seq_start_end) / total_traj
     return ade1, ade2
 
+def evaluate_test_pixel_fde(data_set, model_name, selected_scene=None, selected_batch=-1):
+    pred_traj_gt = load_pickle('pred_traj_gt', selected_scene, selected_batch, data_set, model_name)
+    seq_start_end = load_pickle('seq_start_end', selected_scene, selected_batch, data_set, model_name)
+    scene_name_list = load_pickle('scene_name_list', selected_scene, selected_batch, data_set, model_name)
 
-def evaluate_test_cols(data_set, scene, model_name, batch=1):
-    pred_traj_gt = load_pickle('pred_traj_gt', batch, data_set, model_name)
-    seq_start_end = load_pickle('seq_start_end', batch, data_set, model_name)
-    scene_name_list = load_pickle('scene_name_list', batch, data_set, model_name)
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', selected_scene, selected_batch, data_set, model_name)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', selected_scene, selected_batch, data_set, model_name)
 
-    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', batch, data_set, model_name)
-    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', batch, data_set, model_name)
+    homography_list = load_pickle('homography_list', selected_scene, selected_batch, data_set, model_name)
 
     num_samples = len(pred_traj_fake1_list)
     ade1 = []
     ade2 = []
     scene_name = np.unique(scene_name_list)
     print(scene_name)
-    if not (scene_name == scene).all():
-        return 0, 0
+
+    for s in range(num_samples): # seq_len, batch, 2
+        traj1_pixels, traj2_pixels, traj_gt_pixels = [], [], []
+        total_traj = pred_traj_gt.size(1)
+        for i, (start, end) in enumerate(seq_start_end):
+            # get homography of current scene
+            h = homography_list[i]
+            num_ped = end - start
+            # calculate pixels for a sample in a scene
+            pixels_t1 = get_pixels_from_world(pred_traj_fake1_list[s][:, start:end].contiguous().view(-1, 2), h)
+            pixels_t2 = get_pixels_from_world(pred_traj_fake2_list[s][:, start:end].contiguous().view(-1, 2), h)
+            pixels_gt = get_pixels_from_world(pred_traj_gt[:, start:end].contiguous().view(-1, 2), h)
+            t1 = torch.from_numpy(pixels_t1).view(-1, num_ped, 2) # time, peds in scene, 2
+            t2 = torch.from_numpy(pixels_t2).view(-1, num_ped, 2)
+            tg = torch.from_numpy(pixels_gt).view(-1, num_ped, 2)
+
+            traj1_pixels.append(t1)
+            traj2_pixels.append(t2)
+            traj_gt_pixels.append(tg)
+
+        # concatignate along batch dimension
+        traj1_pixels = torch.cat(traj1_pixels, dim=1)
+        traj2_pixels = torch.cat(traj2_pixels, dim=1)
+        traj_gt_pixels = torch.cat(traj_gt_pixels, dim=1)
+
+        # (seq_len, batch, 2) for each sample we calculate displacement error
+        ade1.append(final_displacement_error(traj1_pixels.view(-1, total_traj, 2)[-1], traj_gt_pixels.view(-1, total_traj, 2)[-1], mode='raw'))
+        ade2.append(final_displacement_error(traj2_pixels.view(-1, total_traj, 2)[-1], traj_gt_pixels.view(-1, total_traj, 2)[-1], mode='raw'))
+
+    pred_len = pred_traj_gt.size(0)
+    ade1 = evaluate_helper(ade1, seq_start_end) / (total_traj)
+    ade2 = evaluate_helper(ade2, seq_start_end) / (total_traj)
+    return ade1, ade2
+
+
+def evaluate_test_cols(data_set, model_name, selected_scene=None, selected_batch=-1):
+    pred_traj_gt = load_pickle('pred_traj_gt', selected_scene, selected_batch, data_set, model_name)
+    seq_start_end = load_pickle('seq_start_end', selected_scene, selected_batch, data_set, model_name)
+    scene_name_list = load_pickle('scene_name_list', selected_scene, selected_batch, data_set, model_name)
+
+    pred_traj_fake1_list = load_pickle('pred_traj_fake1_list', selected_scene, selected_batch, data_set, model_name)
+    pred_traj_fake2_list = load_pickle('pred_traj_fake2_list', selected_scene, selected_batch, data_set, model_name)
+
+    num_samples = len(pred_traj_fake1_list)
+    ade1 = []
+    ade2 = []
+
+    scene_name = np.unique(scene_name_list)
+    print(scene_name)
+
     for i in range(num_samples):
         ade1.append(collision_error(pred_traj_fake1_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
         ade2.append(collision_error(pred_traj_fake2_list[i], seq_start_end, minimum_distance=0.1, mode='all'))
@@ -494,7 +531,7 @@ def evaluate_test_occs(data_set, scene, model_name, batch=1):
     return ade1, ade2
 
 def main(args):
-    data_set = 'ALL'
+    data_set = 'TRAJNET'
     model_path1 = os.path.join(get_root_dir(),
                                'results/models/{}/{}/{}'.format(data_set, args.model_folder, args.model_name1))
     model_path2 = os.path.join(get_root_dir(),
@@ -515,30 +552,38 @@ def main(args):
     generator2 = get_generator(checkpoint2, args2)
 
     if args.precompute_required:
-        for batch in range(6, 100):
-            collect_generated_samples(args1, generator1, generator2, data_dir, data_set, args.scene, args.model_folder, selected_batch=batch)
+        collect_generated_samples(args1, generator1, generator2, data_dir, data_set, args.model_folder, selected_scene=args.scene, selected_batch=-1)
 
     m1, m2, counter = 0, 0, 0
-    for batch in range(0, 9):
+    for batch in range(0, 16):
         print('testing data_set = {}, scene = {}, batch = {}'.format(data_set, args.scene, batch))
 
         if args.metric == 'ade':
-            out1, out2 = evaluate_test_ade(data_set, args.scene, args.model_folder, batch)
+            out1, out2 = evaluate_test_ade(data_set, args.model_folder, selected_scene=args.scene, selected_batch=batch)
         elif args.metric == 'fde':
-            out1, out2 = evaluate_test_fde(data_set, args.scene, args.model_folder, batch)
+            out1, out2 = evaluate_test_fde(data_set, args.model_folder, selected_scene=args.scene, selected_batch=batch)
         elif args.metric == 'ade_pixel':
-            out1, out2 = evaluate_test_pixel_ade(data_set, args.scene, args.model_folder, batch)
+            out1, out2 = evaluate_test_pixel_ade(data_set, args.model_folder, selected_scene=args.scene, selected_batch=batch)
+        elif args.metric == 'fde_pixel':
+            out1, out2 = evaluate_test_pixel_fde(data_set, args.model_folder, selected_scene=args.scene, selected_batch=batch)
         elif args.metric == 'cols':
-            out1, out2 = evaluate_test_cols(data_set, args.scene, args.model_folder, batch)
+            out1, out2 = evaluate_test_cols(data_set, args.model_folder, selected_scene=args.scene, selected_batch=batch)
         elif args.metric == 'quality':
-            evaluate_trajectory_quality(data_set, args.scene, args.model_folder, batch)
+            evaluate_trajectory_quality(data_set, args.model_folder, selected_scene=args.scene, selected_batch=-1)
         if out1 > 0. and out2 > 0.:
             print('{} model 1: {:.6f} model 2: {:.6f}'.format(args.metric, out1, out2))
             m1 += out1
             m2 += out2
             counter += 1
-    print('{} model 1: {:.6f} model 2: {:.6f}'.format(args.metric, m1 / counter, m2 / counter))
+    print('Avarage {} model 1: {:.6f} model 2: {:.6f}'.format(args.metric, m1 / counter, m2 / counter))
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--metric', default='cols', type=str)
+parser.add_argument('--scene', default=None, type=str)
+parser.add_argument('--precompute_required', default=0, type=bool_flag)
+parser.add_argument('--model_folder', default='SafeGAN_DP', type=str)
+parser.add_argument('--model_name1', default='checkpoint_200_with_model.pt', type=str)
+parser.add_argument('--model_name2', default='checkpoint_160_with_model.pt', type=str)
 
 if __name__ == '__main__':
     args = parser.parse_args()

@@ -5,19 +5,17 @@ import os
 import datetime
 import pandas as pd
 
+from scripts.data_processing.generate_world_coordinates import generate_world_coordinates
+from scripts.data_processing.generate_world_points_boundary import generate_boundary_points
+
 from sgan.model.folder_utils import get_root_dir, get_sdd_dir
-from sgan.data.trajectories import read_file
-from sgan.model.models_static_scene import get_homography_and_map, get_pixels_from_world, get_world_from_pixels
+
+from sgan.model.models_static_scene import get_homography, get_pixels_from_world, get_world_from_pixels
 from sgan.model.models_static_scene import load_bin_map
 
-files = sorted(os.listdir(get_root_dir() + '/data/TRAJNET/trajnet/Training/test'))
+files = sorted(os.listdir(get_root_dir() + '/data/TRAJNETPIXEL/trajnetpixel/Training/train'))
 frame_rate_sdd = 30
 frame_rate_tn = 12
-
-def select_and_transform(data_trajnet, dataset_name):
-    coordinates_trajnet_world = np.transpose(np.vstack((data_trajnet[:, 2], data_trajnet[:, 3])))
-    _, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
-    return get_pixels_from_world(coordinates_trajnet_world, h)
 
 def convert_image_to_world(path, dataset_name):
     occupancy_map = load_bin_map(path)
@@ -28,30 +26,56 @@ def convert_image_to_world(path, dataset_name):
                 coordinates.append(np.array([col, row]))
 
     coordinates = np.asarray(coordinates)
-    _, h = get_homography_and_map(dataset_name, "/world_points_boundary.npy")
+    h = get_homography(dataset_name)
     coordinates= get_world_from_pixels(coordinates, h)
-
     return occupancy_map, coordinates
 
-for file in files:
-    dataset_name = file[:-4]
+'''
+# Generate world coordinates in added data
+path_in = get_root_dir() + '/data/SDD/{}/{}_added.txt'.format(dataset_name, dataset_name)
+path_out = get_root_dir() + '/data/TRAJNET/trajnet/Training/train/{}.txt'.format(dataset_name)
+trainig_path = '/data/TRAJNETPIXEL/trajnetpixel/Training/train'
+data_trajnet_original = generate_world_coordinates(trainig_path, path_in, path_out)
+'''
 
-    occupancy_map, annoated_image_coordinates = convert_image_to_world(get_root_dir() + '/data/SDD/{}/annotation_1.jpg'.format(dataset_name), dataset_name)
+'''
+# Generate world coordinates in of map data
+data_folder = get_root_dir() + '/data/SDD/'
+generate_boundary_points(data_folder, annotated_image_name='/annotated.jpg', annotated_image_name_out="world_points.npy")
+'''
+
+for file in files:
+    dataset_name = file[:-10]
+    print(dataset_name)
+    if dataset_name in ('hyang_3', 'hyang_4', 'hyang_9', 'nexus_0'):
+        continue
+
 
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(32, 32), num=1)
     reader = imageio.get_reader(get_sdd_dir(dataset_name, 'video'), 'ffmpeg')
     data = pd.read_csv(get_sdd_dir(dataset_name, 'annotation'), sep=" ", header=None)
-    data_trajnet_world = read_file(get_root_dir() + '/data/TRAJNET/trajnet/Training/test/{}.txt'.format(dataset_name), 'space')
-    coordinates_trajnet_world = np.transpose(np.vstack((data_trajnet_world[:, 2], data_trajnet_world[:, 3])))
-    #coordinates_trajnet_pixel = select_and_transform(data_trajnet, dataset_name)
-    data_trajnet_pixel = pd.read_csv(get_root_dir() + '/data/SDD/{}/{}_added.txt'.format(dataset_name, dataset_name), sep=" ", header=None)
-    data_trajnet = np.transpose(np.vstack((data_trajnet_pixel.loc[:, 1], data_trajnet_pixel.loc[:, 2], data_trajnet_pixel.loc[:, 3], data_trajnet_pixel.loc[:, 4])))
-    annotated_image = plt.imread(get_root_dir() + '/data/SDD/{}/annotation_1.jpg'.format(dataset_name))
 
-    ax2.imshow(occupancy_map)
-    ax3.scatter(annoated_image_coordinates[:, 0], annoated_image_coordinates[:, 1], marker='.', color='black')
-    num_frames = len(reader)
-    for num in range(0, num_frames, 12):
+    image_path = get_root_dir() + '/data/SDD/{}/annotated.jpg'.format(dataset_name)
+    annotated_image = plt.imread(image_path)
+    ax2.imshow(annotated_image)
+
+    world_coordinates_path = get_root_dir() + '/data/SDD/{}/world_points.npy'.format(dataset_name)
+    annoated_image_coordinates = np.load(world_coordinates_path)
+    ax4.scatter(annoated_image_coordinates[:, 0], annoated_image_coordinates[:, 1], marker='.', color='black')
+    ax4.set_xlabel('Scene : {} Occupied points : {}'.format(dataset_name, annoated_image_coordinates.shape[0]))
+    ax4.scatter(annoated_image_coordinates[:, 0], annoated_image_coordinates[:, 1], marker='.', color='black')
+
+    path_in = get_root_dir() + '/data/TRAJNETPIXEL/trajnetpixel/Training/train/{}_added.txt'.format(dataset_name)
+    data_trajnet_pixel = pd.read_csv(path_in, sep=" ", header=None)
+    data_trajnet_pixel = np.transpose(np.vstack((data_trajnet_pixel.loc[:, 1], data_trajnet_pixel.loc[:, 2],
+                                           data_trajnet_pixel.loc[:, 3], data_trajnet_pixel.loc[:, 4])))
+
+    path_in = get_root_dir() + '/data/TRAJNET/trajnet/Training/train/{}.txt'.format(dataset_name)
+    data_trajnet_world = pd.read_csv(path_in, sep=" ", header=None)
+    data_trajnet_world = np.transpose(np.vstack((data_trajnet_world.loc[:, 0], data_trajnet_world.loc[:, 1],
+                                                 data_trajnet_world.loc[:, 2], data_trajnet_world.loc[:, 3])))
+
+    for num in range(0, len(reader), 12):
 
         photo = reader.get_data(int(num))
         ax1.imshow(photo)
@@ -63,18 +87,20 @@ for file in files:
         ax1.set_xlabel('Scene : {} Time : {}'.format(dataset_name, str(datetime.timedelta(seconds=second))))
 
         if num % frame_rate_tn == 0:
-            idx = data_trajnet[:, 0] == num
+            idx = data_trajnet_pixel[:, 0] == num
+            ax2.scatter(data_trajnet_pixel[idx, 2], data_trajnet_pixel[idx, 3], marker='.', color='blue')
+            ax2.set_xlabel('TrajNet Added [pixels]')
 
-            ax2.scatter(data_trajnet[idx, 2], data_trajnet[idx, 3], marker='.', color='blue')
-            ax2.set_xlabel('TrajNet [pixels]')
 
             idx = data_trajnet_world[:, 0] == num
-            ax3.scatter(data_trajnet_world[idx, 2], data_trajnet_world[idx, 3], marker='.', color='blue')
-            ax3.set_xlabel('TrajNet [meters]')
+            ax4.scatter(data_trajnet_world[idx, 2], data_trajnet_world[idx, 3], marker='.', color='blue')
+            ax4.axis('equal')
+            ax4.set_xlabel('TrajNet Added [meters]')
 
 
         plt.draw()
-        plt.pause(0.0333)
+        plt.pause(0.000001)
+    plt.savefig('scene_{}.png'.format(dataset_name))
 
 
 
