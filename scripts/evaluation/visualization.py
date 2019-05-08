@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from tensorboardX import SummaryWriter
+#from tensorboardX import SummaryWriter
 import numpy as np
 import matplotlib.cm as cm
 import matplotlib.patches as patches
@@ -314,7 +314,7 @@ def visualize_attention_weights(scene_name, encoded_image_size, attention_weight
     #image = image.resize([20 * upscaling_factor, 20 * upscaling_factor], Image.LANCZOS)
 
 
-    # Ŕesize the attention weights dimension to match it with the dimension of the upscaled raw scene image.
+    # Resize the attention weights dimension to match it with the dimension of the upscaled raw scene image.
     # To expand the attention weights I use skimage that allows us to also smooth the pixel values during the expansion
     attention_weights = attention_weights.view(-1, encoded_image_size, encoded_image_size).detach().cpu().numpy()
     upscaling_factor = image.size[0] / encoded_image_size

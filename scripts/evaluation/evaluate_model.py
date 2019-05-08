@@ -578,12 +578,12 @@ def main(args):
     print('Avarage {} model 1: {:.6f} model 2: {:.6f}'.format(args.metric, m1 / counter, m2 / counter))
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--metric', default='cols', type=str)
+parser.add_argument('--metric', default='ade', type=str)
 parser.add_argument('--scene', default=None, type=str)
-parser.add_argument('--precompute_required', default=0, type=bool_flag)
-parser.add_argument('--model_folder', default='SafeGAN_DP', type=str)
+parser.add_argument('--precompute_required', default=1, type=bool_flag)
+parser.add_argument('--model_folder', default='SafeGAN', type=str)
 parser.add_argument('--model_name1', default='checkpoint_200_with_model.pt', type=str)
-parser.add_argument('--model_name2', default='checkpoint_160_with_model.pt', type=str)
+parser.add_argument('--model_name2', default='checkpoint_100_with_model.pt', type=str)
 
 if __name__ == '__main__':
     args = parser.parse_args()
