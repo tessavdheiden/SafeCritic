@@ -7,7 +7,7 @@ from contextlib import contextmanager
 import subprocess
 
 
-device = device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def get_device():
     return device

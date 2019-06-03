@@ -70,6 +70,8 @@ def get_dset_group_name(name):
         return 'UCY'
     elif name == 'sdd':
         return 'SDD'
+    elif name == 'sdd_all':
+        return 'SDD_ALL'
     elif name == 'trajnetpixel':
         return 'TRAJNETPIXEL'
     elif name == 'trajnet':

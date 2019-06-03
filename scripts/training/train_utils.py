@@ -85,18 +85,18 @@ def get_argument_parser():
 
     # Dataset options
     parser.add_argument('--dataset_path', default='/data', type=str)
-    parser.add_argument('--dataset_name', default='trajnet', type=str)
+    parser.add_argument('--dataset_name', default='sdd_all', type=str)
     parser.add_argument('--delim', default='space')
     parser.add_argument('--loader_num_workers', default=4, type=int)
-    parser.add_argument('--obs_len', default=8, type=int)
-    parser.add_argument('--pred_len', default=12, type=int)
+    parser.add_argument('--obs_len', default=20, type=int)
+    parser.add_argument('--pred_len', default=50, type=int)
     parser.add_argument('--skip', default=1, type=int)
     parser.add_argument('--augment', default=0, type=bool_flag)
 
     # Optimization
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--num_iterations', default=10000, type=int)
-    parser.add_argument('--num_epochs', default=201, type=int)
+    parser.add_argument('--num_epochs', default=401, type=int)
 
     # Model Options
     parser.add_argument('--embedding_dim', default=128, type=int)
@@ -149,11 +149,11 @@ def get_argument_parser():
     parser.add_argument('--l2_loss_weight', default=1.0, type=float)
     parser.add_argument('--d_loss_weight', default=0.0, type=float)
     parser.add_argument('--c_loss_weight', default=0.0, type=float)
-    parser.add_argument('--best_k', default=10, type=int)
+    parser.add_argument('--best_k', default=1, type=int)
     parser.add_argument('--loss_type', default='mse', type=str)
 
     # Output
-    parser.add_argument('--output_dir', default= "results/models/TRAJNET/SafeGAN")
+    parser.add_argument('--output_dir', default= "results/models/SDD_ALL/SafeGAN_K1_T20_50")
     parser.add_argument('--print_every', default=10, type=int)
     parser.add_argument('--checkpoint_every', default=100, type=int)
     parser.add_argument('--checkpoint_name', default='checkpoint')

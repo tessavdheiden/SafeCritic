@@ -56,6 +56,7 @@ def main(args):
 
     logger.info("Initializing train dataset")
     train_dset, train_loader = data_loader(args, train_path, shuffle=True)
+    print(len(train_loader))
 
     steps = max(args.g_steps, args.c_steps)
     steps = max(steps, args.d_steps)

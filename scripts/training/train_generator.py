@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 from sgan.model.utils import relative_to_abs
 from sgan.model.losses import l2_loss

@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 import os
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from sgan.model.folder_utils import get_dset_group_name, get_root_dir
 
 def rgb2gray(rgb):

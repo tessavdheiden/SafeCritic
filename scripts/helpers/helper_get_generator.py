@@ -2,7 +2,7 @@ from sgan.model.trajectory_generator_builder import TrajectoryGeneratorBuilder
 from sgan.model.decoder_builder import DecoderBuilder
 from sgan.model.folder_utils import get_test_data_path
 
-def helper_get_generator(args, data_path):    
+def helper_get_generator(args, data_path):
     # build decoder
     decoder_builder = DecoderBuilder(
         seq_len=args.pred_len,

@@ -1,8 +1,8 @@
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 #from tensorboardX import SummaryWriter
 import numpy as np
-import matplotlib.cm as cm
-import matplotlib.patches as patches
+#import matplotlib.cm as cm
+#import matplotlib.patches as patches
 import skimage.transform
 from PIL import Image
 import pandas as pd
