@@ -1,9 +1,0 @@
-README.md
-setup.py
-flora.egg-info/PKG-INFO
-flora.egg-info/SOURCES.txt
-flora.egg-info/dependency_links.txt
-flora.egg-info/requires.txt
-flora.egg-info/top_level.txt
-scripts/__init__.py
-sgan/__init__.py
