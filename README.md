@@ -50,33 +50,10 @@ The folders are organized as follows:
 - [sgan/context](sgan/context) contains the pooling networks. 
 - [sgan/data](sgan/data) contains the data loaders. 
 
-## Dependancies
-The code is written in Python and Pytorch with the following dependancies [requirements.txt](requirements.txt)
+## Instructions
 
-
-## Improvements
-### Evaluator
-- [ ] Critic: Pooling or alternative Value (or Q-value, Advantage function) approximation ([numPeds x numPeds x time]).
-
-### Generator
-- [X] Timing: pool every with static and dynamic takes 8min.
-- [ ] Loss from critic: Discount rewards, normalize, future.
-
-### Pooling
-- [X] Input segmented boundary points.
-- [X] Visualize physical pooling attention. 
-- [X] Init hidden and grad?
-
-### Baselines
-- [ ] Compute new minADE, minFDE, meanSampleMSE, DC, OC, test & train. 
-- [ ] Test on SDD, UCY, ALL.
-- [X] DESIRE
-- [ ] SoPhie
-- [ ] REINFORCE
-
-### Code quality
-- [ ] Organize code: Seperate dataset from model, delete simple lstm, seperate code in scripts, sgan into more folders (better naming)
-
-### Cluster computing
-- [ ] Make kubernetis work
- 
+1. Install [github](https://github.com/tessavdheiden/FLORA) library
+2. Install sgan and scripts into pip
+```
+pip install -e .
+```
