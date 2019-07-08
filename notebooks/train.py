@@ -19,10 +19,10 @@ net = md.DeconvNet()
 
 #Parameters for Training
 n_epochs = 1
-learning_rate = 0.0001
-momentum = 0.9
+learning_rate = 0.001
+weight_decay = 0.0005
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(net.parameters(), lr=learning_rate, amsgrad=True)
+optimizer = optim.Adam(net.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
 def trainNet(net, train_data_loader, criterion, optimizer, n_epochs, learning_rate):
     
@@ -31,6 +31,7 @@ def trainNet(net, train_data_loader, criterion, optimizer, n_epochs, learning_ra
     print("batch_size=", batch_size)
     print("epochs=", n_epochs)
     print("learning_rate=", learning_rate)
+    print("weight_decay=", weight_decay)
     print("=" * 30)
     
     loss_list = []
@@ -56,9 +57,11 @@ def trainNet(net, train_data_loader, criterion, optimizer, n_epochs, learning_ra
 
 trainNet(net=net, train_data_loader=train_data_loader, criterion=criterion, optimizer=optimizer, n_epochs=n_epochs, learning_rate=learning_rate)
 
-inp = train_data_loader.dataset.__getitem__(1)[0].unsqueeze(0)
+inp = train_data_loader.dataset.__getitem__(2)[0].unsqueeze(0)
 out = net(inp)
 print(out)
 om = torch.argmax(out.squeeze(), dim=0).detach().cpu().numpy()
 rgb = colors.decode_segmap(om)
-plt.imshow(rgb); plt.axis('off'); plt.show()
+plt.imshow(rgb)
+plt.axis('off')
+plt.show()
