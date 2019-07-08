@@ -8,6 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 
 import data.Loader as ld
 import model.DeconvNet as md
+import support.colors as colors
 
 batch_size = 4
 workers = 1
@@ -17,7 +18,7 @@ train_data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, 
 net = md.DeconvNet()
 
 #Parameters for Training
-n_epochs = 3
+n_epochs = 1
 learning_rate = 0.0001
 momentum = 0.9
 criterion = nn.CrossEntropyLoss()
@@ -38,10 +39,8 @@ def trainNet(net, train_data_loader, criterion, optimizer, n_epochs, learning_ra
     for i, (input_img, output_img) in enumerate(train_data_loader):
         # Run the forward pass
         outputs = net(input_img)
-        print(outputs.size(), output_img.size())
         loss = criterion(outputs, output_img)
-        loss_list.append(loss.item())
-        print("Forward Done")
+        print(loss)
         # Backprop and perform Adam optimisation
         optimizer.zero_grad()
         loss.backward()
@@ -51,11 +50,15 @@ def trainNet(net, train_data_loader, criterion, optimizer, n_epochs, learning_ra
         total = output_img.size(0)
         _, predicted = torch.max(outputs.data, 1)
         correct = (predicted == output_img).sum().item()
-        acc_list.append(correct / total)
 
-        #print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}, Accuracy: {:.2f}%'
-                  #.format(n_epochs, i + 1, loss.item(),
-                        #  (correct / total) * 100))
+        print(loss)
     print("Finished Training")
 
 trainNet(net=net, train_data_loader=train_data_loader, criterion=criterion, optimizer=optimizer, n_epochs=n_epochs, learning_rate=learning_rate)
+
+inp = train_data_loader.dataset.__getitem__(1)[0].unsqueeze(0)
+out = net(inp)
+print(out)
+om = torch.argmax(out.squeeze(), dim=0).detach().cpu().numpy()
+rgb = colors.decode_segmap(om)
+plt.imshow(rgb); plt.axis('off'); plt.show()
