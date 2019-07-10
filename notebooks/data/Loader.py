@@ -15,7 +15,7 @@ def get_data():
     BASE_TEXT = "aachen_"
     TRAIN_TEXT = "_000019_leftImg8bit.png"
     FINE_COLOR_TEXT = "_000019_gtFine_color.png"
-    INSTANCE_ID_TEXT = "_000019_instanceIds.png"
+    INSTANCE_ID_TEXT = "_000019_gtFine_instanceIds.png"
     LABEL_ID_TEXT = "_000019_gtFine_labelIds.png"
     POLYGONS_JSON_TEXT = "_000019_gtFine_polygons.json"
     
