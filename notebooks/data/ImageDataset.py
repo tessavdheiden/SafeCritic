@@ -13,7 +13,6 @@ import torch.optim as optim
 
 import cv2
 
-import os
 
 class ImageDataset(Dataset):
 
