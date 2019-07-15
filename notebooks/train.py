@@ -23,7 +23,7 @@ train_data = ld.get_data()
 train_data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=workers)
 net = md.DeconvNet()
 # Parameters for Training
-n_epochs = 25
+n_epochs = 10
 learning_rate = 0.01
 weight_decay = 0.0005
 momentum = 0.9
