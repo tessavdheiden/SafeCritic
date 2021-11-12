@@ -1,6 +1,6 @@
-# FLORA
+# SafeCritic
 
-FLORA: Future prediction of obstacle locations in traffic scenes for collision avoidances.
+This method was part of the FLORA project. FLORA stands for: Future prediction of obstacle locations in traffic scenes for collision avoidances.
 
 ## Environment
 Datasets are the SDD and UCY dataset, containing various trajectories of pedestrians and cyclists. The goal of the model is to minimise the average displacement errors, number of collisions between agents and violations between agents and obstacles. 
